@@ -130,7 +130,7 @@ def test_solvers_are_frozen():
 
 def test_hparams_record_the_class_and_every_field():
     assert FDNewton(n=16).hparams == {
-        "class_path": "maesolvers.solvers.fd_newton.FDNewton",
+        "class_path": "maesolvers.classical.presets.FDNewton",
         "init_args": {"max_iter": 50, "n": 16, "tol": 1e-10, "spline_degree": 3},
     }
 

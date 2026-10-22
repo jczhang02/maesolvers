@@ -22,6 +22,7 @@ import pytest
 from scipy.special import erfi
 
 import maesolvers
+from maesolvers import FDNewton, FDPoisson
 from maesolvers.catalogue import CATALOGUE, SHARED_TEST_SET
 from maesolvers.core import (
     Box,
@@ -33,7 +34,6 @@ from maesolvers.core import (
     UnsupportedProblemError,
 )
 from maesolvers.metrics import evaluate, shared_grid
-from maesolvers.solvers import FDNewton, FDPoisson
 
 # The catalogue as a whole
 

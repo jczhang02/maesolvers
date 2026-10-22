@@ -25,6 +25,15 @@ from maesolvers.catalogue import (
     T20,
     T22,
 )
+from maesolvers.classical import (
+    FDNewton,
+    FDPoisson,
+    Newton,
+    PoissonIteration,
+    Scheme,
+    SchemeIteration,
+    Standard9,
+)
 from maesolvers.core import (
     Box,
     Callback,
@@ -41,7 +50,7 @@ from maesolvers.core import (
     Transport,
     UnsupportedProblemError,
 )
-from maesolvers.solvers import FDNewton, FDPoisson
+from maesolvers.registry import SOLVERS
 
 __all__ = [
     "CATALOGUE",
@@ -60,6 +69,7 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "SOLVERS",
     "Box",
     "Callback",
     "CutQuarterDisk",
@@ -69,10 +79,15 @@ __all__ = [
     "FDNewton",
     "FDPoisson",
     "IterativeSolver",
+    "Newton",
+    "PoissonIteration",
     "Problem",
     "Result",
+    "Scheme",
+    "SchemeIteration",
     "Solution",
     "Solver",
+    "Standard9",
     "Trace",
     "Transport",
     "UnsupportedProblemError",
