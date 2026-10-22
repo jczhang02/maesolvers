@@ -15,6 +15,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
 from maesolvers import (  # noqa: E402
+    LBFGS,
     MLP,
     T1,
     T6,
@@ -34,7 +35,7 @@ from maesolvers.neural import functional as F  # noqa: E402
 
 pytestmark = pytest.mark.neural
 
-SMALL = {"interior": 60, "boundary": 24, "accelerator": "cpu"}
+SMALL = {"interior_points": 60, "boundary_points": 24, "accelerator": "cpu"}
 
 
 class Recorder(Callback):
@@ -107,11 +108,11 @@ def test_the_result_records_how_the_training_went(t6_result):
     info = t6_result.info
     assert info["stop"] == "max_steps" and info["converged"] is False
     assert len(info["history"]) == info["iterations"] == 4
-    assert info["device"] == "cpu"
+    assert info["device"] == "cpu" and info["threads"] == torch.get_num_threads()
     assert {"loss", "equation", "convexity"} == set(info["loss_terms"])
     assert info["collocation"] == {
-        "interior": 60,
-        "boundary": 24,
+        "interior_points": 60,
+        "boundary_points": 24,
         "fingerprint": PenaltyMLP(**SMALL).collocation(T6).fingerprint(),
     }
     assert t6_result.hparams["init_args"]["max_steps"] == 4
@@ -137,9 +138,13 @@ def test_the_loss_decreases_under_lbfgs():
 def test_a_seed_fixes_the_result_and_leaves_torch_as_it_was():
     torch.manual_seed(123)
     state, dtype = torch.get_rng_state(), torch.get_default_dtype()
+    cuda = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
     first = PenaltyMLP(max_steps=2, **SMALL).solve(T1)
     assert torch.equal(torch.get_rng_state(), state)
     assert torch.get_default_dtype() == dtype
+    if torch.cuda.is_available():
+        after = torch.cuda.get_rng_state_all()
+        assert all(torch.equal(a, b) for a, b in zip(cuda, after, strict=True))
     again = PenaltyMLP(max_steps=2, **SMALL).solve(T1)
     other = PenaltyMLP(max_steps=2, seed=1, **SMALL).solve(T1)
     points = np.array([[0.3, 0.6], [0.5, 0.5]])
@@ -147,12 +152,25 @@ def test_a_seed_fixes_the_result_and_leaves_torch_as_it_was():
     assert not np.allclose(first.u(points), other.u(points))
 
 
-def test_the_hard_ansatz_meets_the_boundary_data_up_to_the_fit():
+def test_the_hard_ansatz_reports_its_fits_and_both_fits_converge():
     solver = PenaltyMLP(max_steps=1, **SMALL)
-    result = solver.solve(T1)
-    boundary = solver.collocation(T1).boundary
-    misfit = np.max(np.abs(result.u(boundary) - T1.boundary.g(boundary)))
-    assert misfit < 0.05  # a 20-unit fit of g; the network adds D N, D ~ 0 there
+    report = solver.solve(T1).info["network"]
+    for fit in ("lift", "distance"):
+        assert report[fit]["converged"], report[fit]
+        assert report[fit]["max_gradient"] <= solver.fit_tol
+        assert 0 < report[fit]["iterations"] < solver.fit_steps
+    # The fits stop on the gradient of a mean square, not on the misfit: at
+    # fit_tol = 1e-5, G misses g and D misses 0 by about 1e-2 on the boundary
+    # (benchmarks/penalty_mlp.md, Finding 2).
+    assert report["lift"]["max_misfit"] == report["lift_boundary_misfit"] < 1e-2
+    assert report["distance_boundary_max"] < 1.5e-2
+
+
+def test_a_fit_that_hits_its_cap_reports_it():
+    solver = PenaltyMLP(max_steps=1, fit_steps=3, **SMALL)
+    report = solver.solve(T1).info["network"]
+    assert report["distance"]["iterations"] == 3
+    assert not report["distance"]["converged"]
 
 
 def test_a_large_tolerance_converges_before_the_first_step():
@@ -182,7 +200,7 @@ def _composed(**kwargs):
     parts = {
         "network": MLP(width=4, depth=2),
         "loss": PenaltyLoss(boundary_weight=10.0),
-        "sampler": UniformSampler(interior=30, boundary=12),
+        "sampler": UniformSampler(interior_points=30, boundary_points=12),
         "optimizer": Adam(lr=1e-2),
         "max_steps": 3,
         "accelerator": "cpu",
@@ -197,8 +215,30 @@ def test_a_non_finite_loss_stops_the_training_as_diverged():
 
 
 def test_a_step_that_changes_nothing_stops_the_training_as_stalled():
-    result = _composed(optimizer=Frozen()).solve(T1)
-    assert result.info["stop"] == "stalled" and result.info["iterations"] == 1
+    recorder = Recorder()
+    result = _composed(optimizer=Frozen()).solve(T1, callbacks=[recorder])
+    assert result.info["stop"] == "stalled" and not result.info["converged"]
+    assert result.info["iterations"] == 0 and result.info["history"] == ()
+    assert [event[0] for event in recorder.events] == ["start", "end"]
+
+
+def test_a_plain_network_trains_although_its_output_bias_gets_no_gradient():
+    # The loss sees only the Hessian of an MLP, never its output bias.
+    for optimizer in (LBFGS(), Adam(lr=1e-2)):
+        result = _composed(
+            loss=PenaltyLoss(),
+            sampler=UniformSampler(interior_points=30, boundary_points=0),
+            optimizer=optimizer,
+        ).solve(T1)
+        assert result.info["iterations"] == 3 and result.info["stop"] == "max_steps"
+        assert "network" not in result.info  # an MLP fits nothing before training
+
+
+def test_a_boundary_penalty_without_boundary_points_is_refused():
+    sampler = UniformSampler(interior_points=30, boundary_points=0)
+    solver = _composed(sampler=sampler)  # PenaltyLoss(boundary_weight=10.0)
+    with pytest.raises(ValueError, match="sampler gave no boundary points"):
+        solver.solve(T1)
 
 
 def test_a_composed_solver_with_a_boundary_penalty_and_adam_trains():

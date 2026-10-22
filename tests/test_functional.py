@@ -74,8 +74,9 @@ def test_the_diagonal_penalty_is_the_mean_of_the_negative_parts_squared():
     assert functional.diagonal_convexity_penalty(convex).item() == 0.0
 
 
-def test_the_misfit_is_a_mean_square_and_zero_on_nothing():
+def test_the_misfit_is_a_mean_square_and_refuses_no_points():
     values = torch.tensor([1.0, 3.0])
     assert functional.mean_squared_misfit(values, torch.zeros(2)).item() == 5.0
     empty = torch.zeros(0)
-    assert functional.mean_squared_misfit(empty, empty).item() == 0.0
+    with pytest.raises(ValueError, match="empty tensors"):
+        functional.mean_squared_misfit(empty, empty)

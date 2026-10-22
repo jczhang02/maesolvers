@@ -4,9 +4,10 @@ A sampler (ADR 0004) draws the collocation points of one problem from a
 random generator: points inside the domain, where the loss evaluates the
 equation, and points on the boundary, where it evaluates the boundary
 condition. :class:`~maesolvers.neural.solver.NeuralSolver` seeds the
-generator, so a solver's seed and its sampler fix the points, and every
-method with the same sampler and seed trains on the same points (ADR 0008).
-Everything here needs numpy only.
+generator, so the points are drawn from the seed by the sampler. ADR 0008
+asks for one stored collocation set per problem, shared by every method;
+whether that set is per problem or per sampler, and whether it is persisted,
+is open (issue #52). Everything here needs numpy only.
 """
 
 # No `from __future__ import annotations` in this module: jsonargparse reads the
@@ -65,11 +66,6 @@ class Collocation:
             )
         object.__setattr__(self, "interior", interior)
         object.__setattr__(self, "boundary", boundary)
-
-    @property
-    def dim(self) -> int:
-        """Space dimension ``d``."""
-        return self.interior.shape[1]
 
     def fingerprint(self) -> str:
         """Return the SHA-256 of the points, to check that two solves share them.
@@ -139,12 +135,12 @@ class Sampler(ABC):
     its fields are its hyperparameters, so a solver's
     :attr:`~maesolvers.core.solver.Solver.hparams` record it and jsonargparse
     builds it from a ``class_path`` (ADR 0005). It implements
-    :meth:`supports` and :meth:`sample`.
+    :meth:`sample`, and overrides :meth:`supports` if it does not handle
+    every domain.
     """
 
-    @abstractmethod
     def supports(self, problem: Problem) -> bool:
-        """Whether the sampler can draw points for the problem's domain.
+        """Whether the sampler can draw points for the problem's domain; True by default.
 
         Parameters
         ----------
@@ -155,6 +151,7 @@ class Sampler(ABC):
         -------
         bool
         """
+        return True
 
     @abstractmethod
     def sample(self, problem: Problem, rng: np.random.Generator) -> Collocation:
@@ -186,9 +183,9 @@ class UniformSampler(Sampler):
 
     Parameters
     ----------
-    interior
+    interior_points
         Number of points inside the domain, at least 1.
-    boundary
+    boundary_points
         Number of points on the boundary, at least 0. With 0 the sampler
         supports any domain.
 
@@ -198,12 +195,13 @@ class UniformSampler(Sampler):
         On construction, for a count that is not an integer or is too small.
     """
 
-    interior: int = 3000
-    boundary: int = 400
+    interior_points: int = 3000
+    boundary_points: int = 400
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "interior", integer("interior", self.interior, 1))
-        object.__setattr__(self, "boundary", integer("boundary", self.boundary, 0))
+        for name, minimum in (("interior_points", 1), ("boundary_points", 0)):
+            value = integer(name, getattr(self, name), minimum)
+            object.__setattr__(self, name, value)
 
     def supports(self, problem: Problem) -> bool:
         """Whether the domain samples its boundary, or no boundary points are wanted.
@@ -217,7 +215,7 @@ class UniformSampler(Sampler):
         -------
         bool
         """
-        return self.boundary == 0 or isinstance(problem.domain, BoundarySampling)
+        return self.boundary_points == 0 or isinstance(problem.domain, BoundarySampling)
 
     def sample(self, problem: Problem, rng: np.random.Generator) -> Collocation:
         """Draw the interior points, then the boundary points, from ``rng``.
@@ -234,10 +232,10 @@ class UniformSampler(Sampler):
         Collocation
         """
         domain = problem.domain
-        interior = sample_interior(domain, self.interior, rng)
-        if self.boundary == 0:
+        interior = sample_interior(domain, self.interior_points, rng)
+        if self.boundary_points == 0:
             boundary = np.empty((0, domain.dim))
         else:
             assert isinstance(domain, BoundarySampling)  # supports checked it
-            boundary = domain.sample_boundary(self.boundary, rng)
+            boundary = domain.sample_boundary(self.boundary_points, rng)
         return Collocation(interior=interior, boundary=boundary)

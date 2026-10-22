@@ -175,8 +175,13 @@ def _check_part_definition(cls: type, label: str) -> None:
         )
 
 
-def _check_part(owner: str, part: object, base: type) -> None:
+def check_part(owner: str, part: object, base: type) -> None:
     """Raise TypeError unless ``part`` is an instance of a well-defined subclass of ``base``.
+
+    Call it in the ``__post_init__`` of a solver or part that takes a part,
+    as the shipped composed solvers do, so that passing the class ``MLP``
+    for ``MLP()``, or a part of the wrong kind, fails at construction with a
+    message that names the field.
 
     Parameters
     ----------
@@ -191,7 +196,14 @@ def _check_part(owner: str, part: object, base: type) -> None:
     ------
     TypeError
         If ``part`` is a class, is not an instance of ``base``, or its class
-        fails the check a solver class passes (:func:`_check_part_definition`).
+        fails the check a solver class passes: its own frozen dataclass
+        decorator and keyword-only fields.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a network that wraps another:
+
+    >>> check_part("PlusQuadratic.network", self.network, Network)  # doctest: +SKIP
     """
     if isinstance(part, type):
         raise TypeError(

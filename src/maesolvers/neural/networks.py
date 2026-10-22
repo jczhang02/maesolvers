@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from maesolvers.core._params import integer
+from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import BoundaryDistance
 from maesolvers.core.problem import Problem
-from maesolvers.core.solver import _check_part
+from maesolvers.core.solver import check_part
 from maesolvers.neural.samplers import Collocation
 
 if TYPE_CHECKING:
@@ -75,7 +75,9 @@ class Network(ABC):
         torch.nn.Module
             Maps points of shape ``(M, d)`` to values of shape ``(M,)``;
             the parameters that require a gradient are the ones the solver
-            trains.
+            trains. A module may carry an attribute ``report``, a mapping of
+            plain values that says how a fit inside ``build`` went; the
+            solver records it as ``Result.info["network"]``.
         """
 
 
@@ -147,9 +149,16 @@ class HardDirichlet(Network):
     the distance to the boundary, at the first ``distance_points`` interior
     collocation points and at the boundary points (where it is 0). ``G`` and
     ``D`` have one hidden layer of tanh units, are fitted by L-BFGS on the
-    mean squared error before training, and stay fixed during it. So ``u``
-    meets the boundary condition as well as ``G`` fits ``g`` and ``D``
-    vanishes there, whatever ``N`` is.
+    mean squared error before training, and stay fixed during it. On the
+    boundary ``u - g = (G - g) + D N``: the misfit of ``G`` plus what ``N``
+    leaks through the residue of ``D``, which grows with ``N``.
+
+    The module's ``report`` (``Result.info["network"]``) holds, for each fit
+    under ``"lift"`` and ``"distance"``, what :func:`fit` reports
+    (``iterations``, ``max_gradient``, ``converged``, ``mse``,
+    ``max_misfit``), and ``lift_boundary_misfit`` (largest ``|G - g|``) and
+    ``distance_boundary_max`` (largest ``|D|``) at the boundary collocation
+    points.
 
     Parameters
     ----------
@@ -163,10 +172,14 @@ class HardDirichlet(Network):
         Interior points at which ``D`` is fitted, at least 1 (300 in the
         paper); at most the number of interior collocation points are used.
     fit_steps
-        Most L-BFGS iterations for each of the fits of ``G`` and ``D``, at
-        least 1; each fit stops earlier when the largest component of its
-        gradient is at most 1e-5, the default of the SciPy BFGS the paper
-        used.
+        Most L-BFGS iterations of each fit, at least 1. The paper gives no
+        cap (SciPy's BFGS, whose own default cap is 200 iterations per
+        parameter); this one is large enough for both fits to meet
+        ``fit_tol`` on the catalogue problems the preset supports.
+    fit_tol
+        Each fit stops when the largest component of its gradient is at most
+        this, positive (1e-5, the default ``gtol`` of the SciPy BFGS the
+        paper used).
 
     Raises
     ------
@@ -174,19 +187,22 @@ class HardDirichlet(Network):
         On construction, if ``network`` is not an instance of a well-defined
         :class:`Network`.
     TypeError, ValueError
-        On construction, for a count that is not an integer or is less than 1.
+        On construction, for a count that is not an integer or is less than
+        1, or a ``fit_tol`` that is not a positive real.
     """
 
     network: Network
     lift_width: int = 20
     distance_width: int = 40
     distance_points: int = 300
-    fit_steps: int = 1000
+    fit_steps: int = 10_000
+    fit_tol: float = 1e-5
 
     def __post_init__(self) -> None:
-        _check_part(f"{type(self).__name__}.network", self.network, Network)
+        check_part(f"{type(self).__name__}.network", self.network, Network)
         for name in ("lift_width", "distance_width", "distance_points", "fit_steps"):
             object.__setattr__(self, name, integer(name, getattr(self, name), 1))
+        object.__setattr__(self, "fit_tol", positive("fit_tol", self.fit_tol))
 
     def supports(self, problem: Problem) -> bool:
         """Whether the problem is Dirichlet on a domain that knows its boundary distance.
@@ -219,7 +235,8 @@ class HardDirichlet(Network):
         Returns
         -------
         torch.nn.Module
-            Its trainable parameters are those of ``N``.
+            Its trainable parameters are those of ``N``; its ``report`` says
+            how the fits went.
 
         Raises
         ------
@@ -237,16 +254,29 @@ class HardDirichlet(Network):
         assert isinstance(problem.domain, BoundaryDistance)
         boundary = np.asarray(collocation.boundary)
         inner = np.asarray(collocation.interior[: self.distance_points])
+        g = problem.boundary.g(boundary)
         dim = problem.dim
         lift = _torch.mlp(dim, self.lift_width, 1, "tanh")
-        _torch.fit(lift, boundary, problem.boundary.g(boundary), self.fit_steps)
+        lift_fit = _torch.fit(lift, boundary, g, self.fit_steps, self.fit_tol)
         distance = _torch.mlp(dim, self.distance_width, 1, "tanh")
-        _torch.fit(
+        distance_fit = _torch.fit(
             distance,
             np.concatenate([inner, boundary]),
             np.concatenate(
                 [problem.domain.boundary_distance(inner), np.zeros(len(boundary))]
             ),
             self.fit_steps,
+            self.fit_tol,
         )
-        return _torch.Ansatz(lift, distance, self.network.build(problem, collocation))
+        report = {
+            "lift": lift_fit,
+            "distance": distance_fit,
+            "lift_boundary_misfit": float(
+                np.max(np.abs(_torch.values(lift, boundary, dim) - g))
+            ),
+            "distance_boundary_max": float(
+                np.max(np.abs(_torch.values(distance, boundary, dim)))
+            ),
+        }
+        network = self.network.build(problem, collocation)
+        return _torch.Ansatz(lift, distance, network, report)

@@ -42,7 +42,7 @@ def test_rejection_sampling_gives_up_on_a_domain_without_interior():
 
 
 def test_the_sampler_draws_interior_then_boundary_points_from_the_generator():
-    sampler = UniformSampler(interior=300, boundary=40)
+    sampler = UniformSampler(interior_points=300, boundary_points=40)
     points = sampler.sample(T6, np.random.default_rng(7))
     assert points.interior.shape == (300, 2) and points.boundary.shape == (40, 2)
     assert np.all(T6.domain.interior(points.interior))
@@ -59,8 +59,8 @@ def test_the_sampler_needs_boundary_sampling_only_for_boundary_points():
     assert UniformSampler().supports(T12)  # any boundary condition: a disk samples
     ellipse = Problem("E", Ellipse((0, 0), (2, 1)), T1.f, Dirichlet(T1.f))
     assert not UniformSampler().supports(ellipse)
-    assert UniformSampler(boundary=0).supports(ellipse)
-    points = UniformSampler(interior=5, boundary=0).sample(
+    assert UniformSampler(boundary_points=0).supports(ellipse)
+    points = UniformSampler(interior_points=5, boundary_points=0).sample(
         ellipse, np.random.default_rng(0)
     )
     assert points.boundary.shape == (0, 2)
@@ -69,9 +69,9 @@ def test_the_sampler_needs_boundary_sampling_only_for_boundary_points():
 @pytest.mark.parametrize(
     ("kwargs", "error", "message"),
     [
-        ({"interior": 0}, ValueError, "interior must be at least 1"),
-        ({"boundary": -1}, ValueError, "boundary must be at least 0"),
-        ({"interior": 10.5}, TypeError, "interior must be an integer"),
+        ({"interior_points": 0}, ValueError, "interior_points must be at least 1"),
+        ({"boundary_points": -1}, ValueError, "boundary_points must be at least 0"),
+        ({"interior_points": 10.5}, TypeError, "interior_points must be an integer"),
     ],
 )
 def test_the_sampler_checks_its_counts(kwargs, error, message):
@@ -83,7 +83,7 @@ def test_collocation_stores_read_only_float_copies():
     interior = np.array([[0.5, 0.5]])
     points = Collocation(interior=interior, boundary=np.zeros((0, 2)))
     interior[0, 0] = 9.0
-    assert points.interior[0, 0] == 0.5 and points.dim == 2
+    assert points.interior[0, 0] == 0.5
     with pytest.raises(ValueError, match="read-only"):
         points.interior[0, 0] = 1.0
 
@@ -102,7 +102,7 @@ def test_collocation_checks_its_shapes(interior, boundary, message):
 
 
 def test_the_fingerprint_tells_point_sets_apart():
-    sampler = UniformSampler(interior=50, boundary=10)
+    sampler = UniformSampler(interior_points=50, boundary_points=10)
     first = sampler.sample(T1, np.random.default_rng(0)).fingerprint()
     assert first == sampler.sample(T1, np.random.default_rng(0)).fingerprint()
     assert first != sampler.sample(T1, np.random.default_rng(1)).fingerprint()
@@ -111,7 +111,7 @@ def test_the_fingerprint_tells_point_sets_apart():
 
 def test_a_box_problem_in_any_dimension_samples():
     cube = Problem("C", Box((0,) * 3, (1,) * 3), T1.f, Dirichlet(T1.f))
-    points = UniformSampler(interior=20, boundary=30).sample(
+    points = UniformSampler(interior_points=20, boundary_points=30).sample(
         cube, np.random.default_rng(0)
     )
     assert points.interior.shape == (20, 3) and points.boundary.shape == (30, 3)

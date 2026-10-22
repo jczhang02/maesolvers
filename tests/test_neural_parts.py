@@ -47,9 +47,11 @@ def test_the_preset_is_the_paper_composition():
         lift_width=20,
         distance_width=40,
         distance_points=300,
+        fit_steps=10_000,
+        fit_tol=1e-5,
     )
     assert preset.loss == PenaltyLoss(convexity_weight=1e4, boundary_weight=0.0)
-    assert preset.sampler == UniformSampler(interior=3000, boundary=400)
+    assert preset.sampler == UniformSampler(interior_points=3000, boundary_points=400)
     assert preset.optimizer == LBFGS()
     composed = _solver(max_steps=5000)
     assert all(
@@ -65,12 +67,14 @@ def test_the_preset_records_flat_hyperparameters():
             "max_steps": 5000,
             "tol": 1e-5,
             "seed": 3,
-            "accelerator": "auto",
+            "accelerator": "cpu",
             "width": 8,
             "depth": 5,
             "convexity_weight": 1e4,
-            "interior": 3000,
-            "boundary": 400,
+            "interior_points": 3000,
+            "boundary_points": 400,
+            "fit_steps": 10_000,
+            "fit_tol": 1e-5,
         },
     }
 
@@ -131,6 +135,7 @@ def test_the_composed_solver_supports_what_all_its_parts_support():
         (lambda: HardDirichlet(network=MLP, fit_steps=1), TypeError, "write MLP"),
         (lambda: HardDirichlet(network=PenaltyLoss()), TypeError, "subclass Network"),
         (lambda: HardDirichlet(network=MLP(), fit_steps=0), ValueError, "fit_steps"),
+        (lambda: HardDirichlet(network=MLP(), fit_tol=0), ValueError, "fit_tol"),
         (lambda: PenaltyLoss(convexity_weight=-1), ValueError, "nonnegative"),
         (lambda: PenaltyLoss(boundary_weight="1"), TypeError, "real number"),
         (lambda: LBFGS(lr=0), ValueError, "lr must be positive"),
@@ -141,7 +146,12 @@ def test_the_composed_solver_supports_what_all_its_parts_support():
         (lambda: _solver(seed=-1), ValueError, "seed must be at least 0"),
         (lambda: _solver(accelerator="tpu"), ValueError, "accelerator must be"),
         (lambda: _solver(sampler=MLP()), TypeError, "sampler must subclass Sampler"),
-        (lambda: PenaltyMLP(boundary=0), ValueError, "boundary must be at least 1"),
+        (
+            lambda: PenaltyMLP(boundary_points=0),
+            ValueError,
+            "boundary_points must be at least 1",
+        ),
+        (lambda: PenaltyMLP(fit_tol=-1.0), ValueError, "fit_tol must be positive"),
         (lambda: PenaltyMLP(width=1.5), TypeError, "width must be an integer"),
     ],
 )
@@ -165,17 +175,19 @@ def test_parts_store_plain_numbers():
     mlp = MLP(width=np.int64(4))
     assert type(mlp.width) is int
     assert type(PenaltyLoss(convexity_weight=np.float32(2)).convexity_weight) is float
-    assert type(PenaltyMLP(interior=np.int32(10)).interior) is int
+    assert type(PenaltyMLP(interior_points=np.int32(10)).interior_points) is int
 
 
 def test_the_collocation_points_follow_the_seed_and_the_sampler():
-    solver = PenaltyMLP(interior=40, boundary=12)
+    solver = PenaltyMLP(interior_points=40, boundary_points=12)
     first = solver.collocation(T6)
     np.testing.assert_array_equal(first.interior, solver.collocation(T6).interior)
-    other = PenaltyMLP(interior=40, boundary=12, seed=1).collocation(T6)
+    other = PenaltyMLP(interior_points=40, boundary_points=12, seed=1).collocation(T6)
     assert first.fingerprint() != other.fingerprint()
-    # Another method with the same sampler and seed trains on the same points.
-    plain = _solver(network=MLP(), sampler=UniformSampler(interior=40, boundary=12))
+    # Another solver with an equal sampler and the same seed draws the same points.
+    plain = _solver(
+        network=MLP(), sampler=UniformSampler(interior_points=40, boundary_points=12)
+    )
     assert plain.collocation(T6).fingerprint() == first.fingerprint()
 
 
@@ -183,6 +195,12 @@ def test_solving_without_the_neural_extra_names_it(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", None)  # import fails
     with pytest.raises(ImportError, match=r'"maesolvers\[neural\] @ git\+'):
         PenaltyMLP().solve(T1)
+
+
+def test_the_preset_reads_its_defaults_from_its_parts():
+    preset = PenaltyMLP()
+    assert preset.network == HardDirichlet(network=MLP())
+    assert preset.loss == PenaltyLoss() and preset.sampler == UniformSampler()
 
 
 def test_the_part_bases_are_abstract():

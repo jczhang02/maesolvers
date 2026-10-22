@@ -26,7 +26,7 @@ from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.callbacks import Callback
 from maesolvers.core.problem import Problem
-from maesolvers.core.solver import Solution, Solver, Trace, _check_part
+from maesolvers.core.solver import Solution, Solver, Trace, check_part
 from maesolvers.neural.losses import Batch, Loss
 from maesolvers.neural.networks import Network
 from maesolvers.neural.optimizers import Optimizer
@@ -67,6 +67,7 @@ class _Trained:
     model: Any
     stop: str
     device: str
+    threads: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -81,8 +82,9 @@ class NeuralSolver(Solver[_Context, _Trained]):
     is not finite (diverged); otherwise it takes the optimizer step, and the
     training stops unconverged when the step leaves the parameters
     unchanged or after ``max_steps`` steps. The solver supports a problem
-    when all four parts do (issue #23); a preset also declares its support
-    on the class.
+    when its network, loss and sampler do (issue #23; an optimizer does not
+    depend on the problem); a preset also declares its support on the
+    class.
 
     Parameters
     ----------
@@ -101,11 +103,13 @@ class NeuralSolver(Solver[_Context, _Trained]):
         at most this; positive.
     seed
         Seeds the collocation points (a numpy generator) and the initial
-        network (torch's generator, restored after the build); at least 0.
-        Seeds 0 to 9 are the seeds of a reported run (ADR 0008).
+        network (torch's CPU generator, restored after the build); at least
+        0. Seeds 0 to 9 are the seeds of a reported run (ADR 0008).
     accelerator
-        ``"auto"`` (a GPU when there is one), ``"cpu"`` or ``"gpu"``; the
-        training uses one device.
+        ``"cpu"`` (the default, so that the seed fixes the result on any
+        machine with the same thread count), ``"gpu"`` or ``"auto"`` (a GPU
+        when there is one); the training uses one device. Devices round
+        differently, so a run on another device drifts from a CPU run.
 
     Raises
     ------
@@ -123,9 +127,13 @@ class NeuralSolver(Solver[_Context, _Trained]):
     ``Result.info`` holds, besides the fields of every solver, ``stop`` (why
     the training stopped: ``"converged"``, ``"stalled"``, ``"diverged"`` or
     ``"max_steps"``), ``loss_terms`` (the loss terms of the trained network,
-    ``"loss"`` among them), ``collocation`` (the numbers of interior and
-    boundary points and :meth:`Collocation.fingerprint
-    <maesolvers.neural.samplers.Collocation.fingerprint>`) and ``device``.
+    ``"loss"`` among them), ``collocation`` (``interior_points``,
+    ``boundary_points`` and :meth:`Collocation.fingerprint
+    <maesolvers.neural.samplers.Collocation.fingerprint>`), ``device``,
+    ``threads`` (torch's CPU threads, on which the rounding, and so the
+    result, depends) and, when the network's module carries a ``report``
+    (see :meth:`Network.build <maesolvers.neural.networks.Network.build>`),
+    ``network``, that report.
     ``iterations`` counts the steps that updated the parameters, ``history``
     holds the loss at the start of each of them and ``unknowns`` the trained
     parameters. Each step's metrics, passed to ``on_step_end``, are the loss
@@ -139,15 +147,15 @@ class NeuralSolver(Solver[_Context, _Trained]):
     max_steps: int = 1000
     tol: float = 1e-5
     seed: int = 0
-    accelerator: Accelerator = "auto"
+    accelerator: Accelerator = "cpu"
 
     def __post_init__(self) -> None:
         super().__post_init__()
         name = type(self).__name__
-        _check_part(f"{name}.network", self.network, Network)
-        _check_part(f"{name}.loss", self.loss, Loss)
-        _check_part(f"{name}.sampler", self.sampler, Sampler)
-        _check_part(f"{name}.optimizer", self.optimizer, Optimizer)
+        check_part(f"{name}.network", self.network, Network)
+        check_part(f"{name}.loss", self.loss, Loss)
+        check_part(f"{name}.sampler", self.sampler, Sampler)
+        check_part(f"{name}.optimizer", self.optimizer, Optimizer)
         object.__setattr__(self, "max_steps", integer("max_steps", self.max_steps, 1))
         object.__setattr__(self, "tol", positive("tol", self.tol))
         object.__setattr__(self, "seed", integer("seed", self.seed, 0))
@@ -196,7 +204,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
         """Draw the collocation points of a problem with the sampler, from the seed.
 
         The same for every call, and for every solver with an equal sampler
-        and seed (ADR 0008).
+        and seed.
 
         Parameters
         ----------
@@ -254,12 +262,15 @@ class NeuralSolver(Solver[_Context, _Trained]):
         -------
         Trace
         """
+        import torch
+
         from maesolvers.neural import _training
 
+        threads = torch.get_num_threads()
         module, steps, device = _training.train(
             self, context.model, self._batch(context), callbacks
         )
-        state = _Trained(module.model.cpu(), module.stop, device)
+        state = _Trained(module.model.cpu(), module.stop, device, threads)
         return Trace(state, steps, module.stop == "converged", tuple(module.history))
 
     def finalize(
@@ -287,6 +298,20 @@ class NeuralSolver(Solver[_Context, _Trained]):
         model, dim = state.model.eval(), problem.dim
         terms = self.loss(model, self._batch(context))
         collocation = context.collocation
+        info: dict[str, Any] = {
+            "stop": state.stop,
+            "loss_terms": {name: float(value) for name, value in terms.items()},
+            "collocation": {
+                "interior_points": len(collocation.interior),
+                "boundary_points": len(collocation.boundary),
+                "fingerprint": collocation.fingerprint(),
+            },
+            "device": state.device,
+            "threads": state.threads,
+        }
+        report = getattr(model, "report", None)
+        if report is not None:
+            info["network"] = dict(report)
 
         def u(points: np.ndarray) -> np.ndarray:
             return _torch.values(model, points, dim)
@@ -298,16 +323,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
             u=u,
             hessian=hessian,
             unknowns=sum(p.numel() for p in _torch.trainable(model)),
-            info={
-                "stop": state.stop,
-                "loss_terms": {name: float(value) for name, value in terms.items()},
-                "collocation": {
-                    "interior": len(collocation.interior),
-                    "boundary": len(collocation.boundary),
-                    "fingerprint": collocation.fingerprint(),
-                },
-                "device": state.device,
-            },
+            info=info,
         )
 
     @staticmethod

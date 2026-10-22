@@ -28,7 +28,7 @@ from scipy.sparse.linalg import spsolve
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import positive
 from maesolvers.core.problem import Problem
-from maesolvers.core.solver import IterativeSolver, Solution, _check_part
+from maesolvers.core.solver import IterativeSolver, Solution, check_part
 
 _BACKTRACKS = 40
 """Halvings of the Newton step before the line search gives up."""
@@ -170,7 +170,7 @@ def _check_scheme(iteration: object, scheme: object) -> None:
     The scheme's class must pass the check a solver class passes: its own
     frozen dataclass decorator and keyword-only fields.
     """
-    _check_part(f"{type(iteration).__name__}.scheme", scheme, Scheme)
+    check_part(f"{type(iteration).__name__}.scheme", scheme, Scheme)
 
 
 class _NewtonScheme(Protocol):

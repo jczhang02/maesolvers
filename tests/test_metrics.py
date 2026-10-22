@@ -11,6 +11,7 @@ from maesolvers.metrics import (
     evaluate,
     shared_grid,
     summarize,
+    summarize_errors,
 )
 
 
@@ -251,9 +252,24 @@ def test_summarize_counts_failed_seeds_as_infinite():
     assert not np.isnan([s.median, s.q05, s.q95]).any()
 
 
+def test_summarize_errors_applies_the_same_failed_seed_rule():
+    errors = [1e-3] * 6 + [np.nan, np.inf, None, None]
+    s = summarize_errors(errors, threshold=np.inf)
+    assert s.failed == 4 and s.success_rate == 0.6 and s.q95 == np.inf
+    results = [_seed(1e-3)] * 6 + [_seed(np.nan), _seed(np.inf), None, None]
+    measured = [None if r is None else evaluate(r)["max"] for r in results]
+    assert summarize(results, threshold=1e-2) == summarize_errors(measured, 1e-2)
+    with pytest.raises(ValueError, match="at least one seed"):
+        summarize_errors([], threshold=1.0)
+    with pytest.raises(ValueError, match="threshold must be positive"):
+        summarize_errors([1.0], threshold=0.0)
+
+
 def test_summarize_keeps_an_unconverged_seed_with_a_finite_error():
-    """The rule until #12/#14 settle it: not converging is not failing."""
-    unconverged = Result(T1, _shifted(T1, 1e-3), info={"converged": False})
+    """Stopping at the step budget is not failing (the rule settled in #12)."""
+    unconverged = Result(
+        T1, _shifted(T1, 1e-3), info={"converged": False, "stop": "max_steps"}
+    )
     s = summarize([unconverged, _seed(1e-1)], threshold=1e-2)
     assert s.failed == 0 and s.success_rate == 0.5
 

@@ -46,7 +46,7 @@ class TrainingModule(lightning.LightningModule):
     (``"diverged"``) or the largest gradient component is at most ``tol``
     (``"converged"``); otherwise it calls the optimizer's ``step(closure)``
     and stops when the update left the parameters unchanged
-    (``"stalled"``). The step's metrics are the terms of that first
+    (``"stalled"``), recording nothing for that step. The step's metrics are the terms of that first
     evaluation, the loss of the parameters the step starts from.
 
     Parameters
@@ -131,7 +131,11 @@ class TrainingModule(lightning.LightningModule):
         if not torch.isfinite(loss):
             self._finish("diverged")
             return
-        gradient = parameters_to_vector([p.grad for p in parameters])  # type: ignore[misc]
+        # A parameter the loss does not reach (the output bias of a network
+        # whose Hessian is all the loss sees) has no gradient: it is zero.
+        gradient = parameters_to_vector(
+            [torch.zeros_like(p) if p.grad is None else p.grad for p in parameters]
+        )
         if float(gradient.abs().max()) <= self._tol:
             self._finish("converged")
             return
@@ -145,11 +149,12 @@ class TrainingModule(lightning.LightningModule):
             return self._evaluate()["loss"]
 
         self._torch_optimizer().step(closure=closure)
+        if torch.equal(before, parameters_to_vector(parameters)):
+            self._finish("stalled")  # not a step: nothing is recorded
+            return
         self.metrics = {name: float(value) for name, value in terms.items()}
         self.history.append(self.metrics["loss"])
         self.stepped = True
-        if torch.equal(before, parameters_to_vector(parameters)):
-            self._finish("stalled")
 
 
 class _Forward(lightning.Callback):

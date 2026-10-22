@@ -14,6 +14,7 @@ like every preset they declare their support on the class.
 from dataclasses import dataclass, field
 from typing import ClassVar
 
+from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk
 from maesolvers.neural.losses import Loss, PenaltyLoss
@@ -27,18 +28,26 @@ from maesolvers.neural.solver import NeuralSolver
 class PenaltyMLP(NeuralSolver):
     """The penalty MLP of Nystrom-Vestberg 2023 (Section 3.1, Example 4.1).
 
-    ``PenaltyMLP(width=w, depth=k, convexity_weight=C, interior=M,
-    boundary=K, ...)`` is ``NeuralSolver`` with
+    ``PenaltyMLP(width=w, depth=k, convexity_weight=C, interior_points=M,
+    boundary_points=K, fit_steps=s, fit_tol=t, ...)`` is ``NeuralSolver``
+    with
 
     - ``network=HardDirichlet(network=MLP(width=w, depth=k,
-      activation="sigmoid"))``: the ansatz ``u = G + D N``;
+      activation="sigmoid"), fit_steps=s, fit_tol=t)``: the ansatz
+      ``u = G + D N``;
     - ``loss=PenaltyLoss(convexity_weight=C)``: the squared residual summed
       over the interior points plus ``C`` times the mean diagonal penalty;
-    - ``sampler=UniformSampler(interior=M, boundary=K)``;
+    - ``sampler=UniformSampler(interior_points=M, boundary_points=K)``;
     - ``optimizer=LBFGS()``.
 
-    The defaults are the paper's. The penalty makes the solution convex only
-    in 2D, so the preset is 2D only; it needs the domain's boundary sampling
+    The defaults are the parts' defaults, which are the paper's except for
+    what the paper does not give: the cap ``fit_steps`` of the fits of
+    ``G`` and ``D``, the step budget ``max_steps`` (the 5000 of the paper's
+    Example 4.6) and the L-BFGS memory (``docs/methods/penalty_mlp.md``,
+    Differences from the paper). The training runs on the CPU unless
+    ``accelerator`` says otherwise, so the seed fixes the result on a given
+    machine and thread count. The penalty makes the solution convex only in
+    2D, so the preset is 2D only; it needs the domain's boundary sampling
     and distance (:class:`~maesolvers.core.domains.BoundarySampling`,
     :class:`~maesolvers.core.domains.BoundaryDistance`).
 
@@ -49,9 +58,12 @@ class PenaltyMLP(NeuralSolver):
         (10 and 5: 481 parameters).
     convexity_weight
         ``C``, at least 0.
-    interior, boundary
-        Collocation points inside the domain (at least 1) and on its boundary
-        (at least 1: the ansatz is fitted there).
+    interior_points, boundary_points
+        Collocation points inside the domain (at least 1) and on its
+        boundary (at least 1: the ansatz is fitted there).
+    fit_steps, fit_tol
+        Most L-BFGS iterations of each fit of ``G`` and ``D``, and the
+        largest gradient component at which a fit stops.
     max_steps
         Most L-BFGS iterations.
     tol
@@ -59,7 +71,7 @@ class PenaltyMLP(NeuralSolver):
     seed
         Seeds the collocation points and the initial networks.
     accelerator
-        ``"auto"``, ``"cpu"`` or ``"gpu"``.
+        ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
     """
 
     domains: ClassVar[tuple[type, ...]] = (Box, Disk, CutQuarterDisk)
@@ -70,26 +82,34 @@ class PenaltyMLP(NeuralSolver):
     loss: Loss = field(init=False, repr=False)
     sampler: Sampler = field(init=False, repr=False)
     optimizer: Optimizer = field(init=False, repr=False)
-    width: int = 10
-    depth: int = 5
-    convexity_weight: float = 1e4
-    interior: int = 3000
-    boundary: int = 400
+    width: int = MLP.width
+    depth: int = MLP.depth
+    convexity_weight: float = PenaltyLoss.convexity_weight
+    interior_points: int = UniformSampler.interior_points
+    boundary_points: int = UniformSampler.boundary_points
+    fit_steps: int = HardDirichlet.fit_steps
+    fit_tol: float = HardDirichlet.fit_tol
     max_steps: int = 5000
 
     def __post_init__(self) -> None:
+        boundary_points = integer("boundary_points", self.boundary_points, 1)
         mlp = MLP(width=self.width, depth=self.depth, activation="sigmoid")
+        network = HardDirichlet(
+            network=mlp, fit_steps=self.fit_steps, fit_tol=self.fit_tol
+        )
         loss = PenaltyLoss(convexity_weight=self.convexity_weight)
-        sampler = UniformSampler(interior=self.interior, boundary=self.boundary)
-        if sampler.boundary == 0:
-            raise ValueError("boundary must be at least 1, got 0")
-        object.__setattr__(self, "network", HardDirichlet(network=mlp))
+        sampler = UniformSampler(
+            interior_points=self.interior_points, boundary_points=boundary_points
+        )
+        object.__setattr__(self, "network", network)
         object.__setattr__(self, "loss", loss)
         object.__setattr__(self, "sampler", sampler)
         object.__setattr__(self, "optimizer", LBFGS())
         object.__setattr__(self, "width", mlp.width)
         object.__setattr__(self, "depth", mlp.depth)
         object.__setattr__(self, "convexity_weight", loss.convexity_weight)
-        object.__setattr__(self, "interior", sampler.interior)
-        object.__setattr__(self, "boundary", sampler.boundary)
+        object.__setattr__(self, "interior_points", sampler.interior_points)
+        object.__setattr__(self, "boundary_points", sampler.boundary_points)
+        object.__setattr__(self, "fit_steps", network.fit_steps)
+        object.__setattr__(self, "fit_tol", network.fit_tol)
         super().__post_init__()

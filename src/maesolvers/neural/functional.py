@@ -100,7 +100,7 @@ def diagonal_convexity_penalty(hess: torch.Tensor) -> torch.Tensor:
 
 
 def mean_squared_misfit(values: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Mean of ``(values - target)^2``, zero for empty tensors.
+    """Mean of ``(values - target)^2``.
 
     Parameters
     ----------
@@ -111,7 +111,13 @@ def mean_squared_misfit(values: torch.Tensor, target: torch.Tensor) -> torch.Ten
     -------
     torch.Tensor
         A scalar.
+
+    Raises
+    ------
+    ValueError
+        For empty tensors: a misfit at no points is no constraint, so a loss
+        term built on it would drop out silently.
     """
     if values.numel() == 0:
-        return values.new_zeros(())
+        raise ValueError("mean_squared_misfit of empty tensors: there are no points")
     return (values - target).pow(2).mean()

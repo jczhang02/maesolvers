@@ -2,8 +2,9 @@
 
 Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
 :class:`Result`; the solvers live in :mod:`maesolvers.classical`.
-:func:`integer`, :func:`positive` and :func:`nonnegative` check constructor parameters, for solvers
-of your own as for the shipped ones.
+:func:`integer`, :func:`positive` and :func:`nonnegative` check constructor
+parameters, and :func:`check_part` a part passed to a solver or to another
+part, for solvers and parts of your own as for the shipped ones.
 """
 
 from maesolvers.core._params import integer, nonnegative, positive
@@ -28,6 +29,7 @@ from maesolvers.core.solver import (
     Solver,
     Trace,
     UnsupportedProblemError,
+    check_part,
 )
 
 __all__ = [
@@ -52,6 +54,7 @@ __all__ = [
     "Trace",
     "Transport",
     "UnsupportedProblemError",
+    "check_part",
     "integer",
     "nonnegative",
     "positive",

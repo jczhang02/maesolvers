@@ -28,7 +28,8 @@ if TYPE_CHECKING:
 class Batch:
     """The collocation points of a solve and the problem's data there, as tensors.
 
-    All on the training device, in float64.
+    All in float64 and on one device: the training device during training,
+    the CPU when the solver evaluates the trained network's loss terms.
 
     Parameters
     ----------
@@ -115,13 +116,17 @@ class PenaltyLoss(Loss):
     convexity_weight
         ``C``, at least 0 (``1e4`` in the paper); with 0 no penalty.
     boundary_weight
-        ``B``, at least 0; with 0 no boundary term.
+        ``B``, at least 0; with 0 no boundary term. With ``B > 0`` the
+        sampler must give boundary points.
 
     Raises
     ------
     TypeError, ValueError
         On construction, for a weight that is not a real number, negative or
         not finite.
+    ValueError
+        When called with ``B > 0`` on a batch without boundary points, so at
+        the first training step, before any update.
     """
 
     convexity_weight: float = 1e4
@@ -163,9 +168,19 @@ class PenaltyLoss(Loss):
         Returns
         -------
         dict
+
+        Raises
+        ------
+        ValueError
+            If ``boundary_weight > 0`` and the batch has no boundary points.
         """
         from maesolvers.neural import functional
 
+        if self.boundary_weight > 0.0 and batch.boundary.shape[0] == 0:
+            raise ValueError(
+                "PenaltyLoss has boundary_weight > 0 but the sampler gave no "
+                "boundary points"
+            )
         hess = functional.hessian(u, batch.interior)
         terms = {
             "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).sum(),

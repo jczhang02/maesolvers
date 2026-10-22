@@ -21,9 +21,6 @@ _ACTIVATIONS = {
     "softplus": torch.nn.Softplus,
 }
 
-_FIT_TOLERANCE = 1e-5
-"""Largest gradient component at which a fit stops: SciPy's BFGS default ``gtol``."""
-
 _CHUNK = 16384
 """Points per forward pass when a result is evaluated."""
 
@@ -64,11 +61,13 @@ def mlp(dim: int, width: int, depth: int, activation: str) -> torch.nn.Module:
     return network
 
 
-def fit(module: torch.nn.Module, x: np.ndarray, y: np.ndarray, max_steps: int) -> float:
+def fit(
+    module: torch.nn.Module, x: np.ndarray, y: np.ndarray, max_steps: int, tol: float
+) -> dict[str, float | int | bool]:
     """Fit ``module(x)`` to ``y`` by L-BFGS on the mean squared error, in place.
 
     Full batch, strong Wolfe line search; stops after ``max_steps``
-    iterations or when the largest gradient component is at most 1e-5.
+    iterations or when the largest gradient component is at most ``tol``.
 
     Parameters
     ----------
@@ -78,20 +77,26 @@ def fit(module: torch.nn.Module, x: np.ndarray, y: np.ndarray, max_steps: int) -
         Points of shape ``(M, d)`` and target values of shape ``(M,)``.
     max_steps
         Most L-BFGS iterations.
+    tol
+        Stop when the largest component of the gradient is at most this.
 
     Returns
     -------
-    float
-        The final mean squared error.
+    dict
+        How the fit ended: ``iterations`` (L-BFGS iterations taken),
+        ``max_gradient`` (largest gradient component at the end),
+        ``converged`` (``max_gradient <= tol``), ``mse`` (the mean squared
+        error) and ``max_misfit`` (the largest ``|module(x) - y|``).
     """
     dtype = next(module.parameters()).dtype
     points = torch.tensor(np.asarray(x), dtype=dtype)
     target = torch.tensor(np.asarray(y), dtype=dtype)
+    parameters = list(module.parameters())
     optimizer = torch.optim.LBFGS(
-        module.parameters(),
+        parameters,
         max_iter=max_steps,
         max_eval=2 * max_steps,
-        tolerance_grad=_FIT_TOLERANCE,
+        tolerance_grad=tol,
         tolerance_change=0.0,
         history_size=100,
         line_search_fn="strong_wolfe",
@@ -104,8 +109,21 @@ def fit(module: torch.nn.Module, x: np.ndarray, y: np.ndarray, max_steps: int) -
         return loss
 
     optimizer.step(closure)
+    mse = float(closure())
+    max_gradient = max(
+        (float(p.grad.abs().max()) for p in parameters if p.grad is not None),
+        default=0.0,
+    )
+    optimizer.zero_grad()
     with torch.no_grad():
-        return float(functional.mean_squared_misfit(module(points), target))
+        misfit = float((module(points) - target).abs().max())
+    return {
+        "iterations": int(optimizer.state[parameters[0]].get("n_iter", 0)),
+        "max_gradient": max_gradient,
+        "converged": max_gradient <= tol,
+        "mse": mse,
+        "max_misfit": misfit,
+    }
 
 
 class Ansatz(torch.nn.Module):
@@ -115,6 +133,9 @@ class Ansatz(torch.nn.Module):
     ----------
     lift, distance, network
         ``G``, ``D`` and ``N``, each mapping ``(M, d)`` to ``(M,)``.
+    report
+        How the fits of ``G`` and ``D`` ended; the solver records it as
+        ``Result.info["network"]``.
     """
 
     def __init__(
@@ -122,11 +143,13 @@ class Ansatz(torch.nn.Module):
         lift: torch.nn.Module,
         distance: torch.nn.Module,
         network: torch.nn.Module,
+        report: dict,
     ) -> None:
         super().__init__()
         self.lift = lift.requires_grad_(False)
         self.distance = distance.requires_grad_(False)
         self.network = network
+        self.report = report
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.lift(x) + self.distance(x) * self.network(x)
@@ -140,11 +163,13 @@ def building(seed: int) -> Iterator[None]:
     ----------
     seed
         Seeds torch's CPU generator inside the block; the generator's state
-        outside is restored afterwards.
+        outside is restored afterwards. The CUDA generators are not touched
+        (``torch.manual_seed`` would seed them too), since the modules are
+        built on the CPU.
     """
     default = torch.get_default_dtype()
     with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(seed)
+        torch.default_generator.manual_seed(seed)
         torch.set_default_dtype(torch.float64)
         try:
             yield
