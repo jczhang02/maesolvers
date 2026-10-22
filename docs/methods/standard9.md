@@ -50,7 +50,7 @@ The number of steps grows with the singularity of the problem: about 50 on T1 at
 It starts from `laplace u_0 = 2 sqrt(f)`, a lower bound for the Laplacian of the convex solution: `u_xx + u_yy >= 2 sqrt(f)` by the inequality of arithmetic and geometric means on the Hessian's eigenvalues.
 A step of length `t` is halved until it cuts the max residual by the factor `1 - 1e-4 t`; when 40 halvings do not, the solve stops unconverged.
 It stops when the max residual is at most `tol * max(1, max |f|)`; the measure is that residual (`residual`).
-On T1 it needs 3 steps at `n = 16` and 4 at every `n` from 31 to 361.
+On T1 it needs 3 steps at `n = 8` and 16, and 4 at every `n` tried from 24 to 361.
 Nothing in the iteration prefers the convex root, so on a singular problem it may converge to a non-convex one.
 
 ## Source papers
