@@ -288,28 +288,25 @@ def _quantile(sorted_values: np.ndarray, q: float) -> float:
 
 
 def summarize(
-    metrics: Sequence[Mapping[str, float] | None], threshold: float, key: str = "max"
+    results: Sequence[Result | None], threshold: float, key: str = "max"
 ) -> Summary:
     """Aggregate the seeds of one method on one problem (ADR 0007).
 
-    It takes the :func:`evaluate` outputs rather than the results, because a
-    seed that timed out or crashed has no result to pass.
-
-    A failed seed (``None``, as for a timeout, or a NaN or infinite error)
-    counts with error ``+inf`` and is never dropped, so when more than half
-    the seeds fail the median is ``inf``. With an even number of seeds the
-    median is the mean of the middle two, so exactly half failed also gives
-    ``inf``.
+    Each result is measured with :func:`evaluate`. A failed seed (``None``,
+    for a seed that timed out or crashed and so has no result, or a NaN or
+    infinite error) counts with error ``+inf`` and is never dropped, so when
+    more than half the seeds fail the median is ``inf``. With an even number
+    of seeds the median is the mean of the middle two, so exactly half failed
+    also gives ``inf``.
 
     Parameters
     ----------
-    metrics
-        One :func:`evaluate` output per seed, ``None`` for a seed that gave no
-        result.
+    results
+        One result per seed, ``None`` for a seed that gave no result.
     threshold
         A seed succeeds when its error is below this.
     key
-        The error to aggregate.
+        The :func:`evaluate` field to aggregate.
 
     Returns
     -------
@@ -318,14 +315,14 @@ def summarize(
     Raises
     ------
     KeyError
-        If a seed's metrics lack ``key``, as for a problem without an exact
-        solution.
+        If :func:`evaluate` does not report ``key`` for a result, as for a
+        problem without an exact solution.
     """
-    if len(metrics) == 0:
+    if len(results) == 0:
         raise ValueError("summarize needs at least one seed")
     if not threshold > 0.0:
         raise ValueError(f"threshold must be positive, got {threshold}")
-    errs = np.array([np.inf if m is None else float(m[key]) for m in metrics])
+    errs = np.array([np.inf if r is None else float(evaluate(r)[key]) for r in results])
     errs[~np.isfinite(errs)] = np.inf
     errs.sort()
     return Summary(

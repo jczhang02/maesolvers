@@ -222,9 +222,14 @@ def test_quantile_matches_numpy_on_finite_values():
         assert _quantile(values, q) == pytest.approx(np.quantile(values, q))
 
 
+def _seed(error):
+    """A result on P4 whose max error on the shared grid is ``error``."""
+    return Result(P4, _shifted(P4, error))
+
+
 def test_summarize_all_seeds_succeed():
-    metrics = [{"max": e} for e in np.linspace(1e-3, 1e-2, 10)]
-    s = summarize(metrics, threshold=5.5e-3)
+    results = [_seed(e) for e in np.linspace(1e-3, 1e-2, 10)]
+    s = summarize(results, threshold=5.5e-3)
     assert s == Summary(
         median=pytest.approx(5.5e-3),
         q05=pytest.approx(1.45e-3),
@@ -236,36 +241,36 @@ def test_summarize_all_seeds_succeed():
 
 
 def test_summarize_counts_failed_seeds_as_infinite():
-    metrics = [{"max": 1e-3}] * 6 + [{"max": np.nan}, {"max": np.inf}, None, None]
-    s = summarize(metrics, threshold=1e-2)
+    results = [_seed(1e-3)] * 6 + [_seed(np.nan), _seed(np.inf), None, None]
+    s = summarize(results, threshold=1e-2)
     assert s.failed == 4 and s.success_rate == 0.6
     assert s.median == pytest.approx(1e-3) and s.q95 == np.inf
     assert not np.isnan([s.median, s.q05, s.q95]).any()
 
 
 def test_summarize_median_fails_when_more_than_half_fail():
-    metrics = [{"max": 1e-3}] * 4 + [None] * 6
-    s = summarize(metrics, threshold=1e-2)
+    results = [_seed(1e-3)] * 4 + [None] * 6
+    s = summarize(results, threshold=1e-2)
     assert s.median == np.inf and s.q05 == pytest.approx(1e-3)
 
 
 def test_summarize_median_fails_when_exactly_half_fail():
-    assert summarize([{"max": 1e-3}] * 5 + [None] * 5, threshold=1e-2).median == np.inf
+    assert summarize([_seed(1e-3)] * 5 + [None] * 5, threshold=1e-2).median == np.inf
 
 
 def test_summarize_reads_the_requested_key():
-    s = summarize([{"max": 1.0, "rms": 0.1}], threshold=0.5, key="rms")
+    info = {"time": 0.1}
+    s = summarize([Result(P4, P4.exact, info=info)], threshold=0.5, key="time")
     assert s.median == 0.1 and s.success_rate == 1.0
 
 
-@pytest.mark.parametrize(
-    ("metrics", "threshold", "error"),
-    [
-        ([], 1.0, ValueError),
-        ([{"max": 1.0}], 0.0, ValueError),
-        ([{"rms": 1.0}], 1.0, KeyError),
-    ],
-)
-def test_summarize_rejects_bad_input(metrics, threshold, error):
-    with pytest.raises(error):
-        summarize(metrics, threshold)
+def test_summarize_needs_the_key_in_every_result():
+    no_exact = Problem("NOEXACT", P4.domain, P4.f, P4.boundary)
+    with pytest.raises(KeyError):
+        summarize([Result(no_exact, P4.exact)], threshold=1.0)
+
+
+@pytest.mark.parametrize(("seeds", "threshold"), [(0, 1.0), (1, 0.0)])
+def test_summarize_rejects_bad_input(seeds, threshold):
+    with pytest.raises(ValueError):
+        summarize([_seed(1.0)] * seeds, threshold)

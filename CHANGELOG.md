@@ -17,7 +17,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `IterativeSolver` with the hooks `initial_guess(problem, context)`, `step(problem, context, iterate)` and `converged(problem, context, measure)`, the required class variable `measure`, and the shared loop over `max_iter`.
 - `Callback` with the hooks `on_solve_start`, `on_step_end` and `on_solve_end`, passed as `solve(problem, callbacks=[...])`.
 - `UnsupportedProblemError`, raised by `solve` for a problem outside the solver's declared support.
-- `maesolvers.metrics.summarize(metrics, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate over seeds, failed seeds counted as `+inf` (ADR 0007).
+- `maesolvers.metrics.summarize(results, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate of an `evaluate` field over seeds, a seed without a result (`None`) or with a NaN or infinite error counted as `+inf` (ADR 0007).
 - `maesolvers.metrics.shared_grid(domain, size=None)` takes a domain and picks 201, 51 or 21 points per axis by dimension.
 
 ### Changed
