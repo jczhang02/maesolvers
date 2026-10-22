@@ -1,4 +1,4 @@
-"""Domains: validation, membership, bounding boxes, boundary points."""
+"""Domains: validation, membership, bounding boxes."""
 
 import numpy as np
 import pytest
@@ -63,28 +63,13 @@ def test_membership_rejects_points_of_the_wrong_dimension():
         Box((0, 0), (1, 1)).contains(np.zeros((5, 3)))
 
 
-def test_box_boundary_points_lie_on_the_sides_without_repeats():
-    box = Box((0, -1), (2, 1))
-    b = box.boundary_points(8)
-    assert b.shape == (32, 2)
-    assert np.all(box.contains(b)) and not np.any(box.interior(b))
-    assert len(np.unique(b, axis=0)) == 32
-
-
-def test_box_boundary_points_are_2d_only():
-    with pytest.raises(ValueError, match="2D"):
-        Box((0,) * 3, (1,) * 3).boundary_points(4)
-
-
-def test_disk_membership_bbox_and_boundary():
+def test_disk_membership_and_bbox():
     disk = Disk((1, 0), 2)
     assert disk.dim == 2
     assert disk.bbox == Box((-1, -2), (3, 2))
     points = np.array([[1.0, 0.0], [3.0, 0.0], [3.1, 0.0]])
     assert disk.contains(points).tolist() == [True, True, False]
     assert disk.interior(points).tolist() == [True, False, False]
-    b = disk.boundary_points(16)
-    assert np.allclose(np.linalg.norm(b - disk.center, axis=-1), 2.0)
 
 
 @pytest.mark.parametrize(
@@ -96,12 +81,9 @@ def test_disk_rejects_bad_parameters(center, radius, message):
         Disk(center, radius)
 
 
-def test_ellipse_membership_bbox_and_boundary():
+def test_ellipse_membership_and_bbox():
     ellipse = Ellipse((3.5, 0), (2, 0.5))
     assert ellipse.bbox == Box((1.5, -0.5), (5.5, 0.5))
-    b = ellipse.boundary_points(32)
-    level = ((b[:, 0] - 3.5) / 2) ** 2 + (b[:, 1] / 0.5) ** 2
-    assert np.allclose(level, 1.0)
     assert ellipse.contains(np.array([5.5, 0.0])) and not ellipse.interior(
         np.array([5.5, 0.0])
     )

@@ -22,7 +22,13 @@ HessianField = Callable[[np.ndarray], np.ndarray]
 
 @runtime_checkable
 class Domain(Protocol):
-    """What metrics and solvers need from a domain."""
+    """What metrics and solvers need from a domain.
+
+    The protocol is closed at 0.1: a user's own domain needs these four
+    members and no more. Further capabilities (sampling, a signed distance,
+    a mesh) come as separate protocols, which a solver requires through
+    :meth:`~maesolvers.core.solver.Solver.supports`.
+    """
 
     @property
     def dim(self) -> int:
@@ -105,31 +111,6 @@ class Box:
         x = _points(x, self.dim)
         return np.all((x > self.lo) & (x < self.hi), axis=-1)
 
-    def boundary_points(self, n: int) -> np.ndarray:
-        """``4 n`` points along the four sides of a 2D box, counter-clockwise.
-
-        Parameters
-        ----------
-        n
-            Points per side, starting at a corner, without repeats.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(4 n, 2)``.
-        """
-        if self.dim != 2:
-            raise ValueError(f"boundary_points needs a 2D box, this one is {self.dim}D")
-        if n < 1:
-            raise ValueError(f"boundary_points needs n >= 1, got {n}")
-        t = np.linspace(0.0, 1.0, n, endpoint=False)
-        (x0, y0), (x1, y1) = self.lo, self.hi
-        bottom = np.stack([x0 + t * (x1 - x0), np.full(n, y0)], axis=-1)
-        right = np.stack([np.full(n, x1), y0 + t * (y1 - y0)], axis=-1)
-        top = np.stack([x1 - t * (x1 - x0), np.full(n, y1)], axis=-1)
-        left = np.stack([np.full(n, x0), y1 - t * (y1 - y0)], axis=-1)
-        return np.concatenate([bottom, right, top, left])
-
 
 @dataclass(frozen=True)
 class Ellipse:
@@ -181,20 +162,6 @@ class Ellipse:
         """Whether each point lies in the open ellipse."""
         return self._level(x) < 1.0
 
-    def boundary_points(self, n: int) -> np.ndarray:
-        """``n`` points on the boundary at equally spaced parameter angles.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n, 2)``, counter-clockwise from ``center + (a1, 0)``.
-        """
-        if n < 1:
-            raise ValueError(f"boundary_points needs n >= 1, got {n}")
-        angle = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
-        circle = np.stack([np.cos(angle), np.sin(angle)], axis=-1)
-        return np.asarray(self.center) + np.asarray(self.semi_axes) * circle
-
 
 @dataclass(frozen=True)
 class Disk:
@@ -243,17 +210,3 @@ class Disk:
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open disk."""
         return self._level(x) < 1.0
-
-    def boundary_points(self, n: int) -> np.ndarray:
-        """``n`` equally spaced points on the circle.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n, 2)``, counter-clockwise from ``center + (radius, 0)``.
-        """
-        if n < 1:
-            raise ValueError(f"boundary_points needs n >= 1, got {n}")
-        angle = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
-        circle = np.stack([np.cos(angle), np.sin(angle)], axis=-1)
-        return np.asarray(self.center) + self.radius * circle
