@@ -105,8 +105,17 @@ uv run benchmarks/plot_standard_fd.py     # reads the CSVs next to it, writes st
 
 ## Roadmap
 
-Fixed for 0.1: a monotone wide-stencil scheme (Froese-Oberman 2011), one neural baseline (ICNN), and Shortley-Weller boundary handling so the disk problems P1 and P3 run.
-Which further methods belong in the library is an open question, tracked in the research repository.
+A method enters the library when it can be implemented from its paper and fits `Problem -> Result`; methods without an error table are included and marked as such.
+The order puts first the methods the literature uses most, those that share infrastructure, and those with tables to reproduce.
+The design behind 0.1 is recorded in `docs/adr/`.
+
+- **0.0.2**: the solver lifecycle, composition and configuration of ADR 0003 to 0005, the frozen `Problem`, `Result` and `evaluate` of ADR 0007, and the catalogue under the T ids of the shared test set; the two existing solvers move over with their reproduction intact.
+- **0.1**, finite differences: Shortley-Weller boundaries for the standard 9-point scheme (so T8 runs on the disk), the monotone 17-point scheme (Froese-Oberman 2011), the filtered scheme (Froese-Oberman 2013), the hybrid scheme (Froese-Oberman 2011); neural: the shared training loop (ADR 0008) with the penalty MLP (Nystrom 2023) and ICNN; the comparison table generated from the runs.
+- **0.2**: n-dimensional boxes and the 19-point monotone scheme, transport boundary conditions (Benamou-Froese-Oberman 2014, Caboussat-Peruso 2025), a multigrid option, the semi-Lagrangian scheme, QS-PINN.
+- **0.3**: finite elements through scikit-fem (Feng-Neilan, Brenner-Neilan C0 interior penalty, Awanou splines, two-scale, Dean-Glowinski least-squares and augmented Lagrangian).
+- **0.4**: Oliker-Prussner, MA-LBR, Froese 2017 point clouds, C-PINN, KAN, Deep Ritz splitting.
+
+Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sample-based optimal transport, parabolic formulations.
 
 ## Development
 

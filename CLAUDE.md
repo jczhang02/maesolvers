@@ -6,9 +6,10 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 
 ## Python
 
-- One package, `maesolvers` (`src/maesolvers/`), Python 3.10+, numpy and scipy only.
-  torch arrives with the `neural` extra; nothing in 0.0.x imports it.
+- One package, `maesolvers` (`src/maesolvers/`), Python 3.10+.
+  The core and every classical solver need numpy and scipy only; each further family is an extra imported only inside its subpackage (`neural`: torch and lightning, `fem`: scikit-fem, `cli`: jsonargparse), per ADR 0006.
   mlflow lives in the `experiments` dependency group, used only by `maesolvers.tracking`.
+- Public classes and functions carry type annotations and numpy-style docstrings.
 - `uv sync --group dev` installs the dev tools.
   `just check` runs what CI runs (`ruff format --check`, `ruff check`, `pytest`); CI repeats it on Python 3.10 and 3.13.
   Run it before you commit.
@@ -18,17 +19,21 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 
 ## Interface
 
-- A `Problem` (domain, right-hand side, boundary condition, exact solution when known), any object with `solve(problem) -> Result`, and `evaluate(result)` in `maesolvers.metrics`.
-  A new solver is one class; it plugs into the same `evaluate` and the same comparison table.
-- Catalogue problems `P1` to `P5` are provisional.
-  A number, once used, is never reused, so tables from different methods line up.
-  The numbering will be aligned with the research repository (`jczhang02/monge-ampere-equations`) when it fixes its test set.
+- A `Problem`, a solver with `solve(problem) -> Result`, and `evaluate(result)` in `maesolvers.metrics`.
+- The design for 0.1 is fixed in `docs/adr/` 0003 to 0008; read the ADR before you change a solver, `Problem`, `Result`, `evaluate` or the training loop:
+  - one solver lifecycle modelled on LightningModule, in plain numpy (0003);
+  - solvers composed of a scheme and an iteration, or a network, a loss and a sampler, with presets (0004);
+  - parameters from constructor signatures through jsonargparse (0005);
+  - `Problem`, `Result` and `evaluate` frozen at 0.1 (0007);
+  - the neural training protocol (0008).
+  Until the 0.0.2 refactor lands, the code still has the 0.0.x shape (bare `Solver` protocol, `P1` to `P5`).
+- Problems carry the T ids of the shared test-set specification (`docs/test-set.md` in `jczhang02/monge-ampere-equations`); an id once used is never reused, so tables from different methods line up.
 
 ## Reproduction
 
-- A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
+- A reproduction is judged against the source paper's own table, on the paper's own test problem, at one of the five levels of ADR 0002 (exact, order of magnitude, statistical, figure only, mismatch); `benchmarks/<method>.md` states the level.
 - `benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours; the CSVs and `plot_standard_fd.py` next to them draw the README figure.
-- The papers' grid convention is `h = 1/N`; none of them states it.
+- The papers' grid convention is `h = 1/N`, `N` cells per side; none of them states it (ADR 0001).
 - A mismatch is recorded as a finding in the comparison file, not tuned away.
 - `tests/test_reproduction.py` pins the published numbers; change a pinned value only together with the finding that justifies it.
 
@@ -50,8 +55,15 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   Conventional Commits: fix a message the commit-msg hook rejects; the hook always runs.
   Stage only the files you changed (`git add <path>`, not `-A`), because several agent sessions may share a working tree.
   Run `just check` and look at `git status` for untracked inputs before you commit.
-- Ask first: commit, push, open or merge a PR, push a tag or create a release, amend or rebase pushed commits.
+- Free to do without asking: branch in a worktree, commit, push a branch, open a PR, run experiments on a100server, create and update issues.
+- Ask first: merge into `main`, push a tag or create a release, amend or rebase pushed commits, change a pinned reproduction value, change an accepted ADR.
+- Chains of dependent PRs use `gh stack`.
 - Never: force-push `main`; commit `out/`, `dist/`, secrets, or large data (it belongs in MLflow or the a100server data dir); `reset --hard`, `clean -f`, `checkout .` unless JC asks.
+
+## Documentation
+
+- No docs site: `README.md`, `docs/guide.md` (solve a problem, pass parameters, plug in your own solver), and one `docs/methods/<method>.md` per method (the mathematics, the source paper, the parameters, the known limits, a link to its `benchmarks/<method>.md`).
+- Every change to the public interface gets a line in `CHANGELOG.md`; 0.x may break the interface, but never silently.
 
 ## Agent skills
 

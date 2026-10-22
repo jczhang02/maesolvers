@@ -23,7 +23,8 @@ Single-context repo (this one):
 ├── GLOSSARY.md
 ├── docs/adr/
 │   ├── 0001-grid-convention-h-is-one-over-n.md
-│   └── 0002-reproduction-to-printed-digits.md
+│   ├── 0002-reproduction-levels.md
+│   └── ...
 └── src/
 ```
 
