@@ -140,8 +140,9 @@ def _smallest_eigenvalues(hess: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def _convexity(result: Result) -> dict[str, float]:
     """Non-convex fraction and smallest eigenvalues of the method's Hessian.
 
-    The points are the interior nodes for a node Hessian, else the shared
-    grid for a callable Hessian. A non-finite Hessian at any of them makes
+    The points are the interior nodes for a node Hessian (``result.interior``,
+    else the nodes the domain counts as interior), else the shared grid for a
+    callable Hessian. A non-finite Hessian at any of them makes
     ``nonconvex_fraction`` and ``eigmin`` NaN, so a broken result is never
     reported as convex. ``eigmin_exact`` is taken over the points where the
     exact Hessian is finite.
@@ -149,7 +150,11 @@ def _convexity(result: Result) -> dict[str, float]:
     problem = result.problem
     if result.node_hessian is not None:
         assert result.nodes is not None  # Result guarantees it
-        interior = problem.domain.interior(result.nodes)
+        interior = (
+            result.interior
+            if result.interior is not None
+            else problem.domain.interior(result.nodes)
+        )
         points, hess = result.nodes[interior], result.node_hessian[interior]
     elif result.hessian is not None:
         points = shared_grid(problem.domain)
@@ -183,7 +188,8 @@ def evaluate(result: Result) -> dict[str, float]:
     ``max_grid`` and ``rms_grid`` repeat them on the shared grid through
     ``result.u`` when the result has nodes, as a secondary value. For a
     transport problem each side's mean over the points is subtracted first.
-    Convexity uses the node Hessian at the interior nodes, else the callable
+    Convexity uses the node Hessian at the interior nodes (``result.interior``
+    if the method set it, else the nodes inside the domain), else the callable
     Hessian on the shared grid; a non-finite Hessian at any of these points
     gives NaN ``nonconvex_fraction`` and ``eigmin``.
 

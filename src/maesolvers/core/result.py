@@ -42,6 +42,13 @@ class Result:
         Shape ``(M, d, d)``: the method's own discrete Hessian at ``nodes``,
         or None. :func:`~maesolvers.metrics.evaluate` reads it at the interior
         nodes only and ignores the entries at boundary nodes, which may be NaN.
+    interior
+        Shape ``(M,)``, boolean: which of ``nodes`` are the method's interior
+        nodes, where :func:`~maesolvers.metrics.evaluate` reads
+        ``node_hessian``; or None. Set it whenever the method knows it: when
+        it is None, ``evaluate`` asks ``problem.domain.interior(nodes)``, a
+        floating-point test that can count nodes placed on a curved boundary
+        as interior.
     info
         Run record: ``time`` (seconds), ``iterations``, ``converged``,
         ``history`` (the convergence measure after every step), ``unknowns``
@@ -58,6 +65,7 @@ class Result:
     nodes: np.ndarray | None = None
     values: np.ndarray | None = None
     node_hessian: np.ndarray | None = None
+    interior: np.ndarray | None = None
     info: Mapping[str, Any] = field(default_factory=dict)
     hparams: Mapping[str, Any] = field(default_factory=dict)
 
@@ -72,6 +80,8 @@ class Result:
             self._check_node_arrays()
         elif self.node_hessian is not None:
             raise ValueError("Result.node_hessian needs Result.nodes")
+        elif self.interior is not None:
+            raise ValueError("Result.interior needs Result.nodes")
         object.__setattr__(self, "info", copy.deepcopy(dict(self.info)))
         object.__setattr__(self, "hparams", copy.deepcopy(dict(self.hparams)))
 
@@ -98,6 +108,19 @@ class Result:
                     f"got {hess.shape}"
                 )
             object.__setattr__(self, "node_hessian", hess)
+        if self.interior is not None:
+            interior = np.array(self.interior)
+            if interior.dtype != bool:
+                raise TypeError(
+                    "Result.interior must be a boolean mask, got dtype "
+                    f"{interior.dtype}"
+                )
+            if interior.shape != (m,):
+                raise ValueError(
+                    f"Result.interior must have shape ({m},), got {interior.shape}"
+                )
+            interior.setflags(write=False)
+            object.__setattr__(self, "interior", interior)
 
 
 def _read_only(array: object) -> np.ndarray:

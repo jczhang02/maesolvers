@@ -67,7 +67,7 @@ class Solution:
 
     Parameters
     ----------
-    u, hessian, nodes, values, node_hessian
+    u, hessian, nodes, values, node_hessian, interior
         As in :class:`~maesolvers.core.result.Result`; all but ``u`` are
         keyword-only.
     unknowns
@@ -84,6 +84,7 @@ class Solution:
     nodes: np.ndarray | None = None
     values: np.ndarray | None = None
     node_hessian: np.ndarray | None = None
+    interior: np.ndarray | None = None
     unknowns: int | None = None
     info: Mapping[str, Any] = field(default_factory=dict)
 
@@ -322,6 +323,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
             nodes=solution.nodes,
             values=solution.values,
             node_hessian=solution.node_hessian,
+            interior=solution.interior,
             info=info,
             hparams=config,
         )

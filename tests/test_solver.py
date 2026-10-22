@@ -365,6 +365,8 @@ def test_grid_solvers_report_nodes_and_their_hessian(solver):
     assert result.nodes.shape == (81, 2) and result.values.shape == (81,)
     assert result.node_hessian.shape == (81, 2, 2)
     assert np.sum(np.isfinite(result.node_hessian[:, 0, 0])) == 49
+    assert result.interior.dtype == bool and result.interior.sum() == 49
+    assert np.all(np.isfinite(result.node_hessian[result.interior]))
     assert result.info["unknowns"] == 49 and result.info["h"] == (0.125, 0.125)
     steps = [e for e in recorder.events if e[0] == "step"]
     assert len(steps) == result.info["iterations"]
@@ -376,3 +378,5 @@ def test_result_arrays_are_read_only():
     for array in (result.nodes, result.values, result.node_hessian):
         with pytest.raises(ValueError, match="read-only"):
             array[0] = 99.0
+    with pytest.raises(ValueError, match="read-only"):
+        result.interior[0] = True

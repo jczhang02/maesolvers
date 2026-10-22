@@ -183,11 +183,14 @@ def grid_parameters(
 
 def grid_solution(grid: Grid, v: np.ndarray, spline_degree: int) -> Solution:
     """The solution fields of unknowns ``v``: nodes, values, Hessian, spline."""
+    interior = np.zeros(len(grid.nodes), dtype=bool)
+    interior[grid.interior] = True
     return Solution(
         u=grid.interpolant(v, spline_degree),
         nodes=grid.nodes,
         values=grid.values(v),
         node_hessian=grid.node_hessian(v),
+        interior=interior,
         unknowns=int(grid.interior.size),
         info={
             "h": grid.h,

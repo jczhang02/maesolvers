@@ -113,6 +113,30 @@ def test_node_hessian_convexity_ignores_boundary_nodes():
     assert m["eigmin_exact"] == pytest.approx(np.exp(0.04), rel=1e-6)
 
 
+def test_node_hessian_convexity_uses_the_method_interior_mask():
+    # Nodes placed on the unit circle with cos/sin: the floating-point test
+    # of Disk.interior counts some of them as interior, the method knows better.
+    t = np.linspace(0.0, 2.0 * np.pi, 400, endpoint=False)
+    rim = np.stack([np.cos(t), np.sin(t)], axis=-1)
+    assert np.any(P1.domain.interior(rim))
+    inside = 0.5 * rim[::10]
+    nodes = np.concatenate([rim, inside])
+    hess = np.concatenate(
+        [np.full((len(rim), 2, 2), np.nan), _exact_hessian_p1(inside)]
+    )
+    interior = np.arange(len(nodes)) >= len(rim)
+    result = Result(
+        P1,
+        P1.exact,
+        nodes=nodes,
+        values=P1.exact(nodes),
+        node_hessian=hess,
+        interior=interior,
+    )
+    m = evaluate(result)
+    assert m["nonconvex_fraction"] == 0.0 and m["eigmin"] == 1.0
+
+
 def test_nan_node_hessian_at_an_interior_node_is_not_convex():
     nodes = [[0.2, 0.2], [0.5, 0.5], [0.8, 0.8]]
     hess = np.array([np.eye(2), np.full((2, 2), np.nan), np.full((2, 2), np.nan)])

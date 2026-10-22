@@ -40,11 +40,22 @@ def test_node_arrays_are_converted_to_float():
             r"\(3, 2, 2\)",
         ),
         (dict(node_hessian=np.zeros((3, 2, 2))), "needs Result.nodes"),
+        (
+            dict(nodes=np.zeros((3, 2)), values=np.zeros(3), interior=np.ones(4, bool)),
+            r"\(3,\)",
+        ),
+        (dict(interior=np.ones(3, bool)), "needs Result.nodes"),
     ],
 )
 def test_inconsistent_node_arrays_are_rejected(kwargs, message):
     with pytest.raises(ValueError, match=message):
         Result(SQUARE, _u, **kwargs)
+
+
+def test_interior_must_be_a_boolean_mask():
+    # An index array such as numpy.flatnonzero(mask) is the likely mistake.
+    with pytest.raises(TypeError, match="boolean mask"):
+        Result(SQUARE, _u, nodes=np.zeros((3, 2)), values=np.zeros(3), interior=[1, 2])
 
 
 @pytest.mark.parametrize("kwargs", [dict(u=1.0), dict(u=_u, hessian=1.0)])
@@ -66,11 +77,17 @@ def test_records_are_deep_copies_in_plain_dicts():
 
 def test_node_arrays_are_read_only_copies():
     values = np.zeros(2)
-    result = Result(SQUARE, _u, nodes=np.zeros((2, 2)), values=values)
+    interior = np.array([True, False])
+    result = Result(
+        SQUARE, _u, nodes=np.zeros((2, 2)), values=values, interior=interior
+    )
     values[0] = 1.0
-    assert result.values[0] == 0.0
+    interior[1] = True
+    assert result.values[0] == 0.0 and not result.interior[1]
     with pytest.raises(ValueError, match="read-only"):
         result.values[0] = 1.0
+    with pytest.raises(ValueError, match="read-only"):
+        result.interior[0] = False
 
 
 def test_optional_fields_are_keyword_only():
