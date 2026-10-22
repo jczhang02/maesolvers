@@ -742,7 +742,9 @@ def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
     ``u`` linear along the edge, and ``grad u`` linear between the gradients
     the Clough-Tocher interpolant estimates at the edge's two nodes. Both
     are ``O(h)``-accurate or better, so the error is ``O(h^2)`` in the
-    wedges as in the slivers.
+    wedges as in the slivers. A node that Qhull leaves out of the
+    triangulation (one of two nodes some ``1e-5`` steps apart) has NaN
+    gradients, but it is not a vertex of the hull, so they are never read.
     """
     spline = CloughTocher2DInterpolator(nodes, values)
     # The gradients at the nodes, shape (k, 1, 2): an attribute scipy sets
