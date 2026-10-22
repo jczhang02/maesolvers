@@ -201,7 +201,7 @@ The papers' grid convention, which none of them states, is `h = 1/N`, except in 
 Newton on the standard scheme converges in the residual on T2 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
 On T7 Newton does the same from `N = 41` on, while the Poisson iteration matches the 2010 table at every printed `N`.
 
-The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.6e-3 (5% to 95%: 4.7e-3 to 2.2e-2), and Figure 1 of the paper tops at about 5.7e-3.
+The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
 
 <details>
