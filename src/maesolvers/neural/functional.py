@@ -83,7 +83,9 @@ def diagonal_convexity_penalty(hess: torch.Tensor) -> torch.Tensor:
     nonnegative determinant is positive semidefinite exactly when both
     diagonal entries are nonnegative, so together with the equation term
     the penalty pushes towards a convex solution; in higher dimensions it
-    does not.
+    does not. The equation term keeps the determinant near ``f``, so where
+    ``f = 0`` (T4, T5, T20) a saddle with a slightly negative determinant
+    and a nonnegative diagonal is not penalised.
 
     Parameters
     ----------

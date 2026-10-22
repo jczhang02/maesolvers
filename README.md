@@ -229,7 +229,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ## Layout
 
-- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, and the parameter checks `integer` and `positive`.
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive` and `nonnegative`, and the part check `check_part`.
 - `src/maesolvers/classical/`: the scheme `Standard9`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton` and `FDPoisson`.
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the preset `PenaltyMLP`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.

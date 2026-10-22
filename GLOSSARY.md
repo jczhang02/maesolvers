@@ -16,7 +16,7 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | 迭代方法 | iteration | The algorithm that solves a scheme's discrete equations (Newton, the Poisson iteration, semi-smooth Newton). One scheme under two iterations can reach different discrete solutions. | solver (for this part alone) |
 | 求解器 | solver | A complete method that takes a problem and returns a result: a scheme with an iteration, or a network with a loss and a training loop. | 模型 (for a classical solver) |
 | 预设 | preset | A named solver for a common combination of parts, such as the standard 9-point scheme under the Poisson iteration. The comparison table lists presets. | |
-| 配点 | collocation points | The points where a neural method evaluates its loss: inside the domain for the equation, on the boundary for the boundary condition. Drawn from the seed by the sampler, so every method with the same sampler and seed trains on the same points. The primary error is never measured at them. | 训练点 (for the set itself), sample points |
+| 配点 | collocation points | The points where a neural method evaluates its loss: inside the domain for the equation, on the boundary for the boundary condition. Drawn from the seed by the sampler; whether ADR 0008's shared set is per problem or per sampler, and whether it is stored, is open (#52). The primary error is never measured at them. | 训练点 (for the set itself), sample points |
 | 分支选择 (shared) | branch selection | Whether a solver reaches the convex solution (凸解) or a non-convex one that also satisfies `det D^2 u = f`, such as the concave solution (凹解) of the unit-disk example with `f = 1`. | |
 
 ## Problems
