@@ -175,7 +175,9 @@ class HardDirichlet(Network):
         Most L-BFGS iterations of each fit, at least 1. The paper gives no
         cap (SciPy's BFGS, whose own default cap is 200 iterations per
         parameter); this one is large enough for both fits to meet
-        ``fit_tol`` on the catalogue problems the preset supports.
+        ``fit_tol`` on T1 and T6 at the paper's settings (at most 557
+        iterations for ``G`` and 2752 for ``D``), and the report says
+        whether a fit hit it.
     fit_tol
         Each fit stops when the largest component of its gradient is at most
         this, positive (1e-5, the default ``gtol`` of the SciPy BFGS the
