@@ -23,6 +23,8 @@ Repository = "https://github.com/jczhang02/maesolvers"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
+# Experiment logging on a100server (see CLAUDE.md, Experiments); not a library dependency.
+experiments = ["mlflow>=3.4"]
 
 [build-system]
 requires = ["hatchling"]

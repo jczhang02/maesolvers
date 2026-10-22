@@ -7,3 +7,6 @@ build/
 .pytest_cache/
 .ruff_cache/
 out/
+
+# Git worktrees (see CLAUDE.md, Git)
+/.worktrees/
