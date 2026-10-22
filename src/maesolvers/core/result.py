@@ -18,7 +18,8 @@ class Result:
     """The solution of a :class:`~maesolvers.core.problem.Problem` by one method.
 
     Every field after ``u`` is keyword-only. The node arrays are stored as
-    read-only float copies, ``info`` and ``hparams`` as deep copies in plain
+    read-only copies (float, boolean for ``interior``), ``info`` and
+    ``hparams`` as deep copies in plain
     dicts, so a result does not change when the caller's data does and its
     records serialise with ``json`` or YAML as they are.
 
