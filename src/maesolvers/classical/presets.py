@@ -10,10 +10,13 @@ like every solver they declare their support on the class.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from maesolvers.classical.iterations import Newton, PoissonIteration
+from maesolvers.classical.monotone import Monotone17
 from maesolvers.classical.schemes import Standard9
+from maesolvers.core.problem import Problem
+from maesolvers.core.solver import UnsupportedProblemError
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -95,3 +98,100 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
         cells per side takes degree ``n``. On a curved domain the solution
         off the nodes is the Clough-Tocher interpolant, whatever the degree.
     """
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Monotone17Preset:
+    """The fields and support of a preset on :class:`Monotone17`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = Monotone17.domains
+    boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
+
+    scheme: Monotone17 = field(init=False, repr=False)
+    n: int = Monotone17.n
+    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
+    jacobian_floor: float = Monotone17.jacobian_floor
+    spline_degree: int = Monotone17.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = Monotone17(
+            n=self.n,
+            stencil=self.stencil,
+            boundary=self.boundary,
+            jacobian_floor=self.jacobian_floor,
+            spline_degree=self.spline_degree,
+        )
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "stencil", scheme.stencil)
+        object.__setattr__(self, "jacobian_floor", scheme.jacobian_floor)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            equal sides when they are what is missing.
+        """
+        if (
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in (self.dims or ())
+            and not self.scheme.supports(problem)
+        ):
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: "
+                "Monotone17 needs a Box with equal sides"
+            )
+        super().check(problem)  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDMonotone(_Monotone17Preset, Newton):
+    """The monotone wide-stencil scheme solved by damped Newton.
+
+    ``FDMonotone(n=n, stencil=s, ...)`` is
+    ``Newton(scheme=Monotone17(n=n, stencil=s, ...), ...)``, the monotone
+    columns of Froese-Oberman 2011, Table 3 (SIAM J. Numer. Anal. and
+    J. Comput. Phys.). Newton uses the scheme's generalised Jacobian, so it
+    is a semi-smooth Newton method; ``max_iter`` is higher than ``Newton``'s,
+    because T2 needs about 60 steps with the 9-point stencil
+    (``docs/methods/monotone17.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the stencil: 9, 17 or 33.
+    boundary
+        ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
+    jacobian_floor
+        The floor of the Jacobian's factors, times ``1 / (2 h^2)``, as in
+        :class:`Monotone17`.
+    max_iter
+        Most Newton steps.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5 and at most ``n``.
+    """
+
+    max_iter: int = 200

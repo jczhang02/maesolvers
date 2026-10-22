@@ -20,9 +20,10 @@ from typing import Any, ClassVar, NamedTuple
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.interpolate import CloughTocher2DInterpolator, RectBivariateSpline
+from scipy.interpolate import CloughTocher2DInterpolator
 from scipy.sparse.linalg import factorized
 
+from maesolvers.classical._grid import interior_mask, spline
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Domain, Ellipse, Field
@@ -130,7 +131,7 @@ def difference_operators(
         in flat order.
     """
     m = n + 1
-    interior = _interior_mask(n).ravel()
+    interior = interior_mask(n).ravel()
     index = np.flatnonzero(interior)
     rows = np.arange(index.size)
 
@@ -184,13 +185,6 @@ def monge_ampere_jacobian(
     return (
         sp.diags(uyy) @ dxx + sp.diags(uxx) @ dyy - 2.0 * sp.diags(uxy) @ dxy
     ).tocsc()
-
-
-def _interior_mask(n: int) -> np.ndarray:
-    """Shape ``(n + 1, n + 1)``: True at the nodes off the boundary."""
-    mask = np.zeros((n + 1, n + 1), dtype=bool)
-    mask[1:-1, 1:-1] = True
-    return mask
 
 
 _SW_DIRECTIONS = ((1, 0), (0, 1), (1, 1), (1, -1))
@@ -534,14 +528,14 @@ class Standard9(Scheme):
         y = np.linspace(box.lo[1], box.hi[1], n + 1)
         if isinstance(problem.domain, Box):
             nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-            interior = _interior_mask(n).ravel()
+            interior = interior_mask(n).ravel()
             dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
             row_scale = np.ones(np.count_nonzero(interior))
             degree = min(self.spline_degree, n)  # a spline needs degree + 1 knots
             interpolant = f"spline({degree})"
 
             def interpolate(values: np.ndarray) -> Field:
-                return _spline(x, y, values, degree)
+                return spline(x, y, values, degree)
 
         else:
             nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
@@ -716,20 +710,6 @@ class Standard9(Scheme):
         )
 
 
-def _spline(x: np.ndarray, y: np.ndarray, values: np.ndarray, degree: int) -> Field:
-    """Tensor spline of the given degree through values on the grid ``x`` by ``y``."""
-    spline = RectBivariateSpline(
-        x, y, values.reshape(len(x), len(y)), kx=degree, ky=degree
-    )
-
-    def u(p: np.ndarray) -> np.ndarray:
-        p = np.asarray(p, dtype=float)
-        out = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
-        return out.reshape(p.shape[:-1])
-
-    return u
-
-
 def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
     """Clough-Tocher interpolant through values at scattered nodes in the plane.
 
@@ -746,18 +726,18 @@ def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
     triangulation (one of two nodes some ``1e-5`` steps apart) has NaN
     gradients, but it is not a vertex of the hull, so they are never read.
     """
-    spline = CloughTocher2DInterpolator(nodes, values)
+    fit = CloughTocher2DInterpolator(nodes, values)
     # The gradients at the nodes, shape (k, 1, 2): an attribute scipy sets
     # on construction but does not document; the corner tests pin its use.
-    grad = np.asarray(spline.grad).reshape(len(nodes), 2)
-    hull = spline.tri.convex_hull
+    grad = np.asarray(fit.grad).reshape(len(nodes), 2)
+    hull = fit.tri.convex_hull
     start, end = hull[:, 0], hull[:, 1]
 
     def u(p: np.ndarray) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         flat = p.reshape(-1, 2)
-        out = spline(flat)
-        outside = spline.tri.find_simplex(flat) < 0
+        out = fit(flat)
+        outside = fit.tri.find_simplex(flat) < 0
         if np.any(outside):
             q = flat[outside]
             edge, s = _nearest_on_segments(q, nodes[start], nodes[end])
