@@ -4,6 +4,7 @@ import pytest
 from maesolvers import (
     T1,
     T2,
+    T7,
     T8,
     Box,
     Dirichlet,
@@ -39,6 +40,21 @@ def test_corner_blowup_breaks_the_standard_scheme():
     metrics = {n: evaluate(r) for n, r in results.items()}
     assert metrics[64]["nonconvex_fraction"] > 0.0
     assert metrics[64]["max"] > 0.5 * metrics[32]["max"]
+
+
+def test_t7_convex_root_at_n20_nonconvex_root_at_n40():
+    """Regression, not a reproduction: at n = 20 Newton lands on the convex
+    root that matches BFO 2010 Table 7 (0.2892); at n = 40 it converges to a
+    non-convex root well above the printed 0.2734 (benchmarks/standard_fd.md,
+    T7)."""
+    coarse = evaluate(FDNewton(n=20).solve(T7))
+    assert round(coarse["u_origin"], 4) == 0.2892
+    assert coarse["nonconvex_fraction"] == 0.0
+    result = FDNewton(n=40).solve(T7)
+    fine = evaluate(result)
+    assert result.info["converged"]
+    assert fine["nonconvex_fraction"] > 0.0
+    assert fine["u_origin"] > 0.2734 + 0.01
 
 
 def test_disk_domain_is_rejected():
