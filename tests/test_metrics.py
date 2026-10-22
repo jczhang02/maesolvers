@@ -88,19 +88,47 @@ def test_nan_solution_gives_nan_errors():
     assert np.isnan(m["max"]) and np.isnan(m["rms"])
 
 
-def test_node_hessian_convexity_skips_undefined_nodes():
-    nodes = np.array([[0.2, 0.2], [0.5, 0.5], [0.8, 0.8], [0.0, 0.0]])
+def _node_result(nodes, hess):
+    nodes = np.asarray(nodes, dtype=float)
+    return Result(P4, P4.exact, nodes=nodes, values=P4.exact(nodes), node_hessian=hess)
+
+
+def test_node_hessian_convexity_ignores_boundary_nodes():
+    # (0, 0) and (1, 0.5) lie on the boundary of P4's unit square: their
+    # Hessians, NaN and finite non-convex, must not count.
+    nodes = [[0.2, 0.2], [0.5, 0.5], [0.8, 0.8], [0.0, 0.0], [1.0, 0.5]]
     hess = np.array(
-        [np.eye(2), np.diag([2.0, -1.0]), np.diag([3.0, 0.5]), np.full((2, 2), np.nan)]
+        [
+            np.eye(2),
+            np.diag([2.0, -1.0]),
+            np.diag([3.0, 0.5]),
+            np.full((2, 2), np.nan),
+            np.diag([-5.0, 1.0]),
+        ]
     )
-    result = Result(
-        P4, P4.exact, nodes=nodes, values=P4.exact(nodes), node_hessian=hess
-    )
-    m = evaluate(result)
+    m = evaluate(_node_result(nodes, hess))
     assert m["nonconvex_fraction"] == pytest.approx(1 / 3)
     assert m["eigmin"] == -1.0
     # Hessian of exp(|x|^2/2) at (0.2, 0.2): smallest eigenvalue exp(0.04).
     assert m["eigmin_exact"] == pytest.approx(np.exp(0.04), rel=1e-6)
+
+
+def test_nan_node_hessian_at_an_interior_node_is_not_convex():
+    nodes = [[0.2, 0.2], [0.5, 0.5], [0.8, 0.8]]
+    hess = np.array([np.eye(2), np.full((2, 2), np.nan), np.full((2, 2), np.nan)])
+    m = evaluate(_node_result(nodes, hess))
+    assert np.isnan(m["nonconvex_fraction"]) and np.isnan(m["eigmin"])
+
+
+def test_nan_callable_hessian_on_the_shared_grid_is_not_convex():
+    def hessian(x):
+        out = _exact_hessian_p1(x).copy()
+        out[1:] = np.nan
+        return out
+
+    m = evaluate(Result(P1, P1.exact, hessian=hessian))
+    assert np.isnan(m["nonconvex_fraction"]) and np.isnan(m["eigmin"])
+    assert m["eigmin_exact"] == pytest.approx(1.0, abs=1e-6)
 
 
 def test_callable_hessian_convexity_on_the_shared_grid():

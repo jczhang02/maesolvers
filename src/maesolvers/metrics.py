@@ -39,8 +39,9 @@ def shared_grid(domain: Domain, size: int | None = None) -> np.ndarray:
     """The shared evaluation grid of a domain.
 
     A uniform grid over the bounding box, both ends included on every axis,
-    restricted to the domain: a box keeps its boundary points, every other
-    domain keeps its interior points only (test-set specification, Section 2).
+    restricted to the domain (test-set specification, Section 2). Only a
+    :class:`~maesolvers.core.domains.Box` keeps its boundary points; every
+    other domain, a user's own included, keeps its interior points only.
 
     Parameters
     ----------
@@ -137,29 +138,37 @@ def _smallest_eigenvalues(hess: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _convexity(result: Result) -> dict[str, float]:
-    """Non-convex fraction and smallest eigenvalues, where a Hessian is defined.
+    """Non-convex fraction and smallest eigenvalues of the method's Hessian.
 
-    The points are the nodes with a finite node Hessian, else the points of
-    the shared grid where the callable Hessian is finite.
+    The points are the interior nodes for a node Hessian, else the shared
+    grid for a callable Hessian. A non-finite Hessian at any of them makes
+    ``nonconvex_fraction`` and ``eigmin`` NaN, so a broken result is never
+    reported as convex. ``eigmin_exact`` is taken over the points where the
+    exact Hessian is finite.
     """
+    problem = result.problem
     if result.node_hessian is not None:
-        points, hess = result.nodes, result.node_hessian
+        assert result.nodes is not None  # Result guarantees it
+        interior = problem.domain.interior(result.nodes)
+        points, hess = result.nodes[interior], result.node_hessian[interior]
     elif result.hessian is not None:
-        points = shared_grid(result.problem.domain)
+        points = shared_grid(problem.domain)
         hess = np.asarray(result.hessian(points), dtype=float)
     else:
         return {}
-    eig, defined = _smallest_eigenvalues(hess)
-    if eig.size == 0:
+    if len(points) == 0:
         return {}
-    out = {
-        "nonconvex_fraction": float(np.mean(eig < 0)),
-        "eigmin": float(np.min(eig)),
-    }
-    exact = result.problem.exact
-    if exact is not None:
+    eig, defined = _smallest_eigenvalues(hess)
+    if np.all(defined):
+        out = {
+            "nonconvex_fraction": float(np.mean(eig < 0)),
+            "eigmin": float(np.min(eig)),
+        }
+    else:
+        out = {"nonconvex_fraction": float("nan"), "eigmin": float("nan")}
+    if problem.exact is not None:
         with np.errstate(invalid="ignore"):
-            exact_hess = _hessian_fd(exact, points[defined])
+            exact_hess = _hessian_fd(problem.exact, points)
         exact_eig, _ = _smallest_eigenvalues(exact_hess)
         if exact_eig.size:
             out["eigmin_exact"] = float(np.min(exact_eig))
@@ -174,8 +183,9 @@ def evaluate(result: Result) -> dict[str, float]:
     ``max_grid`` and ``rms_grid`` repeat them on the shared grid through
     ``result.u`` when the result has nodes, as a secondary value. For a
     transport problem each side's mean over the points is subtracted first.
-    Convexity uses the node Hessian at the nodes where it is defined, else
-    the callable Hessian on the shared grid.
+    Convexity uses the node Hessian at the interior nodes, else the callable
+    Hessian on the shared grid; a non-finite Hessian at any of these points
+    gives NaN ``nonconvex_fraction`` and ``eigmin``.
 
     Parameters
     ----------
@@ -196,10 +206,9 @@ def evaluate(result: Result) -> dict[str, float]:
     up_to_constant = isinstance(problem.boundary, Transport)
     if exact is not None:
         grid = shared_grid(problem.domain)
-        if result.nodes is not None:
-            out["max"], out["rms"] = _errors(
-                result.values, exact(result.nodes), up_to_constant
-            )
+        nodes, values = result.nodes, result.values
+        if nodes is not None and values is not None:
+            out["max"], out["rms"] = _errors(values, exact(nodes), up_to_constant)
             out["max_grid"], out["rms_grid"] = _errors(
                 result.u(grid), exact(grid), up_to_constant
             )
@@ -276,6 +285,9 @@ def summarize(
     metrics: Sequence[Mapping[str, float] | None], threshold: float, key: str = "max"
 ) -> Summary:
     """Aggregate the seeds of one method on one problem (ADR 0007).
+
+    It takes the :func:`evaluate` outputs rather than the results, because a
+    seed that timed out or crashed has no result to pass.
 
     A failed seed (``None``, as for a timeout, or a NaN or infinite error)
     counts with error ``+inf`` and is never dropped, so when more than half
