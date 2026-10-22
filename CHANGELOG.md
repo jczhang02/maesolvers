@@ -44,6 +44,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - The `maesolvers` console script (also `python -m maesolvers`) with the subcommand `solve`: `--config FILE` (keys `solver`, `problem` and `output`, a path relative to the file), `--solver` and dotted overrides such as `--solver.scheme.n 128`, `--problem ID`, and `--output FILE`.
   It prints `evaluate` as a table; `--output` writes `run` (a `--config` file that reruns the result), `metrics` and `info` as strict JSON, with numpy values as numbers and lists and NaN and infinity as `null`.
   It exits with status 2 for a wrong argument, an `--output` path that cannot be created, a value a constructor rejects or an unsupported problem, before any solve.
+  Without the `cli` extra it exits with status 2 and a one-line message that names the extra and how to install it.
 - The `cli` extra (jsonargparse >= 4.49), imported only by `from_config` and `maesolvers.cli`; `import maesolvers` imports no extra.
 - `docs/guide.md`: solve a problem, pass parameters in the three ways, and write a solver of your own, with a worked example that `tests/test_guide.py` runs; `docs/methods/standard9.md` for the standard 9-point scheme and its two iterations.
 
