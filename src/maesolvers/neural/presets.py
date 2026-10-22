@@ -146,6 +146,9 @@ class DirichletICNN(NeuralSolver):
     width, depth
         Units per hidden layer and hidden layers of the network, each at
         least 1.
+    init_std
+        Standard deviation of the initial parameters of the network,
+        positive.
     boundary_weight
         ``C``, the weight of the boundary misfit, at least 0.
     interior_points, boundary_points
@@ -171,6 +174,7 @@ class DirichletICNN(NeuralSolver):
     optimizer: Optimizer = field(init=False, repr=False)
     width: int = ICNN.width
     depth: int = ICNN.depth
+    init_std: float = ICNN.init_std
     boundary_weight: float = 100.0
     interior_points: int = UniformSampler.interior_points
     boundary_points: int = UniformSampler.boundary_points
@@ -178,7 +182,7 @@ class DirichletICNN(NeuralSolver):
 
     def __post_init__(self) -> None:
         boundary_points = integer("boundary_points", self.boundary_points, 1)
-        network = ICNN(width=self.width, depth=self.depth)
+        network = ICNN(width=self.width, depth=self.depth, init_std=self.init_std)
         loss = PenaltyLoss(
             convexity_weight=0.0,
             boundary_weight=self.boundary_weight,
@@ -193,6 +197,7 @@ class DirichletICNN(NeuralSolver):
         object.__setattr__(self, "optimizer", LBFGS())
         object.__setattr__(self, "width", network.width)
         object.__setattr__(self, "depth", network.depth)
+        object.__setattr__(self, "init_std", network.init_std)
         object.__setattr__(self, "boundary_weight", loss.boundary_weight)
         object.__setattr__(self, "interior_points", sampler.interior_points)
         object.__setattr__(self, "boundary_points", sampler.boundary_points)

@@ -135,6 +135,7 @@ def test_the_icnn_preset_records_flat_hyperparameters():
             "accelerator": "cpu",
             "width": 10,
             "depth": 5,
+            "init_std": 1.0,
             "boundary_weight": 10.0,
             "interior_points": 3000,
             "boundary_points": 400,
@@ -223,6 +224,7 @@ def test_a_solver_with_a_loss_on_dirichlet_data_refuses_a_transport_problem():
         (lambda: PenaltyMLP(width=1.5), TypeError, "width must be an integer"),
         (lambda: ICNN(width=0), ValueError, "width must be at least 1"),
         (lambda: ICNN(depth=1.0), TypeError, "depth must be an integer"),
+        (lambda: ICNN(init_std=0.0), ValueError, "init_std must be positive"),
         (
             lambda: PenaltyLoss(equation_at_boundary="yes"),
             TypeError,

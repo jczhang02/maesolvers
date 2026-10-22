@@ -43,7 +43,7 @@ from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
 
-OPTIONS = ("max_steps", "accelerator")
+OPTIONS = ("max_steps", "init_std", "accelerator")
 """Preset settings the command line can change; a change needs --out."""
 
 FIELDS = (
@@ -120,6 +120,7 @@ def main() -> None:
     parser.add_argument("problem", choices=sorted(CATALOGUE))
     parser.add_argument("--seeds", type=int, nargs="+", default=list(range(10)))
     parser.add_argument("--max-steps", type=int, default=DirichletICNN.max_steps)
+    parser.add_argument("--init-std", type=float, default=DirichletICNN.init_std)
     parser.add_argument("--accelerator", default=DirichletICNN.accelerator)
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)

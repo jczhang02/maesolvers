@@ -133,8 +133,8 @@ class InputConvex(torch.nn.Module):
     later hidden layers, and the output ``W_k z_k + L_k x + b_k``, with
     ``s`` the softplus. Each ``W_j`` is the elementwise square of the trained
     parameter ``V_j``, so it is non-negative whatever ``V_j`` is; the
-    ``L_j`` and ``b_j`` are free. Every parameter starts from the standard
-    normal distribution.
+    ``L_j`` and ``b_j`` are free. Every parameter starts from the normal
+    distribution with mean 0 and standard deviation ``std``.
 
     Parameters
     ----------
@@ -142,9 +142,11 @@ class InputConvex(torch.nn.Module):
         Input dimension.
     width, depth
         Units per hidden layer and number of hidden layers.
+    std
+        Standard deviation of the initial parameters.
     """
 
-    def __init__(self, dim: int, width: int, depth: int) -> None:
+    def __init__(self, dim: int, width: int, depth: int, std: float) -> None:
         super().__init__()
         self.inputs = torch.nn.ModuleList(
             [torch.nn.Linear(dim, width) for _ in range(depth)]
@@ -156,7 +158,7 @@ class InputConvex(torch.nn.Module):
         )
         with torch.no_grad():
             for parameter in self.parameters():
-                parameter.normal_()
+                parameter.normal_(std=std)
 
     def weights(self) -> list[torch.Tensor]:
         """Return the hidden-to-hidden and hidden-to-output weights ``W_j = V_j^2``."""
