@@ -27,6 +27,7 @@ repository root::
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -42,7 +43,6 @@ from maesolvers import (
     T20,
     FDHybrid,
     Hybrid,
-    Monotone17,
     Newton,
     Problem,
     Result,
@@ -100,23 +100,6 @@ class UndampedExactStart(ExactStart):
         return new, norm if np.isfinite(norm) else float("inf")
 
 
-@dataclass(frozen=True, kw_only=True)
-class MonotoneRootStart(Newton):
-    """Newton from the converged root of ``start``, whatever ``max_iter``.
-
-    Newton with a ``start`` solves it with its own ``max_iter``; this one
-    solves it to convergence, so that ``max_iter`` caps the steps on the
-    hybrid scheme alone.
-    """
-
-    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """The node values of Newton on ``start`` with its default budget."""
-        assert self.start is not None
-        result = Newton(scheme=self.start, max_iter=200, tol=self.tol).solve(problem)
-        assert result.values is not None and result.interior is not None
-        return result.values[result.interior]
-
-
 def solve(
     solver: Solver, problem: Problem, run_name: str, log: bool
 ) -> tuple[dict[str, Any], Result]:
@@ -155,6 +138,8 @@ def sequence(task: tuple[str, str, str, bool]) -> list[dict[str, Any]]:
                 "ours_as_printed_jcp": printed(m["max"], published),
                 "iterations": m["iterations"],
                 "converged": m["converged"],
+                "start_iterations": m["start_iterations"],
+                "start_converged": m["start_converged"],
                 "residual_max": m["residual_max"],
                 "monotone_fraction": m["monotone_fraction"],
                 "nonconvex_fraction": m["nonconvex_fraction"],
@@ -178,8 +163,9 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
     """One row of hybrid_checks.csv.
 
     ``task`` is (check, problem, N, variant, log). For "section81" the
-    variant names the scheme and the start, for "band" it is (band,
-    boundary), for "steps" the number of Newton steps.
+    variant names the scheme and the start ("exact, k steps" stops after
+    k Newton steps), for "band" it is (band, boundary), for "steps" the
+    number of Newton steps on the hybrid scheme.
     """
     check, name, N, variant, log = task
     problem = PROBLEMS[name]
@@ -189,20 +175,20 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         scheme = Standard9(n=N) if scheme_name == "standard" else Hybrid(n=N)
         if start == "exact":
             solver: Solver = ExactStart(scheme=scheme, max_iter=200)
+        elif start in ("exact, 1 step", "exact, 2 steps"):
+            solver = ExactStart(scheme=scheme, max_iter=int(start.split()[1]))
         elif start == "exact, undamped":
             solver = UndampedExactStart(scheme=scheme, max_iter=20)
         elif start == "poisson":
             solver = Newton(scheme=scheme, max_iter=200)
         else:  # "monotone"
-            solver = Newton(scheme=scheme, start=Monotone17(n=N), max_iter=200)
+            solver = FDHybrid(n=N)
     elif check == "band":
         band, boundary = variant
         solver = FDHybrid(n=N, band=band, boundary=boundary)
         start = "monotone"
     else:  # "steps"
-        solver = MonotoneRootStart(
-            scheme=Hybrid(n=N), start=Monotone17(n=N), max_iter=variant
-        )
+        solver = FDHybrid(n=N, max_iter=variant)
         start = "monotone"
     scheme_label = type(solver.scheme).__name__  # type: ignore[attr-defined]
     run_name = f"check={check} N={N} scheme={scheme_label} variant={variant}"
@@ -221,6 +207,8 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         "published_jcp_hybrid": published_value(published),
         "iterations": m["iterations"],
         "converged": m["converged"],
+        "start_iterations": m.get("start_iterations", ""),
+        "start_converged": m.get("start_converged", ""),
         "residual_max": m["residual_max"],
         "nonconvex_fraction": m["nonconvex_fraction"],
         "monotone_fraction": m.get("monotone_fraction", ""),
@@ -235,6 +223,8 @@ CHECK_TASKS: list[tuple[str, str, int, Any]] = [
         for N in (31, 63, 127, 361)
         for scheme, start in (
             ("standard", "exact"),
+            ("standard", "exact, 1 step"),
+            ("standard", "exact, 2 steps"),
             ("standard", "exact, undamped"),
             ("standard", "poisson"),
             ("hybrid", "exact"),
@@ -254,6 +244,20 @@ CHECK_TASKS: list[tuple[str, str, int, Any]] = [
 """(check, problem, N, variant) of every row of hybrid_checks.csv."""
 
 
+def create_experiments(names: list[str]) -> None:
+    """Create the MLflow experiments before the worker processes start.
+
+    Workers that call ``mlflow.set_experiment`` on a missing experiment at
+    the same time race to create it, and the losers log to ``Default``.
+    """
+    import mlflow
+
+    uri = os.environ.get("MLFLOW_TRACKING_URI", tracking.DEFAULT_URI)
+    mlflow.set_tracking_uri(uri)
+    for name in names:
+        mlflow.set_experiment(name)
+
+
 def main() -> None:
     """Parse the command line, run the solves, write the CSV."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -264,6 +268,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     log = not args.no_mlflow
+    if log:
+        create_experiments(
+            [f"maesolvers-hybrid-{name}" for name in ("T1", "T2", "T20", "T21")]
+        )
     if args.checks:
         with Pool(args.processes) as pool:
             rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
