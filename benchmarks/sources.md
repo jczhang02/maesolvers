@@ -130,7 +130,7 @@ For Newton, the max and min are replaced by smooth monotone versions (MA^delta).
 The equations are solved by damped Newton, with the step reduced until the residual decreases.
 The linear systems are solved by MATLAB backslash (sparse LU).
 The initial guess is one step of the semi-implicit scheme, Laplacian u^0 = sqrt(2f) in 2D, convexified only for the most singular example.
-The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon) with a small epsilon; the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon), with epsilon = 10^-8 / (2 dx^2) (Section 5.3, read from the page image; the text layer garbles it).
 Section 6 uses a 17-point stencil for Table 1; Table 3 also uses 9- and 33-point stencils.
 No Newton stopping tolerance is stated.
 The "F.D." columns of Table 3 are the standard 9-point scheme "using the results of [5]" ([5] is Benamou-Froese-Oberman 2010).
@@ -187,6 +187,35 @@ Table 1: Newton on the 17-point monotone scheme.
 
 Table 2 gives the CPU time scaling, with M = N^2: Gauss-Seidel about O(M^1.8) on C^{2,alpha} and O(M^1.9) on C^{1,alpha}; Poisson about O(M^1.4), "blowup" on less regular solutions; Newton about O(M^1.3) for all regularities.
 
+### C^1 example (11), T20 in the catalogue
+
+Table 3: max error; the F.D. column prints a dash at N = 255 and 361.
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | F.D. |
+|---|---|---|---|---|
+| 31 | 3.0 x 10^-3 | 1.7 x 10^-3 | 1.5 x 10^-3 | 2.6 x 10^-4 |
+| 63 | 2.5 x 10^-3 | 1.0 x 10^-3 | 0.6 x 10^-3 | 1.5 x 10^-4 |
+| 127 | 2.3 x 10^-3 | 0.8 x 10^-3 | 0.3 x 10^-3 | 0.6 x 10^-4 |
+| 255 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+| 361 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 4, 7, 11, 16, 20 at N = 31, 63, 127, 255, 361.
+
+### C^{0,1} (Lipschitz) example (13), the cone T21
+
+Table 3: max error; the Standard F.D. column prints a dash at N = 255 and 361.
+f is the Dirac mass pi delta_{x0} averaged over the disk |x - x0| <= h/2: 4/h^2 there, 0 elsewhere (Section 6.1).
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | Standard F.D. |
+|---|---|---|---|---|
+| 31 | 12 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 | 10 x 10^-3 |
+| 63 | 11 x 10^-3 | 3 x 10^-3 | 2 x 10^-3 | 6 x 10^-3 |
+| 127 | 11 x 10^-3 | 4 x 10^-3 | 2 x 10^-3 | 3 x 10^-3 |
+| 255 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+| 361 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 9, 15, 32, 34, 29 at N = 31, 63, 127, 255, 361.
+
 ### Other test solutions in this paper
 
 - "C^1 example" (11): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5).
@@ -206,7 +235,7 @@ Methods: three discretisations, each solved by damped Newton.
 On the square, the monotone scheme is used near the boundary, so the hybrid scheme is less accurate than the standard one for (a).
 The linear systems are solved by LU decomposition.
 The initial guess is one semi-implicit step followed by a convex envelope on a coarse grid, interpolated to the fine grid.
-The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon); the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon), with epsilon = 10^-8 / (2 dx^2) as in the SIAM paper (Section 7.2).
 Hardware: a laptop with a 2 GHz Intel processor, MATLAB, Windows Vista.
 No Newton stopping tolerance is stated.
 Section 8.1 reports that Newton on the standard scheme fails for solution (b): started from the exact solution, after two iterations it oscillates and becomes non-convex (Fig. 2).
@@ -277,6 +306,36 @@ Table 1: Newton on the hybrid scheme.
 | 361 | 8 | 152.9 | 374.5 | -- |
 
 Table 2 gives the same CPU time scalings as the SIAM paper (Newton about O(M^1.3), M = N^2).
+
+### C^1 Example (15), T20 in the catalogue
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 2.6 x 10^-4 | 17.5 x 10^-4 | 12.2 x 10^-4 |
+| 45 | 1.8 x 10^-4 | 11.6 x 10^-4 | 5.9 x 10^-4 |
+| 63 | 1.5 x 10^-4 | 9.8 x 10^-4 | 4.2 x 10^-4 |
+| 89 | 0.9 x 10^-4 | 8.4 x 10^-4 | 2.6 x 10^-4 |
+| 127 | 0.6 x 10^-4 | 7.9 x 10^-4 | 2.0 x 10^-4 |
+| 181 | 0.4 x 10^-4 | 7.4 x 10^-4 | 1.2 x 10^-4 |
+| 255 | -- | 7.2 x 10^-4 | 1.0 x 10^-4 |
+| 361 | -- | 7.0 x 10^-4 | 0.7 x 10^-4 |
+
+### C^{0,1} (Lipschitz) Example (17), the cone T21
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 10 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 45 | 8 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 63 | 6 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 89 | 4 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 127 | 3 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 181 | 2 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 255 | -- | 4 x 10^-3 | 4 x 10^-3 |
+| 361 | -- | 4 x 10^-3 | 4 x 10^-3 |
 
 ### Other test solutions in this paper
 
