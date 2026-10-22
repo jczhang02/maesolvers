@@ -38,6 +38,8 @@ def test_problem_carries_its_dimension():
         (dict(boundary="dirichlet"), TypeError, "Dirichlet or Transport"),
         (dict(exact=0.0), TypeError, "exact"),
         (dict(observables={"u0": 1.0}), TypeError, "u0"),
+        (dict(observables={"u(0,0)": lambda u: 0.0}), ValueError, "identifier"),
+        (dict(observables={"u min": lambda u: 0.0}), ValueError, "identifier"),
         (
             dict(
                 domain=Box((0,) * 3, (1,) * 3),

@@ -96,10 +96,10 @@ Every Dirichlet problem with an exact solution takes its boundary data from it; 
 | T1 | `(0, 1)^2` | `(1 + |x|^2) exp(|x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | smooth, the standard finite-difference example |
 | T2 | `(0, 1)^2` | `2 (2 - |x|^2)^-2` | Dirichlet | `-sqrt(2 - |x|^2)` | gradient blow-up at the corner `(1, 1)` |
 | T3 | `(0, 1)^2` | `|x|^-1` | Dirichlet | `(2 sqrt 2 / 3) |x|^(3/2)` | `f` blows up at `(0, 0)` but is integrable |
-| T4 | `(0, 1)^2` | 1 for `|x - x0| > 0.4`, else 0 | Dirichlet | `max(|x - x0|^2 / 2, 0.08)` | discontinuous `f`; this `u` is not C^1 (see its note) |
+| T4 | `(0, 1)^2` | 1 for `|x - x0| > 0.4`, else 0 | Dirichlet | 0.08 for `r <= 0.4`, `0.08 + (r s - 0.16 ln((r + s) / 0.4)) / 2` beyond, `r = |x - x0|`, `s = sqrt(r^2 - 0.16)` | discontinuous `f`, C^1 Alexandrov solution (not the source paper's `u`, see its note) |
 | T5 | `(0, 1.5)^2` | 4 for `|x| > 1`, else 0 | Dirichlet | 0 for `r <= 1`, `r sqrt(r^2 - 1) - ln(r + sqrt(r^2 - 1))` beyond | discontinuous `f`, C^1 Alexandrov solution |
 | T6 | quarter of the unit disk cut by `y > x - 1/2` (`CutQuarterDisk`) | from `u` | Dirichlet | `0.7 exp((x - 1/2)^2 / 2 + y^2) + x^2 - 1/2` | asymmetric domain |
-| T7 | `[-1, 1]^2` | 1 | Dirichlet, `g = 1` | none; observable `u(0,0)` | no classical solution at the corners |
+| T7 | `[-1, 1]^2` | 1 | Dirichlet, `g = 1` | none; observable `u_origin`, `u(0, 0)` (compare at even `n`) | no classical solution at the corners |
 | T8 | unit disk | 1 | Dirichlet, `g = 0` | `(|x|^2 - 1) / 2` | branch selection: the concave `(1 - |x|^2) / 2` also solves the equation |
 | T9 | `(0, 1)^3` | `(1 + |x|^2) exp(3 |x|^2 / 2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 3D |
 | T10 | `(0, 1)^4` | `(1 + |x|^2) exp(2 |x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 4D |

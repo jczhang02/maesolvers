@@ -9,16 +9,31 @@ Four independent checks:
   ``f``, at random interior points away from the sets where ``u`` is not
   smooth; and the Dirichlet data against ``u`` on the boundary;
 - values worked out by hand at special points of the catalogue-only problems;
-- for the transport problems, the gradient of ``u`` maps the boundary onto the
-  target's boundary, and the integral of ``f`` equals the target's area.
+- the gradient of ``u`` maps the domain onto a set whose area is the integral
+  of ``f``: onto the target for the transport problems, and for the Dirichlet
+  problems with a kink or a singular point, so that a singular part of the
+  Monge-Ampere measure that ``f`` omits fails.
+
+The last section runs every included solver on every catalogue problem.
 """
 
 import numpy as np
 import pytest
+from scipy.special import erfi
 
+import maesolvers
 from maesolvers.catalogue import CATALOGUE, SHARED_TEST_SET
-from maesolvers.core import Box, CutQuarterDisk, Dirichlet, Disk, Transport
+from maesolvers.core import (
+    Box,
+    CutQuarterDisk,
+    Dirichlet,
+    Disk,
+    Result,
+    Transport,
+    UnsupportedProblemError,
+)
 from maesolvers.metrics import evaluate, shared_grid
+from maesolvers.solvers import FDNewton, FDPoisson
 
 # The catalogue as a whole
 
@@ -46,6 +61,30 @@ def test_catalogue_is_keyed_by_t_id():
 def test_catalogue_is_read_only():
     with pytest.raises(TypeError):
         CATALOGUE["T99"] = CATALOGUE["T1"]
+
+
+def test_every_problem_is_exported_at_the_top_level():
+    assert set(CATALOGUE) <= set(maesolvers.__all__)
+    assert set(maesolvers.catalogue.__all__) == {
+        *CATALOGUE,
+        "CATALOGUE",
+        "SHARED_TEST_SET",
+    }
+    assert all(getattr(maesolvers, k) is p for k, p in CATALOGUE.items())
+
+
+@pytest.mark.parametrize("name", list(CATALOGUE))
+def test_fields_reject_points_of_the_wrong_dimension(name):
+    problem = CATALOGUE[name]
+    fields = [problem.f, problem.exact]
+    if isinstance(problem.boundary, Dirichlet):
+        fields.append(problem.boundary.g)
+    for field in filter(None, fields):
+        for shape in [(3, problem.dim + 1), (problem.dim + 1,), (problem.dim, 3)]:
+            if shape[-1] == problem.dim:
+                continue
+            with pytest.raises(ValueError, match="shape"):
+                field(np.zeros(shape))
 
 
 def test_shared_test_set_is_in_the_catalogue():
@@ -120,13 +159,20 @@ _Q0 = 1.0 / (256.0 * np.pi**3) + 1.0 / (32.0 * np.pi)  # q(0) of T16
 HAND_VALUES = [
     # |x| = 1: u = 2 sqrt 2 / 3, f = 1/|x| = 1.
     ("T3", (0.6, 0.8), 2.0 * _SQRT2 / 3.0, 1.0),
-    # At the centre u is on its flat part 0.08 and f = 0; at (1, 1) the
-    # squared distance is 1/2: u = 1/4, f = 1.
+    # At the centre u is on its flat part 0.08 and f = 0; at (1, 1),
+    # r^2 = 1/2 and r^2 - 0.16 = 0.34:
+    # u = 0.08 + (sqrt(0.5 * 0.34) - 0.16 ln((sqrt 0.5 + sqrt 0.34) / 0.4)) / 2.
     ("T4", (0.5, 0.5), 0.08, 0.0),
-    ("T4", (1.0, 1.0), 0.25, 1.0),
-    # Either side of the kink circle of radius 0.4.
+    (
+        "T4",
+        (1.0, 1.0),
+        0.08
+        + 0.5 * (np.sqrt(0.17) - 0.16 * np.log((np.sqrt(0.5) + np.sqrt(0.34)) / 0.4)),
+        1.0,
+    ),
+    # Either side of the circle of radius 0.4: r = 0.41, sqrt(r^2 - 0.16) = 0.09.
     ("T4", (0.5, 0.89), 0.08, 0.0),
-    ("T4", (0.5, 0.91), 0.08405, 1.0),
+    ("T4", (0.5, 0.91), 0.08 + 0.5 * (0.41 * 0.09 - 0.16 * np.log(1.25)), 1.0),
     # r = sqrt 2: sqrt(r^2 - 1) = 1, u = sqrt 2 - ln(sqrt 2 + 1); inside the
     # unit circle u = f = 0.
     ("T5", (1.0, 1.0), _SQRT2 - np.log(_SQRT2 + 1.0), 4.0),
@@ -202,7 +248,7 @@ def _hessian_det(u, p, h=1e-4):
     return np.linalg.det(hess)
 
 
-# Sets where u is not smooth: the kink circles and the singular corners.
+# Sets where u is not smooth: the circles where D^2 u jumps.
 KINKS = {
     "T4": ((0.5, 0.5), 0.4),
     "T5": ((0.0, 0.0), 1.0),
@@ -297,12 +343,56 @@ def test_dirichlet_data_is_the_trace_of_the_exact_solution(name):
     assert np.allclose(problem.boundary.g(b), problem.exact(b), rtol=1e-13, atol=1e-15)
 
 
-# Transport problems
+# The area of grad u(Omega) is the integral of f
 
 
 def _gradient(u, p, h=1e-6):
     e = h * np.eye(p.shape[-1])
     return np.stack([(u(p + ei) - u(p - ei)) / (2 * h) for ei in e], axis=-1)
+
+
+def _box_loop(box, count):
+    """``4 count`` points around the boundary of a 2D box, counterclockwise."""
+    (x0, y0), (x1, y1) = box.lo, box.hi
+    corners = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+    t = np.linspace(0.0, 1.0, count, endpoint=False)[:, None]
+    return np.concatenate(
+        [a + t * (b - a) for a, b in zip(corners, np.roll(corners, -1, 0))]
+    )
+
+
+def _enclosed_area(loop):
+    x, y = loop[:, 0], loop[:, 1]
+    return 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
+
+
+# Integral of f over the domain, by hand. T1: with A = int_0^1 exp(t^2) dt,
+# int (1 + x^2 + y^2) exp(x^2 + y^2) = A^2 + 2 A (e - A)/2 = A e. T3: the
+# integral of 1/|x| over (0, a)^2 is 2 a ln(1 + sqrt 2). T4, T5: the area
+# where f > 0 times f. T20: (1 - 0.04 pi) - 0.2 (4 ln(1 + sqrt 2) - 0.4 pi),
+# the square of side 1 about the centre being four squares of side 1/2.
+_LN = np.log(1.0 + np.sqrt(2.0))
+INTEGRAL_OF_F = {
+    "T1": np.e * np.sqrt(np.pi) / 2.0 * erfi(1.0),
+    "T3": 2.0 * _LN,
+    "T4": 1.0 - 0.16 * np.pi,
+    "T5": 4.0 * (1.5**2 - np.pi / 4.0),
+    "T20": 1.0 + 0.04 * np.pi - 0.8 * _LN,
+}
+
+
+@pytest.mark.parametrize("name", list(INTEGRAL_OF_F))
+def test_gradient_image_has_the_mass_of_f(name):
+    """For a C^1 convex u on a convex domain, grad u(Omega) is the region the
+    image of the boundary encloses; its area is the Monge-Ampere measure of
+    Omega, which equals the integral of f only if the measure has no singular
+    part, as on a circle where grad u jumps."""
+    problem = CATALOGUE[name]
+    image = _gradient(problem.exact, _box_loop(problem.domain, 20000))
+    assert _enclosed_area(image) == pytest.approx(INTEGRAL_OF_F[name], rel=1e-7)
+
+
+# Transport problems
 
 
 def test_t12_gradient_maps_the_circle_onto_the_ellipse():
@@ -359,8 +449,22 @@ def test_transport_mass_balance(name):
 
 
 def test_t7_reports_u_at_the_origin():
-    from maesolvers import Result
-
     problem = CATALOGUE["T7"]
     result = Result(problem, lambda x: 0.3 + np.sum(np.asarray(x) ** 2, axis=-1))
-    assert evaluate(result) == {"u(0,0)": pytest.approx(0.3)}
+    assert evaluate(result) == {"u_origin": pytest.approx(0.3)}
+
+
+# Every included solver on every catalogue problem: it either solves and
+# evaluate reports finite numbers, or it refuses with UnsupportedProblemError.
+
+
+@pytest.mark.parametrize("solver", [FDPoisson(n=8), FDNewton(n=8)], ids=repr)
+@pytest.mark.parametrize("name", list(CATALOGUE))
+def test_every_solver_solves_or_refuses_every_problem(solver, name):
+    problem = CATALOGUE[name]
+    if not solver.supports(problem):
+        with pytest.raises(UnsupportedProblemError):
+            solver.solve(problem)
+        return
+    metrics = evaluate(solver.solve(problem))
+    assert metrics and all(np.isfinite(v) for v in metrics.values()), metrics

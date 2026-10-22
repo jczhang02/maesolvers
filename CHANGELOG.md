@@ -8,7 +8,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 - `maesolvers.core`: `Box` (d-dimensional), `Disk`, `Ellipse` behind a `Domain` protocol with `dim`, `bbox`, `contains` and `interior`; the protocol is closed at 0.1, and further capabilities come as separate protocols.
 - `Dirichlet(g)` and `Transport(target)` boundary condition types; for `Transport`, `Problem.f` is the source density and the target density is uniform 1 on `target`.
-- `Problem.observables`: named numbers computed from a solution, reported by `evaluate`.
+- `Problem.observables`: named numbers computed from a solution, reported by `evaluate`; each name must be an ASCII identifier (`ValueError` otherwise), so that it is also a valid MLflow metric name.
 - `Result.hessian`, an optional callable Hessian, and `Result.hparams`, the solver's configuration as `class_path` and `init_args`, nested parts and containers of parts included.
 - `Result.interior` and `Solution.interior`: an optional boolean mask of the method's interior nodes, where `evaluate` reads `node_hessian`; without it `evaluate` falls back to `problem.domain.interior(nodes)`, which may count nodes on a curved boundary as interior.
   `FDNewton` and `FDPoisson` set it.
@@ -20,8 +20,9 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.metrics.summarize(results, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate of an `evaluate` field over seeds, a seed without a result (`None`) or with a NaN or infinite error counted as `+inf` (ADR 0007).
 - `maesolvers.metrics.shared_grid(domain, size=None)` takes a domain and picks 201, 51 or 21 points per axis by dimension.
 - `maesolvers.catalogue`: every problem under its T id, `CATALOGUE` (a read-only mapping from id to `Problem`) and `SHARED_TEST_SET`, the ids of the comparison table's rows; each problem is also exported at the top level (`from maesolvers import T1`).
-  The shared test set T1, T2, T20, T8 (with `g = 0`), T12, T9, T10 follows the test-set specification and its point values; T3, T4, T5, T6, T7, T16 and T22 are catalogue-only, defined as their source papers print them (each `note` names the paper).
-  T7 has no exact solution and reports the observable `u(0,0)`.
+  The shared test set T1, T2, T20, T8 (with `g = 0`), T12, T9, T10 follows the test-set specification and its point values; T3, T4, T5, T6, T7, T16 and T22 are catalogue-only, defined as their source papers print them (each `note` names the paper), except T4: its exact solution is the C^1 Alexandrov solution of its `f`, because the paper's `u` has a gradient jump that adds a singular measure to `f`.
+  T7 has no exact solution and reports the observable `u_origin`, the value `u(0, 0)`.
+  Every catalogue field raises `ValueError` for points whose last axis is not the problem's dimension.
 - `CutQuarterDisk`, the domain of T6: the quarter of the unit disk in the first quadrant cut by `y > x - 1/2`.
 
 ### Changed

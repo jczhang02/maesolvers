@@ -189,10 +189,10 @@ def test_observables_are_reported_by_name():
         Disk((0, 0), 1),
         f=T8.f,
         boundary=Dirichlet(T8.boundary.g),
-        observables={"u(0,0)": lambda u: u(np.zeros(2))},
+        observables={"u_origin": lambda u: u(np.zeros(2))},
     )
     m = evaluate(Result(problem, lambda x: 0.75 + T8.exact(x)))
-    assert m == {"u(0,0)": 0.25}
+    assert m == {"u_origin": 0.25}
 
 
 def test_observable_may_not_shadow_a_metric():
