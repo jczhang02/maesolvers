@@ -134,7 +134,7 @@ The published comparison uses `FDPoisson`, which is unaffected.
 
 ## Not compared
 
-CPU times (2010 MATLAB hardware), the monotone and hybrid columns (schemes not implemented yet), and the Gauss-Seidel iteration counts (method not implemented).
+CPU times (2010 MATLAB hardware), the hybrid columns (scheme not implemented yet), and the Gauss-Seidel iteration counts (method not implemented); the monotone columns are compared in `monotone17.md`.
 For T7: the 9-, 17- and 33-point wide-stencil columns of Table 7 (scheme not implemented yet) and the iteration counts and times of Table 8 (stopping rule `10^-14` on successive iterates against our `10^-12`, and 2010 hardware).
 
 ## Shared 201 x 201 grid
