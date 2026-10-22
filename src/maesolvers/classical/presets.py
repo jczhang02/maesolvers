@@ -10,7 +10,7 @@ like every solver they declare their support on the class.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Generic, Literal, TypeVar
 
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
@@ -33,7 +33,6 @@ class _Standard9Preset:
     dims: ClassVar[tuple[int, ...] | None] = Standard9.dims
 
     scheme: Standard9 = field(init=False, repr=False)
-    start: None = field(default=None, init=False, repr=False)
     n: int = Standard9.n
     spline_degree: int = Standard9.spline_degree
 
@@ -75,6 +74,8 @@ class FDNewton(_Standard9Preset, Newton):
         off the nodes is the Clough-Tocher interpolant, whatever the degree.
     """
 
+    start: None = field(default=None, init=False, repr=False)
+
 
 @dataclass(frozen=True, kw_only=True)
 class FDPoisson(_Standard9Preset, PoissonIteration):
@@ -102,7 +103,10 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
-class _SquareBoxCheck:
+_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid)
+
+
+class _SquareBoxCheck(Generic[_SquareSchemeT]):
     """The ``check`` of a preset whose scheme needs a box with equal sides.
 
     Listed among a preset's bases before the iteration, whose ``check`` it
@@ -112,7 +116,7 @@ class _SquareBoxCheck:
     domains: ClassVar[tuple[type, ...]]
     boundaries: ClassVar[tuple[type, ...]]
     dims: ClassVar[tuple[int, ...] | None]
-    scheme: Any  # Monotone17 or Hybrid, set by the preset
+    scheme: _SquareSchemeT
 
     def check(self, problem: Problem) -> None:
         """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
@@ -142,7 +146,7 @@ class _SquareBoxCheck:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Monotone17Preset(_SquareBoxCheck):
+class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
     """The fields and support of a preset on :class:`Monotone17`.
 
     Listed first among a preset's bases, so its ``__post_init__`` builds the
@@ -154,7 +158,6 @@ class _Monotone17Preset(_SquareBoxCheck):
     dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
 
     scheme: Monotone17 = field(init=False, repr=False)
-    start: None = field(default=None, init=False, repr=False)
     n: int = Monotone17.n
     stencil: Literal[9, 17, 33] = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
@@ -207,14 +210,16 @@ class FDMonotone(_Monotone17Preset, Newton):
         Stop when ``max |residual| <= tol * max(1, max |f|)``.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
     """
 
+    start: None = field(default=None, init=False, repr=False)
     max_iter: int = 200
 
 
 @dataclass(frozen=True, kw_only=True)
-class _HybridPreset(_SquareBoxCheck):
+class _HybridPreset(_SquareBoxCheck[Hybrid]):
     """The fields and support of a preset on :class:`Hybrid`.
 
     Listed first among a preset's bases, so its ``__post_init__`` builds the
@@ -226,7 +231,7 @@ class _HybridPreset(_SquareBoxCheck):
     dims: ClassVar[tuple[int, ...] | None] = Hybrid.dims
 
     scheme: Hybrid = field(init=False, repr=False)
-    start: Monotone17 = field(init=False, repr=False)
+    start: FDMonotone = field(init=False, repr=False)
     n: int = Hybrid.n
     stencil: Literal[9, 17, 33] = Hybrid.stencil
     boundary: Literal["narrow", "interpolate"] = Hybrid.boundary
@@ -245,8 +250,16 @@ class _HybridPreset(_SquareBoxCheck):
             epsilon=self.epsilon,
             band=self.band,
         )
+        start = FDMonotone(
+            n=scheme.n,
+            stencil=scheme.stencil,
+            boundary=scheme.boundary,
+            jacobian_floor=scheme.jacobian_floor,
+            spline_degree=scheme.spline_degree,
+            tol=self.tol,  # type: ignore[attr-defined]
+        )
         object.__setattr__(self, "scheme", scheme)
-        object.__setattr__(self, "start", scheme.monotone)
+        object.__setattr__(self, "start", start)
         for name in (
             "n",
             "stencil",
@@ -263,16 +276,18 @@ class _HybridPreset(_SquareBoxCheck):
 class FDHybrid(_HybridPreset, Newton):
     """The hybrid scheme of Froese-Oberman 2011 solved by damped Newton.
 
-    ``FDHybrid(n=n, stencil=s, epsilon=e, band=b, ...)`` is
+    ``FDHybrid(n=n, stencil=s, epsilon=e, band=b, tol=t, ...)`` is
     ``Newton(scheme=Hybrid(n=n, stencil=s, epsilon=e, band=b, ...),
-    start=Monotone17(n=n, stencil=s, ...), ...)``: Newton on the hybrid scheme
-    from the root of the monotone scheme, which the Poisson start does not
-    reach on T2 (``benchmarks/hybrid.md``). It is the column "Hybrid" of
-    Froese-Oberman 2011, Table 3 (J. Comput. Phys.):
+    start=FDMonotone(n=n, stencil=s, tol=t, ...), tol=t, ...)``: Newton on
+    the hybrid scheme from the root of the monotone scheme, which the
+    Poisson start does not reach on T2 (``benchmarks/hybrid.md``). It is
+    the column "Hybrid" of Froese-Oberman 2011, Table 3 (J. Comput. Phys.):
     the standard 9-point scheme where the data are regular, the monotone
     wide-stencil scheme within ``band`` grid steps of the boundary and of
     where ``f`` is at most ``epsilon`` or at least ``1 / epsilon``.
-    ``max_iter`` is ``FDMonotone``'s, for each of the two Newton solves.
+    The start keeps ``FDMonotone``'s budget of 200 steps whatever
+    ``max_iter``; ``Result.info["start_iterations"]`` and
+    ``info["start_converged"]`` report it.
 
     Parameters
     ----------
@@ -291,12 +306,14 @@ class FDHybrid(_HybridPreset, Newton):
     band
         Radius in grid steps of the monotone neighbourhood, at least 0.
     max_iter
-        Most Newton steps.
+        Most Newton steps on the hybrid scheme.
     tol
-        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+        Stop when ``max |residual| <= tol * max(1, max |f|)``, on the hybrid
+        scheme and on the start.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
     """
 
     max_iter: int = 200

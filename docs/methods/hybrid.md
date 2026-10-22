@@ -1,15 +1,15 @@
 # Hybrid scheme
 
 The hybrid scheme of Froese and Oberman (2011) averages two discretisations of `det D^2 u = f` on one grid: the standard 9-point scheme where the data say the solution is smooth, for its second-order accuracy, and the monotone wide-stencil scheme near where the solution may be singular, for its convergence to the viscosity solution.
-maesolvers ships it as the scheme `Hybrid`, built from the parts `Standard9` and `Monotone17`, solved by `Newton` from the root of the monotone scheme, and as the preset `FDHybrid` for that combination (ADR 0004).
+maesolvers ships it as the scheme `Hybrid`, built from the parts `Standard9` and `Monotone17`, solved by `Newton` from the root of the monotone scheme (`start=FDMonotone(...)`), and as the preset `FDHybrid` for that combination (ADR 0004).
 Reproduction: [`benchmarks/hybrid.md`](../../benchmarks/hybrid.md).
 
 ```python
-from maesolvers import T2, FDHybrid, Hybrid, Monotone17, Newton
+from maesolvers import T2, FDHybrid, FDMonotone, Hybrid, Newton
 from maesolvers.metrics import evaluate
 
 result = FDHybrid(n=127).solve(T2)  # the preset
-same = Newton(scheme=Hybrid(n=127), start=Monotone17(n=127), max_iter=200).solve(T2)
+same = Newton(scheme=Hybrid(n=127), start=FDMonotone(n=127), max_iter=200).solve(T2)
 print(evaluate(result)["max"])  # 2.00e-4; Froese-Oberman print 0.20e-3
 ```
 
@@ -46,35 +46,37 @@ Omega^s = {x in Omega : f(x) <= epsilon or f(x) >= 1/epsilon} union {x on the bo
 take `epsilon = h`, and set `w = 0` in an `h`-neighbourhood of `Omega^s` and `w = 1` away from it, through "a differentiable function".
 Eq. (6) as printed reads `epsilon < f(x) < 1/epsilon`, which is the regular set, not the singular one; the text around it, and the T21 remark that the scheme is the monotone one where `f` is "either 0 or very large", mean the complement written above.
 
-`Hybrid.weights(problem)` computes this rule on the grid, through the pure function `hybrid_weights(f, epsilon, band)` in `maesolvers.classical.hybrid`:
+`Hybrid.weights(problem, nodes, h)` computes this rule on the grid, through the pure function `hybrid_weights(f, epsilon, band)` in `maesolvers.classical.hybrid`:
 
 - `Omega^s` on the grid is every boundary node (the sides of a box are flat) and every interior node where `f <= epsilon` or `f >= 1/epsilon`, or `f` is not finite;
 - `w = 0` at every interior node within `band` grid steps of a node of `Omega^s` (Euclidean distance between nodes), and `w = 1` at the others.
 
-`epsilon = None` means `h`, and `band = 1` is the paper's `h`-neighbourhood, so by default the first ring of interior nodes is always monotone, and so is every node within one step of where `f` is at most `h` or at least `1/h`.
+`epsilon = None` means `h`, `epsilon` must lie in `(0, 1)` (with `epsilon >= 1` every node would be singular), and `band = 1` is the paper's `h`-neighbourhood, so by default the first ring of interior nodes is always monotone, and so is every node within one step of where `f` is at most `h` or at least `1/h`.
 The paper gives no formula for the transition from 0 to 1, so the rule is a step; `benchmarks/hybrid.md` tests wider bands.
 The clause "`g` not `C^{2,alpha}`" is not computable from a `Problem` and is left out: on a box the whole boundary is in `Omega^s` anyway.
 
-A rule of your own is a subclass that overrides `weights`:
+A rule of your own is a subclass that overrides `weights(problem, nodes, h)`.
+`discretize` passes the interior nodes in the order of the unknowns, shape `((n - 1)^2, 2)` (node `(i, j)`, at `(i h, j h)` on the unit square, in row `(i - 1) (n - 1) + j - 1`), and the grid step `h`; the rule returns one weight per row, and `discretize` checks the shape and that each weight lies in `[0, 1]`.
+A rule that depends on position reads it from `nodes`:
 
 ```python
 from dataclasses import dataclass
 
 import numpy as np
 
-from maesolvers import T1, Hybrid, Monotone17, Newton
+from maesolvers import T1, FDMonotone, Hybrid, Newton
 
 
 @dataclass(frozen=True, kw_only=True)
-class EvenSplit(Hybrid):
-    def weights(self, problem):
-        return np.full((self.n - 1) ** 2, 0.5)
+class MonotoneOnTheLeft(Hybrid):
+    def weights(self, problem, nodes, h):
+        return np.where(nodes[:, 0] < 0.5, 0.0, 1.0)
 
 
-result = Newton(scheme=EvenSplit(n=32), start=Monotone17(n=32)).solve(T1)
+result = Newton(scheme=MonotoneOnTheLeft(n=32), start=FDMonotone(n=32)).solve(T1)
 ```
 
-`discretize` checks that the weights have one entry per unknown, in the unknowns' order (node `(i, j)` at `(i - 1) (n - 1) + j - 1`), each in `[0, 1]`.
+Results carry `info["monotone_fraction"]`, the mean of `1 - w` over the unknowns: the share of monotone nodes for a rule of 0 and 1, and 0.5 for `w = 0.5` everywhere.
 
 ## Newton's method and its start
 
@@ -83,9 +85,13 @@ result = Newton(scheme=EvenSplit(n=32), start=Monotone17(n=32)).solve(T1)
 The start matters.
 The standard part has non-convex roots, and on T2 Newton from its default start, `laplace u_0 = 2 sqrt(f)`, reaches one from `n = 63` on: the error is 16, 37 and 425 times the published one at `n = 63`, 127 and 361 (`benchmarks/hybrid.md`, Finding 1).
 The paper starts Newton from one step of the semi-implicit (Poisson) iteration, convexified by the convex envelope and interpolated from a coarse grid (JCP Section 7.1).
-maesolvers starts it from the root of the monotone scheme instead: `Newton(scheme=Hybrid(...), start=Monotone17(...))` first solves `Monotone17` by Newton (whose roots are convex along every stencil direction) and steps from there, and `FDHybrid` does this with the hybrid scheme's own `monotone` part.
-From that start Newton converges in 3 steps on T1 and T2 and to the convex root on every problem tried.
-It costs one monotone solve: 5 to 43 steps with 17 points (`benchmarks/monotone17.md`), and `Result.info["iterations"]` counts the hybrid steps only.
+maesolvers starts it from the root of the monotone scheme instead, whose roots are convex along every stencil direction.
+`Newton`'s field `start` takes any solver of the same unknowns that is a `SchemeIteration`: `Newton(scheme=Hybrid(n), start=FDMonotone(n))` first runs `FDMonotone(n)` with its own `max_iter` and `tol` and steps from its final unknowns, and `FDHybrid` does this with a start built from its own fields.
+The paper's start without the convex envelope is `start=PoissonIteration(scheme=Standard9(n), max_iter=1)`.
+From the monotone root Newton converges in 3 steps on T1 and T2 (4 on T1 at `N = 361`) and to the convex root on every problem tried.
+It costs one monotone solve: 5 to 43 steps with 17 points (`benchmarks/monotone17.md`).
+`Result.info["iterations"]`, `converged`, `history` and the callbacks (so `MLflowLogger`) cover the steps on the hybrid scheme only; `info["start_iterations"]` and `info["start_converged"]` report the start, `time` includes it, and a start that did not converge also raises a `RuntimeWarning`.
+`FDHybrid`'s start keeps `FDMonotone`'s budget of 200 steps whatever `max_iter`.
 
 ## Source paper
 
@@ -101,14 +107,14 @@ The parts' sources are in `docs/methods/standard9.md` and `docs/methods/monotone
 | `Hybrid` | `stencil` | 17 | points of the monotone stencil: 9, 17 (the paper's) or 33 |
 | `Hybrid` | `boundary` | `"narrow"` | the monotone scheme's wide pairs next to the boundary, as in `Monotone17` |
 | `Hybrid` | `jacobian_floor` | 1e-12 | the monotone Jacobian's floor, as in `Monotone17` |
-| `Hybrid` | `spline_degree` | 3 | degree of the spline off the nodes, 1 to `min(5, n)` |
-| `Hybrid` | `epsilon` | None (`h`) | threshold of the switching rule: `f <= epsilon` or `f >= 1/epsilon` is singular |
+| `Hybrid` | `spline_degree` | 3 | degree of the spline off the nodes, 1 to 5; degree `n` if `n` is smaller |
+| `Hybrid` | `epsilon` | None (`h`) | threshold of the switching rule, in `(0, 1)`: `f <= epsilon` or `f >= 1/epsilon` is singular |
 | `Hybrid` | `band` | 1.0 | radius in grid steps of the monotone neighbourhood of the singular set, at least 0 |
-| `Newton` | `start` | None (`FDHybrid`: its `Monotone17`) | a scheme whose Newton root is the first iterate |
-| `Newton` | `max_iter` | 50 (`FDHybrid`: 200) | most steps, of each of the two solves |
-| `Newton` | `tol` | 1e-10 | largest residual, relative to `max(1, max \|f\|)`, of each of the two solves |
+| `Newton` | `start` | None (`FDHybrid`: `FDMonotone` on its fields) | a `SchemeIteration` whose final unknowns are the first iterate; it keeps its own `max_iter` and `tol` |
+| `Newton` | `max_iter` | 50 (`FDHybrid`: 200) | most Newton steps on the hybrid scheme |
+| `Newton` | `tol` | 1e-10 | largest residual, relative to `max(1, max \|f\|)`; `FDHybrid` passes it to its start too |
 
-The preset takes the scheme's parameters flat: `FDHybrid(n=127, band=2)` is `Newton(scheme=Hybrid(n=127, band=2), start=Monotone17(n=127), max_iter=200)`.
+The preset takes the scheme's parameters flat: `FDHybrid(n=127, band=2)` is `Newton(scheme=Hybrid(n=127, band=2), start=FDMonotone(n=127), max_iter=200)`.
 
 ## Known limits
 

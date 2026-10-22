@@ -18,6 +18,9 @@ The same scheme under two iterations can reach different discrete solutions
 # FDPoisson, plain int and float included, Unvalidated. Guarded by
 # test_every_numeric_solver_parameter_is_checked_against_its_type.
 
+import dataclasses
+import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, cast
 
@@ -27,8 +30,9 @@ from scipy.sparse.linalg import spsolve
 
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import positive
+from maesolvers.core.callbacks import Callback
 from maesolvers.core.problem import Problem
-from maesolvers.core.solver import IterativeSolver, Solution, check_part
+from maesolvers.core.solver import IterativeSolver, Solution, Trace, check_part
 
 _BACKTRACKS = 40
 """Halvings of the Newton step before the line search gives up."""
@@ -194,15 +198,15 @@ class _PoissonScheme(Protocol):
 
 @dataclass(frozen=True, kw_only=True)
 class Newton(SchemeIteration):
-    """Damped Newton on a scheme's residual, from a Poisson start or another scheme's root.
+    """Damped Newton on a scheme's residual, from a Poisson start or another solver's iterate.
 
     Starts from ``laplace u = 2 sqrt(f)``, a lower bound for the Laplacian of
     the convex solution (Loeper-Rapetti 2005), or, if ``start`` is given,
-    from the root Newton finds on that scheme, and takes Newton steps halved
+    from the final iterate of that solver, and takes Newton steps halved
     until the max residual decreases. Nothing in the iteration prefers the
     convex root, so on a non-monotone scheme it may converge to a non-convex
-    one; a monotone ``start`` such as
-    :class:`~maesolvers.classical.monotone.Monotone17` puts it next to the
+    one; a start on a monotone scheme, such as
+    :class:`~maesolvers.classical.presets.FDMonotone`, puts it next to the
     convex root (Froese-Oberman 2011, J. Comput. Phys., Section 7.1).
 
     Parameters
@@ -211,24 +215,29 @@ class Newton(SchemeIteration):
         A scheme with ``residual(grid, v)``, its sparse ``jacobian(grid, v)``
         and ``solve_laplace(grid, rhs)``.
     max_iter
-        Most Newton steps, on ``scheme`` and again on ``start``.
+        Most Newton steps on ``scheme``.
     tol
         Stop when ``max |residual| <= tol * max(1, max |f|)``, the residual
         as the scheme defines it (:meth:`Standard9.residual
         <maesolvers.classical.schemes.Standard9.residual>` scales it next to
-        a curved boundary); the same for ``start``.
+        a curved boundary).
     start
-        None, or a scheme with the same unknowns as ``scheme`` and the same
-        methods. The first iterate is then the node values Newton reaches
-        on ``start`` from the Poisson start (converged or not). ``Result.info``
-        counts the steps on ``scheme`` only, and its ``time`` includes the
-        solve on ``start``.
+        None, or a :class:`SchemeIteration` whose scheme has the same
+        unknowns, such as ``FDMonotone(n)`` or
+        ``PoissonIteration(scheme=Standard9(n), max_iter=1)``. :meth:`run`
+        then runs ``start`` first, with its own ``max_iter`` and ``tol``
+        (its ``setup`` and ``run``, not its ``finalize``), and steps from its
+        final unknowns, converged or not, instead of calling
+        :meth:`initial_guess`. ``Result.info["iterations"]``, ``converged``,
+        ``history`` and the callbacks cover the steps on ``scheme`` only;
+        ``info["start_iterations"]`` and ``info["start_converged"]`` report
+        the start, and ``time`` includes it.
 
     Raises
     ------
     TypeError
         On construction, if ``start`` is neither None nor an instance of a
-        well-defined subclass of :class:`~maesolvers.classical.schemes.Scheme`.
+        well-defined subclass of :class:`SchemeIteration`.
     """
 
     measure: ClassVar[str] = "residual"
@@ -236,12 +245,12 @@ class Newton(SchemeIteration):
 
     max_iter: int = 50
     tol: float = 1e-10
-    start: Scheme | None = None
+    start: SchemeIteration | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.start is not None:
-            check_part(f"{type(self).__name__}.start", self.start, Scheme)
+            check_part(f"{type(self).__name__}.start", self.start, SchemeIteration)
 
     def supports(self, problem: Problem) -> bool:
         """Whether the scheme, and ``start`` if given, support the problem.
@@ -260,7 +269,7 @@ class Newton(SchemeIteration):
         )
 
     def check(self, problem: Problem) -> None:
-        """Raise if the scheme or ``start`` lacks a required method, or the problem.
+        """Raise if the scheme lacks a required method, or a part the problem.
 
         Parameters
         ----------
@@ -270,30 +279,79 @@ class Newton(SchemeIteration):
         Raises
         ------
         TypeError
-            If the scheme or ``start`` lacks a method named in :attr:`requires`.
+            If the scheme lacks a method named in :attr:`requires`, or
+            ``start.check`` raises it.
         UnsupportedProblemError
             If the scheme or ``start`` does not support the problem.
         """
-        if self.start is not None:
-            missing = [
-                name
-                for name in self.requires
-                if not callable(getattr(self.start, name, None))
-            ]
-            if missing:
-                raise TypeError(
-                    f"{type(self).__name__} needs a start with {', '.join(missing)}, "
-                    f"which {type(self.start).__name__} does not have"
-                )
         super().check(problem)
+        if self.start is not None:
+            self.start.check(problem)
 
     @property
     def _scheme(self) -> _NewtonScheme:
         """The scheme, typed by the methods :meth:`check` makes sure it has."""
         return cast(_NewtonScheme, self.scheme)
 
+    def run(
+        self, problem: Problem, context: Any, callbacks: Sequence[Callback]
+    ) -> Trace[np.ndarray]:
+        """Step from :meth:`initial_guess`, or from the final iterate of ``start``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        callbacks
+            Each gets ``on_step_end`` with ``{"residual": value}`` after every
+            step on the scheme; none sees the steps of ``start``.
+
+        Returns
+        -------
+        Trace
+            With a ``start``, its ``info`` holds ``start_iterations`` and
+            ``start_converged``.
+
+        Raises
+        ------
+        ValueError
+            If ``start`` ends with another number of unknowns than the scheme
+            has.
+
+        Warns
+        -----
+        RuntimeWarning
+            If ``start`` did not converge; Newton steps from its last iterate.
+        """
+        if self.start is None:
+            return super().run(problem, context, callbacks)
+        begun = self.start.run(problem, self.start.setup(problem), ())
+        unknowns = self._scheme.rhs(context).shape
+        if np.shape(begun.state) != unknowns:
+            raise ValueError(
+                f"{type(self).__name__}.start has {np.size(begun.state)} unknowns "
+                f"on {problem.name}, the scheme {unknowns[0]}"
+            )
+        if not begun.converged:
+            warnings.warn(
+                f"{type(self).__name__}.start did not converge on {problem.name} "
+                f"in {begun.iterations} steps; Newton steps from its last iterate",
+                RuntimeWarning,
+                stacklevel=3,  # the caller of solve
+            )
+        trace = self.run_from(problem, context, callbacks, begun.state)
+        info = {
+            "start_iterations": begun.iterations,
+            "start_converged": begun.converged,
+        }
+        return dataclasses.replace(trace, info={**trace.info, **info})
+
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = 2 sqrt(f)``, or Newton on ``start`` from there.
+        """Solve ``laplace u = 2 sqrt(f)``, the convex branch's trace.
+
+        :meth:`run` calls it only if ``start`` is None.
 
         Parameters
         ----------
@@ -306,25 +364,10 @@ class Newton(SchemeIteration):
         -------
         numpy.ndarray
             The unknowns.
-
-        Raises
-        ------
-        ValueError
-            If ``start`` has another number of unknowns than the scheme.
         """
-        rhs = self._scheme.rhs(context)
-        if self.start is None:
-            return self._scheme.solve_laplace(context, 2.0 * np.sqrt(rhs))
-        first = Newton(scheme=self.start, max_iter=self.max_iter, tol=self.tol)
-        result = first.solve(problem)
-        assert result.values is not None and result.interior is not None
-        v = result.values[result.interior]
-        if v.shape != rhs.shape:
-            raise ValueError(
-                f"{type(self).__name__}.start has {v.size} unknowns on "
-                f"{problem.name}, the scheme {rhs.size}"
-            )
-        return v
+        return self._scheme.solve_laplace(
+            context, 2.0 * np.sqrt(self._scheme.rhs(context))
+        )
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
