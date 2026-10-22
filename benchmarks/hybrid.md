@@ -3,12 +3,14 @@
 Problems: T1 (smooth, `u = exp(|x|^2 / 2)`), T2 (corner blow-up, `u = -sqrt(2 - |x|^2)`), T20 (`C^1`, `u = ((|x - x0| - 0.2)^+)^2 / 2`, `f = 0` on a disk) and T21 (the cone `|x - x0|`, `f` a Dirac mass), on `(0, 1)^2` with Dirichlet data from the exact solution, `x0 = (0.5, 0.5)`.
 Published numbers: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Hybrid" (JCP below), checked against the page image; `sources.md` transcribes the whole table.
 
-Ours: `FDHybrid(n=N)`, the preset `Newton(scheme=Hybrid(n=N), start=Monotone17(n=N), max_iter=200)` (ADR 0004): the 17-point monotone stencil, `boundary="narrow"` unless a column says otherwise, the paper's switching rule with `epsilon = h` and `band = 1` (`docs/methods/hybrid.md`), residual tolerance `1e-10` relative to `max(1, max f)`, float64, scipy sparse LU.
+Ours: `FDHybrid(n=N)`, the preset `Newton(scheme=Hybrid(n=N), start=FDMonotone(n=N), max_iter=200)` (ADR 0004): the 17-point monotone stencil, `boundary="narrow"` unless a column says otherwise, the paper's switching rule with `epsilon = h` and `band = 1` (`docs/methods/hybrid.md`), residual tolerance `1e-10` relative to `max(1, max f)`, float64, scipy sparse LU.
 Every run of `hybrid.csv` converged.
 Error: max over all grid nodes of `|u_h - u|`, `h = 1/N` (ADR 0001) unless a column says otherwise.
 T21 is not in the catalogue; `run_hybrid.py` builds it per grid with `cone(n)` of `run_monotone17.py` (`f = 4/h^2` at the nodes within `h/2` of `x0`), with `n = N - 1` so that `x0` is a node.
-Raw data: `hybrid.csv`, written on a100server by `run_hybrid.py` at commit 9f6df9d (`just remote-bg hybrid env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python benchmarks/run_hybrid.py --processes 8`), and `hybrid_checks.csv` by `run_hybrid.py --checks --processes 12` at commit ad53e5b (session `maesolvers-hybrid-checks3`); the commits between change only the checks.
-Every solve is one run in the MLflow experiment `maesolvers-hybrid-<problem>` (T1, T2, T20, T21), tagged with its commit and a clean checkout; two earlier generations of the checks, at 9f6df9d and 9c1db06, are there too, with the same values in the rows they share.
+Raw data: `hybrid.csv` and `hybrid_checks.csv`, written on a100server by `run_hybrid.py` at commit dd03dd0, one after the other (`just remote-bg hybrid-r1 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python benchmarks/run_hybrid.py --processes 8`, then `hybrid-checks-r1` with `--checks --processes 16`).
+Every solve of these two files is one run in the MLflow experiment `maesolvers-hybrid-<problem>` (T1, T2, T20, T21), tagged with commit dd03dd0 and a clean checkout; `run_hybrid.py` creates the experiments before its worker processes start (issue #54).
+Earlier generations are in the same experiments: `hybrid.csv` at 9f6df9d and the checks at 9f6df9d, 9c1db06 and ad53e5b, with the same values in every row they share with the current files.
+Four solves of the 9f6df9d generation went to the experiment `Default` instead, through a race between the worker processes that created the experiments: the runs `N=31 h=1/N interpolate` of T1, T2 and T20, and `N=31 h=1/(N-1) narrow` of T2.
 
 "As printed" rounds our value to the digits the paper prints; a bold value differs from the published one there.
 The levels follow ADR 0002; the convergence order of a column is the least-squares slope of `log error` against `log N` over its printed `N`, written "orders: published X, ours Y"; a ratio is ours divided by published.
@@ -89,7 +91,7 @@ The centred Hessian is indefinite at nodes of the flat disk (`nonconvex_fraction
 ## T21, the cone
 
 `f` is 0 or `4/h^2` at every node, so the switching rule puts every node in the monotone band (`monotone_fraction` 1), and the hybrid scheme is `Monotone17`, as the paper says (its Section 8.5).
-Newton starts at the monotone root and stops after one step, and the errors are those of `monotone17.csv` (17 points, `h = 1/(N - 1)`) to the last digit: `0.691` at every `N`, against the published `3e-3` to `4e-3`.
+The monotone start already meets the tolerance, so Newton takes no step (`info["iterations"]` is 1: the check of the start), and the errors are those of `monotone17.csv` (17 points, `h = 1/(N - 1)`) to the last digit: `0.691` at every `N`, against the published `3e-3` to `4e-3`.
 Level: mismatch, for the reason of `monotone17.md`, Finding 4: the papers' discrete Dirac mass does not fit the scheme.
 
 ## Finding 1: Newton from the Poisson start reaches a non-convex root on T2; a convex start selects the convex one
@@ -162,6 +164,7 @@ The paper reports that Newton on the standard 9-point scheme, started from the e
 | 361 | 5.4095e-3 | 5.4095e-3 | 2.2248e-2 | 0.541e-2 |
 
 From the Poisson start Newton reaches a non-convex root instead (`nonconvex_fraction` 0.1 to 1.1 percent), as `standard_fd.md`, Finding 2, found for `FDNewton`.
+The iterates on the way do not reproduce Fig. 2 either (rows `exact, 1 step` and `exact, 2 steps`): after the first step the centred Hessian is indefinite at 0.22, 0.10, 0.025 and 0.005 percent of the nodes (`N = 31`, 63, 127, 361; errors `2.35e-2`, `1.76e-2`, `1.27e-2`, `7.7e-3`), and after the second it is convex again at `N = 31` to 127 (errors `1.78e-2`, `1.31e-2`, `9.48e-3`) and indefinite at 2 nodes at `N = 361`, so the first iterate is briefly non-convex and the second is (nearly) convex, while the paper shows a non-convex second iterate.
 So the failure the paper describes is real for a start away from the convex root, but not from the exact solution in our runs; the instability it attributes to the standard scheme is one of branch selection, which the start decides (Finding 1).
 
 ## Conventions
@@ -172,8 +175,8 @@ So the failure the paper describes is real for a start away from the convex root
 
 ## Iterations and time
 
-From the monotone root, Newton on the hybrid scheme takes 3 steps on T1 and T2 at every `N` (4 on T1 at `N = 361`), and 5 to 50 on T20, against the paper's 3 to 6, 4 to 8 and 4 to 20 (its Table 1); the monotone start itself takes 5 to 14, 10 to 30 and 8 to 43 steps (`monotone17.csv`, 17 points, narrow), which the paper's start avoids.
-On T21 Newton stops after one step (the paper: 9 to 34), since the scheme is the monotone one there.
+From the monotone root, Newton on the hybrid scheme takes 3 steps on T1 and T2 at every `N` (4 on T1 at `N = 361`), and 5 to 50 on T20, against the paper's 3 to 6, 4 to 8 and 4 to 20 (its Table 1); the monotone start itself takes 5 to 14, 10 to 30 and 8 to 43 steps (`start_iterations` in `hybrid.csv`, `boundary="narrow"`, `h = 1/N`; 9 to 83 on T21), which the paper's start avoids; every start converged (`start_converged`).
+On T21 Newton takes no step after the start (the paper: 9 to 34), since the scheme is the monotone one there and the start is its root; `iterations` is 1, the check of the start.
 A solve at `N = 361` takes about 1 minute on T1, 2 on T2 and 4 on T20 on one core of a100server, start included; CPU times are 2011 MATLAB hardware and are not compared.
 
 ## Not compared
