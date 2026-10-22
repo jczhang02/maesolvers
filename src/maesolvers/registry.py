@@ -12,9 +12,9 @@ from types import MappingProxyType
 
 from maesolvers.classical import FDNewton, FDPoisson
 from maesolvers.core.solver import Solver
-from maesolvers.neural import PenaltyMLP
+from maesolvers.neural import DirichletICNN, PenaltyMLP
 
 SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
-    {cls.__name__: cls for cls in (FDNewton, FDPoisson, PenaltyMLP)}
+    {cls.__name__: cls for cls in (FDNewton, FDPoisson, PenaltyMLP, DirichletICNN)}
 )
 """Every preset by class name, read-only."""

@@ -3,7 +3,8 @@
 :class:`NeuralSolver` composes the four parts (ADR 0004) and trains them on
 the shared loop of ADR 0008, a Lightning ``Trainer`` in float64;
 :class:`PenaltyMLP` is the preset for the penalty MLP of Nystrom-Vestberg
-2023. A new part subclasses :class:`Network`, :class:`Loss`,
+2023, and :class:`DirichletICNN` for its input convex network
+(:class:`ICNN`). A new part subclasses :class:`Network`, :class:`Loss`,
 :class:`Sampler` or :class:`Optimizer` as a frozen dataclass;
 :mod:`maesolvers.neural.functional` holds the torch kernels a loss is built
 from.
@@ -15,9 +16,9 @@ extra without them.
 """
 
 from maesolvers.neural.losses import Batch, Loss, PenaltyLoss
-from maesolvers.neural.networks import MLP, HardDirichlet, Network
+from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, Network
 from maesolvers.neural.optimizers import LBFGS, Adam, Optimizer
-from maesolvers.neural.presets import PenaltyMLP
+from maesolvers.neural.presets import DirichletICNN, PenaltyMLP
 from maesolvers.neural.samplers import (
     Collocation,
     Sampler,
@@ -27,11 +28,13 @@ from maesolvers.neural.samplers import (
 from maesolvers.neural.solver import NeuralSolver
 
 __all__ = [
+    "ICNN",
     "LBFGS",
     "MLP",
     "Adam",
     "Batch",
     "Collocation",
+    "DirichletICNN",
     "HardDirichlet",
     "Loss",
     "Network",

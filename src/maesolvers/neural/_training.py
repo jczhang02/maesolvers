@@ -100,6 +100,7 @@ class TrainingModule(lightning.LightningModule):
             f=data.f.to(device),
             boundary=data.boundary.to(device),
             g=None if data.g is None else data.g.to(device),
+            f_boundary=data.f_boundary.to(device),
         )
 
     def _torch_optimizer(self) -> LightningOptimizer:

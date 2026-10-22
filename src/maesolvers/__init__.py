@@ -55,9 +55,11 @@ from maesolvers.core import (
     UnsupportedProblemError,
 )
 from maesolvers.neural import (
+    ICNN,
     LBFGS,
     MLP,
     Adam,
+    DirichletICNN,
     HardDirichlet,
     NeuralSolver,
     PenaltyLoss,
@@ -68,6 +70,7 @@ from maesolvers.registry import SOLVERS
 
 __all__ = [
     "CATALOGUE",
+    "ICNN",
     "LBFGS",
     "MLP",
     "SHARED_TEST_SET",
@@ -91,6 +94,7 @@ __all__ = [
     "Callback",
     "CutQuarterDisk",
     "Dirichlet",
+    "DirichletICNN",
     "Disk",
     "Ellipse",
     "FDNewton",

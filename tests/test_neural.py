@@ -336,7 +336,13 @@ def test_the_loss_terms_of_the_penalty_loss():
 
 def test_the_penalty_loss_refuses_a_batch_without_dirichlet_data():
     points = torch.tensor([[0.5, 0.5]], dtype=torch.float64)
-    batch = Batch(interior=points, f=torch.ones(1), boundary=points, g=None)
+    batch = Batch(
+        interior=points,
+        f=torch.ones(1),
+        boundary=points,
+        g=None,
+        f_boundary=torch.ones(1),
+    )
     with pytest.raises(ValueError, match="no Dirichlet data"):
         PenaltyLoss(boundary_weight=1.0)(lambda x: x.sum(dim=-1), batch)
 

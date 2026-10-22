@@ -9,6 +9,7 @@ import pytest
 
 from maesolvers import (
     CATALOGUE,
+    ICNN,
     LBFGS,
     MLP,
     SOLVERS,
@@ -16,10 +17,12 @@ from maesolvers import (
     T6,
     T8,
     T9,
+    T10,
     T12,
     T16,
     Adam,
     Dirichlet,
+    DirichletICNN,
     HardDirichlet,
     NeuralSolver,
     PenaltyLoss,
@@ -94,19 +97,57 @@ def test_the_composed_solver_records_its_parts():
     }
 
 
-def test_the_registry_lists_the_penalty_mlp():
+def test_the_registry_lists_the_neural_presets():
     assert SOLVERS["PenaltyMLP"] is PenaltyMLP
+    assert SOLVERS["DirichletICNN"] is DirichletICNN
 
 
+@pytest.mark.parametrize("preset", [PenaltyMLP, DirichletICNN])
 @pytest.mark.parametrize("name", sorted(CATALOGUE))
-def test_the_preset_class_declaration_agrees_with_its_parts(name):
+def test_the_preset_class_declaration_agrees_with_its_parts(preset, name):
     problem = CATALOGUE[name]
     declared = (
-        isinstance(problem.domain, PenaltyMLP.domains)
-        and isinstance(problem.boundary, PenaltyMLP.boundaries)
-        and problem.dim in PenaltyMLP.dims
+        isinstance(problem.domain, preset.domains)
+        and isinstance(problem.boundary, preset.boundaries)
+        and (preset.dims is None or problem.dim in preset.dims)
     )
-    assert PenaltyMLP().supports(problem) == declared
+    assert preset().supports(problem) == declared
+
+
+def test_the_icnn_preset_is_the_paper_composition():
+    preset = DirichletICNN()
+    assert preset.network == ICNN(width=10, depth=5)
+    assert preset.loss == PenaltyLoss(
+        convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
+    )
+    assert preset.sampler == UniformSampler(interior_points=3000, boundary_points=400)
+    assert preset.optimizer == LBFGS()
+    assert (preset.max_steps, preset.tol) == (10_000, 1e-5)
+
+
+def test_the_icnn_preset_records_flat_hyperparameters():
+    assert DirichletICNN(boundary_weight=10, seed=2).hparams == {
+        "class_path": "maesolvers.DirichletICNN",
+        "init_args": {
+            "max_steps": 10_000,
+            "tol": 1e-5,
+            "seed": 2,
+            "accelerator": "cpu",
+            "width": 10,
+            "depth": 5,
+            "boundary_weight": 10.0,
+            "interior_points": 3000,
+            "boundary_points": 400,
+        },
+    }
+
+
+def test_the_icnn_preset_supports_dirichlet_problems_in_any_dimension():
+    preset = DirichletICNN()
+    assert all(preset.supports(p) for p in (T1, T6, T8, T9, T10))
+    assert not preset.supports(T12) and not preset.supports(T16)  # transport
+    ellipse = Problem("E", Ellipse((0, 0), (2, 1)), T1.f, Dirichlet(T1.f))
+    assert not preset.supports(ellipse)  # no boundary sampling
 
 
 def test_the_penalty_mlp_supports_2d_dirichlet_problems_on_sampled_domains():
@@ -180,6 +221,23 @@ def test_a_solver_with_a_loss_on_dirichlet_data_refuses_a_transport_problem():
         ),
         (lambda: PenaltyMLP(fit_tol=-1.0), ValueError, "fit_tol must be positive"),
         (lambda: PenaltyMLP(width=1.5), TypeError, "width must be an integer"),
+        (lambda: ICNN(width=0), ValueError, "width must be at least 1"),
+        (lambda: ICNN(depth=1.0), TypeError, "depth must be an integer"),
+        (
+            lambda: PenaltyLoss(equation_at_boundary="yes"),
+            TypeError,
+            "equation_at_boundary must be a bool",
+        ),
+        (
+            lambda: DirichletICNN(boundary_points=0),
+            ValueError,
+            "boundary_points must be at least 1",
+        ),
+        (
+            lambda: DirichletICNN(boundary_weight=-1),
+            ValueError,
+            "boundary_weight must be nonnegative",
+        ),
     ],
 )
 def test_parts_and_solvers_check_their_parameters(make, error, message):
@@ -203,6 +261,9 @@ def test_parts_store_plain_numbers():
     assert type(mlp.width) is int
     assert type(PenaltyLoss(convexity_weight=np.float32(2)).convexity_weight) is float
     assert type(PenaltyMLP(interior_points=np.int32(10)).interior_points) is int
+    assert type(ICNN(depth=np.int64(2)).depth) is int
+    flag = PenaltyLoss(equation_at_boundary=np.bool_(True)).equation_at_boundary
+    assert flag is True
 
 
 def test_the_collocation_points_follow_the_seed_and_the_sampler():

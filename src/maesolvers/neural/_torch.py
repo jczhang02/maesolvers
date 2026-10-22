@@ -126,6 +126,53 @@ def fit(
     }
 
 
+class InputConvex(torch.nn.Module):
+    """An input convex network (Amos et al. 2017; Nystrom-Vestberg 2023, eq. (3.7)).
+
+    ``z_1 = s(L_0 x + b_0)``, ``z_{j+1} = s(W_j z_j + L_j x + b_j)`` for the
+    later hidden layers, and the output ``W_k z_k + L_k x + b_k``, with
+    ``s`` the softplus. Each ``W_j`` is the elementwise square of the trained
+    parameter ``V_j``, so it is non-negative whatever ``V_j`` is; the
+    ``L_j`` and ``b_j`` are free. Every parameter starts from the standard
+    normal distribution.
+
+    Parameters
+    ----------
+    dim
+        Input dimension.
+    width, depth
+        Units per hidden layer and number of hidden layers.
+    """
+
+    def __init__(self, dim: int, width: int, depth: int) -> None:
+        super().__init__()
+        self.inputs = torch.nn.ModuleList(
+            [torch.nn.Linear(dim, width) for _ in range(depth)]
+            + [torch.nn.Linear(dim, 1)]
+        )
+        self.roots = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.empty(width, width)) for _ in range(depth - 1)]
+            + [torch.nn.Parameter(torch.empty(1, width))]
+        )
+        with torch.no_grad():
+            for parameter in self.parameters():
+                parameter.normal_()
+
+    def weights(self) -> list[torch.Tensor]:
+        """Return the hidden-to-hidden and hidden-to-output weights ``W_j = V_j^2``."""
+        return [root.square() for root in self.roots]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        first, *later = self.inputs
+        z = torch.nn.functional.softplus(first(x))
+        weights = self.weights()
+        for layer, (inputs, weight) in enumerate(zip(later, weights, strict=True)):
+            z = z @ weight.T + inputs(x)
+            if layer < len(later) - 1:
+                z = torch.nn.functional.softplus(z)
+        return z.squeeze(-1)
+
+
 class Ansatz(torch.nn.Module):
     """``u = G + D N`` with ``G`` and ``D`` frozen: the module of HardDirichlet.
 
