@@ -9,8 +9,8 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 
 | Term (zh) | Term (en) | Meaning | Not |
 |---|---|---|---|
-| 经典方法 (shared) | classical method | A numerical method for `det D^2 u = f` that uses no neural network: finite-difference schemes, finite elements, least-squares and augmented-Lagrangian methods. | 传统方法, 传统格式, 传统求解器, 传统数值方法, 经典数值方法 |
-| 神经方法 (shared) | neural method | A method that represents the solution, or the map to it, with a neural network; the opposite class to 经典方法. A 求解器 (solver) is one concrete method, so "a neural solver" names one solver of this class. | 神经网络方法, 深度学习方法, AI 方法, 神经求解器 (for the whole class) |
+| 传统方法 (shared) | classical method | A numerical method for `det D^2 u = f` that uses no neural network: finite-difference schemes, finite elements, least-squares and augmented-Lagrangian methods. | 经典方法, 经典数值方法, 传统数值方法, 传统格式, 传统求解器 |
+| 深度学习方法 (shared) | neural method | A method that represents the solution, or the map to it, with a neural network; the opposite class to 传统方法. A 求解器 (solver) is one concrete method, so "a neural solver" names one solver of this class. | 神经方法, 神经网络方法, AI 方法, 神经求解器 (for the whole class) |
 | 方法族 | method family | A group of methods that share their parts and dependencies: the finite-difference family, the neural family, later the finite-element family. | |
 | 差分格式 | scheme | One finite-difference discretisation of the equation, named by its stencil (standard 9-point, monotone 17-point, filtered, hybrid). Not used for finite elements. | 离散格式 (alone), format |
 | 迭代方法 | iteration | The algorithm that solves a scheme's discrete equations (Newton, the Poisson iteration, semi-smooth Newton). One scheme under two iterations can reach different discrete solutions. | solver (for this part alone) |
