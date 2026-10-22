@@ -55,12 +55,17 @@ class Trace(Generic[StateT]):
         Whether the stopping criterion was met.
     history
         The convergence measure after every step.
+    info
+        Method-specific entries for ``Result.info`` that only the run knows
+        (such as how a start solve ended); the same rules as
+        :attr:`Solution.info`, whose entries must not repeat these keys.
     """
 
     state: StateT
     iterations: int
     converged: bool
     history: tuple[float, ...] = ()
+    info: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, eq=False)
@@ -393,7 +398,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
         Result
             With ``info`` holding ``time`` (seconds, setup to finalize),
             ``iterations``, ``converged``, ``history``, ``unknowns`` when known,
-            and the method's own entries.
+            and the method's own entries from ``Trace.info`` and
+            ``Solution.info``.
         """
         config = self.hparams
         self.check(problem)
@@ -404,9 +410,13 @@ class Solver(ABC, Generic[ContextT, StateT]):
         trace = self.run(problem, context, callbacks)
         solution = self.finalize(problem, context, trace.state)
         elapsed = time.perf_counter() - start
-        clash = set(solution.info) & set(_RUN_KEYS)
+        for name, entries in (("Trace", trace.info), ("Solution", solution.info)):
+            clash = set(entries) & set(_RUN_KEYS)
+            if clash:
+                raise ValueError(f"{name}.info must not set {sorted(clash)}")
+        clash = set(trace.info) & set(solution.info)
         if clash:
-            raise ValueError(f"Solution.info must not set {sorted(clash)}")
+            raise ValueError(f"Trace.info and Solution.info both set {sorted(clash)}")
         info: dict[str, Any] = {
             "time": elapsed,
             "iterations": trace.iterations,
@@ -415,6 +425,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
         }
         if solution.unknowns is not None:
             info["unknowns"] = solution.unknowns
+        info.update(trace.info)
         info.update(solution.info)
         result = Result(
             problem=problem,
@@ -542,7 +553,38 @@ class IterativeSolver(Solver[ContextT, IterateT]):
         -------
         Trace
         """
-        iterate = self.initial_guess(problem, context)
+        return self.run_from(
+            problem, context, callbacks, self.initial_guess(problem, context)
+        )
+
+    def run_from(
+        self,
+        problem: Problem,
+        context: ContextT,
+        callbacks: Sequence[Callback],
+        iterate: IterateT,
+    ) -> Trace[IterateT]:
+        """Step from ``iterate`` until converged, stalled or ``max_iter``.
+
+        What :meth:`run` does after :meth:`initial_guess`; a subclass whose
+        first iterate needs more than the context (another solve, say)
+        overrides :meth:`run` and calls this.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            What :meth:`Solver.setup` returned.
+        callbacks
+            Each gets ``on_step_end`` with ``{measure: value}`` after every step.
+        iterate
+            The first iterate.
+
+        Returns
+        -------
+        Trace
+        """
         history: list[float] = []
         converged = False
         while len(history) < self.max_iter:

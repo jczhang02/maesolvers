@@ -6,6 +6,26 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Added
 
+- `Monotone17(n, stencil=17, boundary="narrow", jacobian_floor=1e-12, spline_degree=3)`, the monotone wide-stencil scheme of Froese-Oberman 2011 on a 2D box with equal sides, with the 9-, 17- and 33-point stencils (`stencil`, typed `Literal[9, 17, 33]`, so the CLI lists the choices), exported at the top level and from `maesolvers.classical`.
+  `discretize` raises `ValueError` for an `f` that is negative or not finite at an interior node.
+  `spline_degree` is 1 to 5 whatever `n`; with fewer than `spline_degree` cells per side the spline takes degree `n`, as for `Standard9`.
+  It provides `residual`, `jacobian` (a generalised Jacobian, so `Newton` on it is a semi-smooth Newton method) and `solve_laplace`, so `Newton(scheme=Monotone17(...))` solves it; `PoissonIteration` refuses it, as it has no `second_derivatives`.
+  Below zero each pair's product continues with the slope `kappa = sqrt(max(f, mean f, 1))`, so a root has no negative second difference in a pair that enters the minimum, and Newton's stopping rule cannot accept a non-convex iterate that is not a root; `boundary` chooses between leaving the wide pairs out next to the boundary (`"narrow"`, which matches the published tables) and shortening their arms to the boundary (`"interpolate"`, which the papers describe).
+  The pure kernels `stencil_pairs`, `directional_difference`, `pair_values` and `pair_jacobian_coefficients` are in `maesolvers.classical.monotone`, with `MonotoneGrid`, the context `Monotone17.discretize` returns, whose fields may change with the scheme.
+- The preset `FDMonotone(n, stencil, boundary, jacobian_floor, spline_degree, max_iter=200, tol=1e-10)`, `Newton` on `Monotone17`, registered in `SOLVERS`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides.
+- `Hybrid(n, stencil=17, boundary="narrow", jacobian_floor=1e-12, spline_degree=3, epsilon=None, band=1.0)`, the hybrid scheme of Froese-Oberman 2011 (J. Comput. Phys.) on a 2D box with equal sides, exported at the top level and from `maesolvers.classical`: the weighted average `w MA_N + (1 - w) MA_M` of `Standard9` and `Monotone17` on one grid, in its residual and its Jacobian, so `Newton(scheme=Hybrid(...))` solves it.
+  The schemes are its read-only attributes `standard` and `monotone`, built from the flat fields.
+  `epsilon` must lie in `(0, 1)`: with `epsilon >= 1` every node would be singular.
+  `Hybrid.weights(problem, nodes, h)` returns `w` at the unknowns, given the interior nodes in the order of the unknowns (shape `((n - 1)^2, 2)`) and the grid step; by default it is the paper's switching rule: 0 within `band` grid steps of the boundary and of the nodes where `f <= epsilon` or `f >= 1/epsilon` (`epsilon` None means `h`), 1 elsewhere; a subclass that overrides it plugs in a rule of its own, and `discretize` raises `ValueError` if it returns the wrong shape or a value outside `[0, 1]`.
+  Its results carry `info["monotone_fraction"]`, the mean of `1 - w` over the unknowns (the share of unknowns with `w = 0` for a rule of 0 and 1).
+  The pure kernel `hybrid_weights(f, epsilon, band)` is in `maesolvers.classical.hybrid`, with `HybridGrid`, the context `Hybrid.discretize` returns, whose fields may change with the scheme.
+- `Newton(..., start=None)`: `start` is any `SchemeIteration` whose scheme has the same unknowns, such as `FDMonotone(n)` or `PoissonIteration(scheme=Standard9(n), max_iter=1)` (the start of Froese-Oberman 2011, without its convex envelope).
+  `Newton.run` first runs it with its own `max_iter` and `tol` (its `setup` and `run`, not its `finalize`) and steps from its final unknowns instead of calling `initial_guess`; it raises `ValueError` if the unknowns differ in number, and warns (`RuntimeWarning`) if the start did not converge.
+  `Result.info["iterations"]`, `converged`, `history` and the callbacks cover the steps on `scheme` only; `info["start_iterations"]` and `info["start_converged"]` report the start, and `time` includes it.
+  `supports` and `check` ask `start` too.
+- The preset `FDHybrid(n, stencil, boundary, jacobian_floor, spline_degree, epsilon, band, max_iter=200, tol=1e-10)`, `Newton` on `Hybrid` with `start=FDMonotone(...)` built from the same fields and `tol` (not a parameter; the start keeps its budget of 200 steps whatever `max_iter`), registered in `SOLVERS`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides, as `FDMonotone`'s does.
+- `Trace.info`, a mapping (empty by default) of entries for `Result.info` that only `run` knows; `Solver.solve` merges it with `Solution.info` and raises `ValueError` if it sets a key of the base class or a key `Solution.info` sets too.
+- `IterativeSolver.run_from(problem, context, callbacks, iterate)`, the loop of `IterativeSolver.run` from a given first iterate, for a subclass whose first iterate needs more than the context (`Newton` with a `start`).
 - `Standard9` discretises 2D Dirichlet problems on a `Disk`, an `Ellipse` and the `CutQuarterDisk` of T6, with Shortley-Weller stencils next to the boundary, so `FDNewton` and `FDPoisson` solve T8 and T6 (issue #1); its `domains` (and the presets') are `(Box, Disk, Ellipse, CutQuarterDisk)`.
   On these domains `n` counts cells per side of the grid over the bounding box, `Result.nodes` lists the nodes with unknowns and then the boundary points, and the solution off the nodes is the Clough-Tocher interpolant (`spline_degree` applies to a box only), extrapolated to first order past the hull of the nodes so that it stays second order at corners off the grid.
 - `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes`: the pure function behind it, returning a `ShortleyWellerOperators` named tuple (`nodes`, `interior`, `dxx`, `dyy`, `dxy`, `min_step`): the nodes, the mask of the nodes with unknowns, the operators `D_xx`, `D_yy`, `D_xy` and the smallest step fraction at each node.
@@ -37,6 +57,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Changed
 
+- `Newton` has the new field `start` (see Added), so the configuration and `hparams` of a bare `Newton` carry `"start": None`, and `tracking.flatten` logs it; the presets' `hparams` are unchanged.
 - `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.

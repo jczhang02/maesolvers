@@ -16,6 +16,8 @@ from maesolvers import (
     T8,
     T12,
     DirichletICNN,
+    FDHybrid,
+    FDMonotone,
     FDNewton,
     FDPoisson,
     Newton,
@@ -211,6 +213,8 @@ def test_newton_and_poisson_reach_different_roots_on_t2():
 
 def test_the_registry_lists_the_presets_read_only():
     assert dict(SOLVERS) == {
+        "FDHybrid": FDHybrid,
+        "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
         "PenaltyMLP": PenaltyMLP,
@@ -220,15 +224,16 @@ def test_the_registry_lists_the_presets_read_only():
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
-@pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
+@pytest.mark.parametrize("solver", [FDHybrid, FDMonotone, FDNewton, FDPoisson])
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
+    scheme = solver().scheme
     assert (solver.domains, solver.boundaries, solver.dims) == (
-        Standard9.domains,
-        Standard9.boundaries,
-        Standard9.dims,
+        scheme.domains,
+        scheme.boundaries,
+        scheme.dims,
     )
     for problem in (T8, T12, T1):
-        assert solver().supports(problem) == Standard9().supports(problem)
+        assert solver().supports(problem) == scheme.supports(problem)
 
 
 @pytest.mark.parametrize("preset", [FDNewton, FDPoisson])
