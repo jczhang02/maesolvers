@@ -239,7 +239,12 @@ def test_a_solver_with_a_loss_on_dirichlet_data_refuses_a_transport_problem():
         (
             lambda: DirichletICNN(boundary_weight=-1),
             ValueError,
-            "boundary_weight must be nonnegative",
+            "boundary_weight must be positive",
+        ),
+        (  # without an ansatz, the boundary term alone imposes g
+            lambda: DirichletICNN(boundary_weight=0),
+            ValueError,
+            "boundary_weight must be positive",
         ),
     ],
 )

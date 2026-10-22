@@ -12,13 +12,12 @@ configured, compared and recorded without the ``neural`` extra.
 # No `from __future__ import annotations` in this module: jsonargparse reads the
 # field types of the parts (ADR 0005); see maesolvers.classical.iterations.
 
+import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
-
-from maesolvers.core._params import nonnegative
+from maesolvers.core._params import boolean, nonnegative
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.problem import Problem
 
@@ -55,6 +54,25 @@ class Batch:
     boundary: "torch.Tensor"
     g: "torch.Tensor | None"
     f_boundary: "torch.Tensor"
+
+    def to(self, device: "torch.device | str") -> "Batch":
+        """Return the batch with every tensor on ``device``; a None field stays None.
+
+        Parameters
+        ----------
+        device
+            The device, as torch takes it: ``"cpu"``, ``"cuda:0"``, a
+            ``torch.device``.
+
+        Returns
+        -------
+        Batch
+        """
+        moved = {}
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+            moved[field.name] = None if value is None else value.to(device)
+        return dataclasses.replace(self, **moved)
 
 
 class Loss(ABC):
@@ -157,12 +175,11 @@ class PenaltyLoss(Loss):
     def __post_init__(self) -> None:
         for name in ("convexity_weight", "boundary_weight"):
             object.__setattr__(self, name, nonnegative(name, getattr(self, name)))
-        flag = self.equation_at_boundary
-        if not isinstance(flag, (bool, np.bool_)):
-            raise TypeError(
-                f"equation_at_boundary must be a bool, got {type(flag).__name__}"
-            )
-        object.__setattr__(self, "equation_at_boundary", bool(flag))
+        object.__setattr__(
+            self,
+            "equation_at_boundary",
+            boolean("equation_at_boundary", self.equation_at_boundary),
+        )
 
     def supports(self, problem: Problem) -> bool:
         """Whether the problem is Dirichlet, and 2D when the penalty is on.

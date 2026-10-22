@@ -13,7 +13,7 @@ pytest.importorskip("lightning")
 
 from maesolvers import BFGS, ICNN, T1, T6, T9, DirichletICNN, PenaltyLoss  # noqa: E402
 from maesolvers.metrics import evaluate  # noqa: E402
-from maesolvers.neural import Batch, UniformSampler  # noqa: E402
+from maesolvers.neural import Batch, UniformSampler, _bfgs  # noqa: E402
 from maesolvers.neural import functional as F  # noqa: E402
 from maesolvers.neural._torch import building  # noqa: E402
 
@@ -151,6 +151,28 @@ def test_the_preset_trains_a_convex_network(t6_result):
     assert metrics["nonconvex_fraction"] == 0.0 and metrics["eigmin"] > 0
 
 
+def test_the_preset_trains_in_3d_with_a_convex_network():
+    result = DirichletICNN(max_steps=3, **SMALL).solve(T9)
+    info = result.info
+    assert info["iterations"] == 3 and np.isfinite(info["loss_terms"]["loss"])
+    history = info["history"]
+    assert all(np.isfinite(history)) and history[-1] < history[0]
+    assert evaluate(result)["nonconvex_fraction"] == 0.0
+
+
+def test_a_batch_moves_its_tensors_and_keeps_g_none():
+    batch = _batch(
+        torch.zeros((2, 2)), torch.zeros((1, 2)), torch.ones(2), torch.ones(1), None
+    )
+    moved = batch.to("meta")
+    assert moved.g is None
+    assert all(
+        getattr(moved, name).device.type == "meta"
+        for name in ("interior", "f", "boundary", "f_boundary")
+    )
+    assert batch.interior.device.type == "cpu"  # the batch itself is unchanged
+
+
 def test_the_solver_passes_f_at_the_boundary_points():
     solver = DirichletICNN(**SMALL)
     context = solver.setup(T6)
@@ -241,3 +263,54 @@ def test_bfgs_does_nothing_at_a_stationary_point():
 
     optimizer.step(closure)
     assert torch.equal(x.detach(), torch.zeros(2, dtype=torch.float64))
+
+
+def _failing_search(f, fprime, x, d, *args, **kwargs):
+    """A line search that moves the parameters to a trial point, then fails."""
+    f(x + 0.5 * d)
+    raise _bfgs._LineSearchError
+
+
+def test_bfgs_restores_the_start_after_a_failed_line_search(monkeypatch):
+    monkeypatch.setattr(_bfgs, "_line_search_wolfe12", _failing_search)
+    start = torch.tensor([-1.2, 1.0], dtype=torch.float64)
+    x = torch.nn.Parameter(start.clone())
+    optimizer = BFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = _rosenbrock(x)
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    assert torch.equal(x.detach(), start)
+
+
+def test_bfgs_leaves_the_parameters_when_scipys_line_searches_fail():
+    # The closure's gradient is the negative of the loss's: every direction
+    # it calls a descent direction goes uphill, so both of SciPy's searches
+    # fail, after evaluating trial points.
+    start = torch.tensor([0.3, -0.5], dtype=torch.float64)
+    x = torch.nn.Parameter(start.clone())
+    optimizer = BFGS().build([x])
+    trials = []
+
+    def closure():
+        optimizer.zero_grad()
+        value = (x**2).sum()
+        loss = 2 * value.detach() - value  # the value of x^2, the gradient of -x^2
+        loss.backward()
+        trials.append(x.detach().clone())
+        return loss
+
+    optimizer.step(closure)
+    assert any(not torch.equal(trial, start) for trial in trials)
+    assert torch.equal(x.detach(), start)
+
+
+def test_a_failed_line_search_stops_the_training_as_stalled(monkeypatch):
+    monkeypatch.setattr(_bfgs, "_line_search_wolfe12", _failing_search)
+    result = DirichletICNN(max_steps=5, **SMALL).solve(T6)
+    assert result.info["stop"] == "stalled"
+    assert result.info["iterations"] == 0 and len(result.info["history"]) == 0

@@ -144,9 +144,9 @@ class BFGS(Optimizer):
         -------
         torch.optim.Optimizer
         """
-        from maesolvers.neural import _torch
+        from maesolvers.neural._bfgs import DenseBFGS
 
-        return _torch.DenseBFGS(parameters)
+        return DenseBFGS(parameters)
 
 
 @dataclass(frozen=True, kw_only=True)

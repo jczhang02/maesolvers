@@ -519,7 +519,7 @@ What each part does:
 - `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
   A loss supports the Dirichlet problems by default, because `batch.g` is Dirichlet data; `LaplacianPenaltyLoss` reads it and so keeps the default, and a loss for another boundary condition overrides `supports` and does not read `batch.g`.
   `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
-- `__post_init__` checks every parameter with `integer`, `positive` or `nonnegative`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
+- `__post_init__` checks every parameter with `integer`, `positive`, `nonnegative` or `boolean`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
 - A loss term built on `functional.mean_squared_misfit` raises `ValueError` when its points are empty, so a boundary term cannot drop out because the sampler gave no boundary points.
 - An optimizer part subclasses `Optimizer` and returns a torch optimizer from `build(parameters)`; the training loop calls its `step(closure)` once per training step.
 

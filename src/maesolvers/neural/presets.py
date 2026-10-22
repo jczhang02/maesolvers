@@ -14,7 +14,7 @@ like every preset they declare their support on the class.
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from maesolvers.core._params import integer
+from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk
 from maesolvers.neural.losses import Loss, PenaltyLoss
@@ -150,12 +150,13 @@ class DirichletICNN(NeuralSolver):
         Standard deviation of the initial parameters of the network,
         positive.
     boundary_weight
-        ``C``, the weight of the boundary misfit, at least 0.
+        ``C``, the weight of the boundary misfit, positive: with no ansatz
+        to meet the boundary condition, this term alone imposes it.
     interior_points, boundary_points
         Collocation points inside the domain (at least 1) and on its
         boundary (at least 1: the boundary condition is imposed there).
     max_steps
-        Most L-BFGS iterations.
+        Most training steps, one BFGS iteration each.
     tol
         Stop when the largest component of the loss gradient is at most this.
     seed
@@ -185,7 +186,7 @@ class DirichletICNN(NeuralSolver):
         network = ICNN(width=self.width, depth=self.depth, init_std=self.init_std)
         loss = PenaltyLoss(
             convexity_weight=0.0,
-            boundary_weight=self.boundary_weight,
+            boundary_weight=positive("boundary_weight", self.boundary_weight),
             equation_at_boundary=True,
         )
         sampler = UniformSampler(
