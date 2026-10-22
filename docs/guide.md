@@ -174,6 +174,7 @@ from scipy.sparse.linalg import factorized
 
 from maesolvers import Box, Dirichlet, IterativeSolver, Solution
 from maesolvers.classical.schemes import difference_operators
+from maesolvers.core import integer, positive
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -191,12 +192,8 @@ class MyPoisson(IterativeSolver):
 
     def __post_init__(self):
         super().__post_init__()  # checks the class, and that max_iter is an integer >= 1
-        if isinstance(self.n, bool) or not isinstance(self.n, int):
-            raise TypeError(f"n must be an integer, got {self.n!r}")
-        if self.n < 2:
-            raise ValueError(f"n must be at least 2, got {self.n}")
-        if not self.tol > 0:
-            raise ValueError(f"tol must be positive, got {self.tol}")
+        object.__setattr__(self, "n", integer("n", self.n, 2))
+        object.__setattr__(self, "tol", positive("tol", self.tol))
 
     def setup(self, problem):
         (x0, y0), (x1, y1) = problem.domain.lo, problem.domain.hi
@@ -259,7 +256,8 @@ What each part does:
   An inherited decorator does not count; without its own, construction raises `TypeError`.
 - `domains`, `boundaries` and `dims` declare the supported problems; `solve` raises `UnsupportedProblemError` for any other.
 - `measure` names what `step` returns; callbacks receive it as `{"update": ...}` and `Result.info["history"]` holds it for every step.
-- `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction, as it does for the solvers maesolvers ships.
+- `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction.
+  `integer` and `positive` from `maesolvers.core` are the checks the solvers maesolvers ships use: they raise `TypeError` or `ValueError` with a message that names the parameter, and return a plain `int` or `float`, which `object.__setattr__` stores on the frozen solver, so that `hparams` holds no numpy scalars.
 - `setup` builds what the solve needs once; every later hook takes the problem and this context first.
 - `step` returns the next iterate and its measure, or None when it can make no progress; it must not change the iterate it was given.
 - `finalize` turns the final iterate into a `Solution`, the method's part of the result.
@@ -303,6 +301,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from maesolvers import PoissonIteration
+from maesolvers.core import positive
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -313,8 +312,10 @@ class RelaxedPoisson(PoissonIteration):
 
     def __post_init__(self):
         super().__post_init__()
-        if not 0.0 < self.omega <= 1.0:
-            raise ValueError(f"omega must be in (0, 1], got {self.omega}")
+        omega = positive("omega", self.omega)
+        if omega > 1.0:
+            raise ValueError(f"omega must be at most 1, got {omega}")
+        object.__setattr__(self, "omega", omega)
 
     def step(self, problem, grid, iterate):
         new, _ = super().step(problem, grid, iterate)

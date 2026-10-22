@@ -15,6 +15,7 @@ import shlex
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 GUIDE = Path(__file__).parents[1] / "docs" / "guide.md"
@@ -70,10 +71,27 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
                     f"guide line {line}: a {language or 'bare'} block cannot run"
                 )
         assert {"MyPoisson", "RelaxedPoisson"} <= set(namespace)
-        # The worked solver checks its parameters as the shipped solvers do.
+        # The worked solver and iteration check their parameters as the shipped
+        # solvers do, with the same messages.
+        my_poisson, relaxed = namespace["MyPoisson"], namespace["RelaxedPoisson"]
+        assert type(my_poisson(n=np.int64(16)).n) is int
+        assert type(my_poisson(tol=np.float32(1e-3)).tol) is float
         with pytest.raises(TypeError, match="n must be an integer"):
-            namespace["MyPoisson"](n=1.5)
-        with pytest.raises(ValueError, match="tol must be positive"):
-            namespace["MyPoisson"](tol=0.0)
+            my_poisson(n=1.5)
+        with pytest.raises(ValueError, match="n must be at least 2"):
+            my_poisson(n=1)
+        with pytest.raises(TypeError, match="tol must be a real number"):
+            my_poisson(tol="1e-3")
+        for tol in (0.0, float("inf"), float("nan")):
+            with pytest.raises(ValueError, match="tol must be positive and finite"):
+                my_poisson(tol=tol)
+        scheme = namespace["Standard9"](n=8)
+        assert type(relaxed(scheme=scheme, omega=np.float64(0.8)).omega) is float
+        with pytest.raises(TypeError, match="omega must be a real number"):
+            relaxed(scheme=scheme, omega="0.5")
+        with pytest.raises(ValueError, match="omega must be at most 1"):
+            relaxed(scheme=scheme, omega=1.5)
+        with pytest.raises(ValueError, match="omega must be positive and finite"):
+            relaxed(scheme=scheme, omega=0.0)
     finally:
         sys.modules.pop("my_methods", None)  # the guide's module, not another test's
