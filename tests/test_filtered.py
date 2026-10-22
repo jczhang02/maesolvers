@@ -6,11 +6,13 @@ import math
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from centred import C2_CENTRED
 
 from maesolvers import (
     SOLVERS,
     T1,
     T2,
+    T5,
     T8,
     T20,
     Box,
@@ -28,27 +30,6 @@ from maesolvers import (
 )
 from maesolvers.classical.filtered import filter_function, filter_slope, filter_width
 from maesolvers.metrics import evaluate
-
-X0 = np.array([0.5, 0.5])
-
-
-def _centred_exp(x):
-    return np.exp(np.sum((np.asarray(x, dtype=float) - X0) ** 2, axis=-1) / 2)
-
-
-def _centred_exp_f(x):
-    r2 = np.sum((np.asarray(x, dtype=float) - X0) ** 2, axis=-1)
-    return (1 + r2) * np.exp(r2)
-
-
-CENTRED = Problem(
-    "C2",
-    Box((0.0, 0.0), (1.0, 1.0)),
-    _centred_exp_f,
-    Dirichlet(_centred_exp),
-    exact=_centred_exp,
-)
-"""Froese-Oberman 2013, eq. (4.1): T1 centred at (1/2, 1/2)."""
 
 
 def _constant(value):
@@ -112,7 +93,7 @@ def test_the_filter_is_the_identity_near_zero_and_zero_far_out():
     np.testing.assert_array_equal(filter_function(-t), -filter_function(t))
 
 
-def test_the_filter_slope_is_its_derivative_with_the_inner_side_at_the_kinks():
+def test_the_filter_slope_is_its_derivative_accurate_at_one_monotone_at_two():
     x = np.array([-3.0, -2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0, 3.0])
     expected = [0.0, 0.0, -1.0, 1.0, 1.0, 1.0, -1.0, 0.0, 0.0]
     np.testing.assert_array_equal(filter_slope(x), expected)
@@ -130,7 +111,9 @@ def test_the_filter_width_is_the_papers_rule():
 
 def test_the_default_width_reads_h_and_dtheta_from_the_monotone_part():
     grid = _filtered(n=16, stencil=33).discretize(T1)
-    assert grid.width == pytest.approx(0.25 + math.atan(1 / 3) / 20)
+    # dtheta is the full gap between stencil directions, atan(1/3) for 33
+    # points, twice Oberman's angular resolution (filtered.md, Finding 3).
+    assert grid.width == pytest.approx(0.25 + math.atan(1 / 3) / 10)
     assert _filtered(epsilon=0.3).discretize(T1).width == 0.3
 
 
@@ -173,8 +156,8 @@ def test_the_jacobian_is_the_accurate_one_on_a_smooth_problem():
     # Where the filter is the identity, the residual is the standard scheme's,
     # and so is its derivative.
     scheme = _filtered(n=8)
-    grid = scheme.discretize(CENTRED)
-    v = CENTRED.exact(grid.accurate.nodes[grid.accurate.interior])
+    grid = scheme.discretize(C2_CENTRED)
+    v = C2_CENTRED.exact(grid.accurate.nodes[grid.accurate.interior])
     np.testing.assert_allclose(
         scheme.jacobian(grid, v).toarray(),
         Standard9(n=8).jacobian(grid.accurate, v).toarray(),
@@ -191,9 +174,9 @@ def test_the_jacobian_is_the_accurate_one_on_a_smooth_problem():
 def test_on_the_smooth_centred_example_it_is_the_standard_scheme():
     """Froese-Oberman 2013, Table 4.1: the filtered columns equal the standard one."""
     for stencil in (9, 17, 33):
-        result = FDFiltered(n=30, stencil=stencil).solve(CENTRED)
+        result = FDFiltered(n=30, stencil=stencil).solve(C2_CENTRED)
         assert result.info["converged"] and result.info["monotone_fraction"] == 0.0
-        standard = Newton(scheme=Standard9(n=30)).solve(CENTRED)
+        standard = Newton(scheme=Standard9(n=30)).solve(C2_CENTRED)
         np.testing.assert_allclose(result.values, standard.values, atol=1e-12)
 
 
@@ -223,6 +206,14 @@ def test_newton_does_not_converge_on_t1_with_the_papers_jacobian():
     assert evaluate(result)["max"] < 2e-4
 
 
+def test_newton_takes_no_step_on_t5_where_the_papers_jacobian_is_near_singular():
+    # A known limit (docs/methods/filtered.md): from T5's start no step length
+    # decreases the max residual, so the solve returns the Laplace start.
+    result = FDFiltered(n=16).solve(T5)
+    assert not result.info["converged"] and result.info["iterations"] == 0
+    assert FDMonotone(n=16).solve(T5).info["converged"]
+
+
 def test_supported_problems_are_those_of_both_parts():
     scheme = _filtered()
     assert scheme.supports(T1) and not scheme.supports(T8)
@@ -236,6 +227,19 @@ def test_supported_problems_are_those_of_both_parts():
     )
     with pytest.raises(UnsupportedProblemError, match=r"FDFiltered .* equal sides"):
         FDFiltered(n=4).solve(oblong)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class RoundedRhs(Standard9):
+    """Standard9 whose ``f`` differs from Monotone17's in the last bits."""
+
+    def rhs(self, grid):
+        return super().rhs(grid) * (1 + 1e-14)
+
+
+def test_the_parts_may_compute_f_with_rounding_differences():
+    scheme = Filtered(accurate=RoundedRhs(n=8), monotone=Monotone17(n=8))
+    assert scheme.discretize(T1).width > 0
 
 
 def test_the_parts_must_share_their_unknowns():
@@ -276,7 +280,7 @@ def test_filtered_is_a_frozen_keyword_only_part():
         _filtered().epsilon = 1.0  # type: ignore[misc]
 
 
-@pytest.mark.parametrize("problem", [CENTRED, T20])
+@pytest.mark.parametrize("problem", [C2_CENTRED, T20])
 def test_the_preset_is_its_composition(problem):
     composed = Newton(scheme=_filtered(n=12, stencil=33), max_iter=200)
     ours = FDFiltered(n=12, stencil=33)

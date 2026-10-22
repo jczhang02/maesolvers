@@ -14,22 +14,19 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 1 and whose lower corner is not the origin.
 """
 
-import numpy as np
 import pytest
+from centred import C2_CENTRED
 
 from maesolvers import (
     T1,
     T2,
     T7,
     T20,
-    Box,
-    Dirichlet,
     FDFiltered,
     FDHybrid,
     FDMonotone,
     FDNewton,
     FDPoisson,
-    Problem,
 )
 from maesolvers.metrics import evaluate
 
@@ -121,23 +118,11 @@ def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
 # printed digits up to N = 127 without converging (Finding 4).
 
 
-def _centred_exp(x):
-    return np.exp(np.sum((np.asarray(x, dtype=float) - 0.5) ** 2, axis=-1) / 2)
-
-
-def _centred_exp_f(x):
-    r2 = np.sum((np.asarray(x, dtype=float) - 0.5) ** 2, axis=-1)
-    return (1 + r2) * np.exp(r2)
-
-
-C2_CENTRED = Problem(
-    "C2-centred",
-    Box((0.0, 0.0), (1.0, 1.0)),
-    _centred_exp_f,
-    Dirichlet(_centred_exp),
-    exact=_centred_exp,
-)
-FO2013_FILTERED_C2 = {31: 4.54, 63: 1.06}  # Table 4.2; units of 1e-5
+# (N, stencil): units of 1e-5. N = 31: Table 4.1, all three stencils, and
+# Table 4.2 (17 points). N = 63: Table 4.2 only (17 points), 1.06; Table 4.1
+# prints 1.04 there for every stencil, read as a misprint (Finding 2), so 9 and
+# 33 points are not pinned at N = 63.
+FO2013_FILTERED_C2 = {(31, 9): 4.54, (31, 17): 4.54, (31, 33): 4.54, (63, 17): 1.06}
 FO2013_STANDARD = {  # Table 4.2, column "Standard": (problem, N, units, value)
     "C2": (C2_CENTRED, 31, 1e-5, 4.54),
     "T20": (T20, 31, 1e-4, 3.78),
@@ -153,12 +138,12 @@ FO2013_MONOTONE = {  # Table 4.1, columns "Monotone": (problem, N, stencil, unit
 }
 
 
-@pytest.mark.parametrize("stencil", [9, 17, 33])
-@pytest.mark.parametrize("N", sorted(FO2013_FILTERED_C2))
+@pytest.mark.parametrize(("N", "stencil"), sorted(FO2013_FILTERED_C2))
 def test_filtered_smooth_example_matches_froese_oberman_2013(N, stencil):
     result = FDFiltered(n=N - 1, stencil=stencil).solve(C2_CENTRED)
     assert result.info["converged"]
-    assert round(evaluate(result)["max"] / 1e-5, 2) == FO2013_FILTERED_C2[N]
+    expected = FO2013_FILTERED_C2[N, stencil]
+    assert round(evaluate(result)["max"] / 1e-5, 2) == expected
 
 
 @pytest.mark.parametrize("case", sorted(FO2013_STANDARD))

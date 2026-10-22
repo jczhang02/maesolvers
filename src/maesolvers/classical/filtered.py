@@ -60,9 +60,9 @@ def filter_function(x: np.ndarray) -> np.ndarray:
 def filter_slope(x: np.ndarray) -> np.ndarray:
     """Return the derivative ``S'`` of :func:`filter_function`.
 
-    1 for ``|x| <= 1``, -1 for ``1 < |x| < 2`` and 0 for ``|x| >= 2``; at
-    the kinks it takes the value from the side nearer the origin, so the
-    accurate scheme's derivative is used at ``|x| = 1``.
+    1 for ``|x| <= 1``, -1 for ``1 < |x| < 2`` and 0 for ``|x| >= 2``: at
+    ``|x| = 1`` it takes 1, the accurate side, and at ``|x| = 2`` it takes 0,
+    the monotone side.
 
     Parameters
     ----------
@@ -92,7 +92,8 @@ def filter_width(h: float, dtheta: float) -> float:
         Grid spacing, positive.
     dtheta
         Angular resolution of the monotone scheme's stencil, nonnegative,
-        in radians.
+        in radians. The paper gives it no value; :class:`Filtered` passes
+        the largest angle between neighbouring stencil directions.
 
     Returns
     -------
@@ -156,8 +157,13 @@ class Filtered(Scheme):
         The filter width ``eps``, positive; None (the default) takes
         Froese and Oberman's ``sqrt(h) + dtheta / 10`` (:func:`filter_width`),
         with ``h`` the bounding box's longest side over ``monotone.n`` and
-        ``dtheta = monotone.angular_resolution``, so the monotone part must
-        then have both attributes.
+        ``dtheta = 2 * monotone.angular_resolution``, the largest angle
+        between neighbouring stencil directions (``pi/4``, ``atan(1/2)``,
+        ``atan(1/3)`` for 9, 17 and 33 points), so the monotone part must
+        then have both attributes. The paper leaves ``dtheta`` undefined;
+        its T2 columns of Table 4.1 fit this full gap, not Oberman's (2008)
+        half gap ``angular_resolution`` (``benchmarks/filtered.md``,
+        Finding 3).
 
     Raises
     ------
@@ -240,8 +246,8 @@ class Filtered(Scheme):
         UnsupportedProblemError
             If a part does not support the problem.
         ValueError
-            If the parts' right-hand sides differ, so they do not share their
-            unknowns.
+            If the parts' right-hand sides differ (beyond a relative ``1e-12``),
+            so they do not share their unknowns.
         """
         for name in ("accurate", "monotone"):
             part = getattr(self, name)
@@ -253,7 +259,7 @@ class Filtered(Scheme):
         accurate = self.accurate.discretize(problem)
         monotone = self.monotone.discretize(problem)
         fa, fm = self.accurate.rhs(accurate), self.monotone.rhs(monotone)
-        if fa.shape != fm.shape or not np.array_equal(fa, fm):
+        if fa.shape != fm.shape or not np.allclose(fa, fm, rtol=1e-12, atol=0.0):
             raise ValueError(
                 f"Filtered needs its parts on the same unknowns, but on "
                 f"{problem.name} {type(self.accurate).__name__} has {fa.size} and "
@@ -264,7 +270,7 @@ class Filtered(Scheme):
             side = float(
                 np.max(np.subtract(problem.domain.bbox.hi, problem.domain.bbox.lo))
             )
-            width = filter_width(side / part.n, part.angular_resolution)
+            width = filter_width(side / part.n, 2.0 * part.angular_resolution)
         else:
             width = self.epsilon
         return FilteredGrid(accurate=accurate, monotone=monotone, width=width)
@@ -317,6 +323,10 @@ class Filtered(Scheme):
         ``2 J_M`` instead of ``2 J_M - J_A`` in the band
         ``1 < |F_A - F_M| / eps < 2``, which they choose because a negative
         weight on ``J_A`` can make the linear systems ill-posed.
+
+        It evaluates both parts' residuals again, which :meth:`residual` has
+        done at the same iterate: one more residual evaluation per Newton
+        step, the price of a scheme that holds no state between calls.
 
         Parameters
         ----------

@@ -85,6 +85,8 @@ def angular_resolution(points: int) -> float:
     origin and the nearest direction of the stencil, half the largest gap
     between neighbouring directions. ``pi/8`` for 9 points, ``atan(1/2)/2``
     for 17 and ``atan(1/3)/2`` for 33.
+    :class:`~maesolvers.classical.filtered.Filtered` takes twice this, the
+    full gap, as its ``dtheta``.
 
     Parameters
     ----------

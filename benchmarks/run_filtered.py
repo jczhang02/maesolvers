@@ -9,11 +9,18 @@ grid by run_monotone17.cone. The paper's N counts nodes per side, so the main
 rows use n = N - 1 cells (filtered.md, Finding 1), with rows at n = N as
 evidence; T1 itself (uncentred) runs at n = N, the catalogue's convention.
 
+For a solve that does not converge, the row also gives the error of the
+iterate eight Newton steps before the last (a second solve with a smaller
+max_iter), so a reader can judge how settled the last iterate is.
+
 With --checks it writes filtered_checks.csv instead, the evidence for the
 findings: the monotone part with kappa = 1 on T2; other filter widths on
-T20; Newton on the filtered scheme from the monotone and the standard
-roots on T20, and from the standard root on T2; and Newton on the standard
-scheme alone (FDNewton) on T20.
+T20 and T2; Newton on the filtered scheme from the monotone and the
+standard roots on T20 and T2; Newton on the standard scheme alone
+(FDNewton) on T20; the filtered scheme with the regularised monotone part
+of SINUM 2011, Section 3.5 (run_monotone17.SmoothMonotone17), as FO 2013,
+p. 438, says its Newton used, on T2, T1 and T20; and FDFiltered on every
+catalogue problem it supports at n = 16 and 64.
 
 Every solve is one MLflow run in maesolvers-filtered-<problem> unless
 --no-mlflow is given. The solves run in --processes worker processes
@@ -37,11 +44,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from run_monotone17 import cone
+from run_monotone17 import SmoothMonotone17, cone
 
 from maesolvers import (
     T1,
     T2,
+    T3,
+    T4,
+    T5,
+    T7,
     T20,
     Box,
     Dirichlet,
@@ -76,6 +87,8 @@ def _centred_exp_f(x: np.ndarray) -> np.ndarray:
     return (1 + r2) * np.exp(r2)
 
 
+# The same problem as tests/centred.py, which the tests import; a script run
+# from the repository root does not see the tests directory.
 C2 = Problem(
     "C2-centred",
     Box((0.0, 0.0), (1.0, 1.0)),
@@ -182,11 +195,15 @@ def published_value(published: tuple[str, int] | None) -> str:
     return "" if published is None else repr(float(published[0]) * 10.0 ** published[1])
 
 
+CATALOGUE = {"T1": T1, "T2": T2, "T3": T3, "T4": T4, "T5": T5, "T7": T7, "T20": T20}
+"""The catalogue problems FDFiltered supports."""
+
+
 def problem_for(name: str, n: int) -> Problem:
     """The problem of one row; the cone depends on the grid."""
     if name == "T21":
         return cone(n)
-    return {"C2-centred": C2, "T1": T1, "T2": T2, "T20": T20}[name]
+    return {"C2-centred": C2, **CATALOGUE}[name]
 
 
 def solve(
@@ -203,10 +220,16 @@ def solve(
     return {**logger.evaluation, **result.info}, result
 
 
-def make(scheme: str, n: int, stencil: int, boundary: str) -> Solver:
+BACK = 8
+"""Steps back from the last iterate of a solve that does not converge."""
+
+
+def make(
+    scheme: str, n: int, stencil: int, boundary: str, max_iter: int = 200
+) -> Solver:
     """The solver of one row."""
     if scheme == "filtered":
-        return FDFiltered(n=n, stencil=stencil, boundary=boundary)
+        return FDFiltered(n=n, stencil=stencil, boundary=boundary, max_iter=max_iter)
     if scheme == "monotone":
         return FDMonotone(n=n, stencil=stencil, boundary=boundary)
     return FDPoisson(n=n)
@@ -225,7 +248,14 @@ def sequence(task: tuple[str, str, int, str, str, bool]) -> list[dict[str, Any]]
         n = N - 1 if convention == "1/(N-1)" else N
         solver = make(scheme, n, stencil, boundary)
         run_name = f"{scheme} N={N} h={convention} stencil={stencil} {boundary}"
-        m, _ = solve(solver, problem_for(name, n), run_name, log)
+        problem = problem_for(name, n)
+        m, _ = solve(solver, problem, run_name, log)
+        back = ""
+        if scheme == "filtered" and not m["converged"]:
+            earlier = make(
+                scheme, n, stencil, boundary, max_iter=max(m["iterations"] - BACK, 1)
+            )
+            back = evaluate(earlier.solve(problem))["max"]
         i = SIZES.index(N)
         t41 = T41.get((name, scheme, stencil))
         t42 = T42.get((name, scheme)) if stencil == 17 or scheme == "standard" else None
@@ -256,6 +286,7 @@ def sequence(task: tuple[str, str, int, str, str, bool]) -> list[dict[str, Any]]
                 "iterations": m["iterations"],
                 "converged": m["converged"],
                 "residual_max": m.get("residual_max", ""),
+                f"max_err_{BACK}_steps_before": back,
                 "monotone_fraction": m.get("monotone_fraction", ""),
                 "filter_width": m.get("filter_width", ""),
                 "nonconvex_fraction": m["nonconvex_fraction"],
@@ -279,32 +310,17 @@ class UnitSlopeMonotone17(Monotone17):
         return dataclasses.replace(grid, kappa=np.ones_like(grid.kappa))
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class StartFrom(Newton):
-    """Newton from the root of another solver: "monotone" or "standard"."""
-
-    start: str = "monotone"
-
-    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """The other solver's values at the unknowns."""
-        n = self.scheme.monotone.n  # type: ignore[attr-defined]
-        other = FDMonotone(n=n) if self.start == "monotone" else FDPoisson(n=n)
-        result = other.solve(problem)
-        assert result.values is not None and result.interior is not None
-        return result.values[result.interior]
-
-
 def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
     """One row of filtered_checks.csv.
 
     ``task`` is (check, problem, N, variant, log), all at n = N - 1 with the
     17-point stencil: the variant is the filter width's name for "width",
-    the start for "start", unused for "kappa" and "newton".
+    the start for "start", delta for "regularised", unused for "kappa",
+    "newton" and "catalogue".
     """
     check, name, N, variant, log = task
     n = N - 1
     problem = problem_for(name, n)
-    h, dtheta = 1.0 / n, angular_resolution(17)
     epsilon: Any = ""
     if check == "kappa":
         scheme = Filtered(
@@ -312,21 +328,33 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         )
         solver: Solver = Newton(scheme=scheme, max_iter=200)
     elif check == "width":
+        # Oberman's angular resolution is half the gap between directions;
+        # the default dtheta is the full gap.
+        half_gap = math.sqrt(1.0 / n) + angular_resolution(17) / 10
+        full_gap = math.sqrt(1.0 / n) + 2 * angular_resolution(17) / 10
         epsilon = {
-            "default": math.sqrt(h) + dtheta / 10,
-            "full_gap": math.sqrt(h) + 2 * dtheta / 10,
-            "twice": 2 * (math.sqrt(h) + dtheta / 10),
-            "four_times": 4 * (math.sqrt(h) + dtheta / 10),
+            "half_gap": half_gap,
+            "default": full_gap,
+            "twice": 2 * full_gap,
+            "four_times": 4 * full_gap,
         }[variant]
         solver = FDFiltered(n=n, epsilon=epsilon)
     elif check == "newton":
         solver = FDNewton(n=n)
-    else:  # "start"
+    elif check == "start":
+        start = FDMonotone(n=n) if variant == "monotone" else FDPoisson(n=n)
         scheme = Filtered(accurate=Standard9(n=n), monotone=Monotone17(n=n))
-        solver = StartFrom(scheme=scheme, max_iter=200, start=variant)
+        solver = Newton(scheme=scheme, start=start, max_iter=200)
+    elif check == "regularised":
+        monotone = SmoothMonotone17(n=n, delta=variant)
+        scheme = Filtered(accurate=Standard9(n=n), monotone=monotone)
+        solver = Newton(scheme=scheme, max_iter=200)
+    else:  # "catalogue"
+        solver = FDFiltered(n=n)
     run_name = f"check={check} N={N} variant={variant}"
     m, _ = solve(solver, problem, run_name, log)
-    print(f"{name} {run_name}: max {m['max']:.4g} its {m['iterations']}", flush=True)
+    m.setdefault("max", "")  # T7 has no exact solution
+    print(f"{name} {run_name}: max {m['max']} its {m['iterations']}", flush=True)
     return {
         "check": check,
         "problem": name,
@@ -348,17 +376,25 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
 CHECK_TASKS: list[tuple[str, str, int, Any]] = [
     *(("kappa", "T2", N, "") for N in (63, 127, 255)),
     *(
-        ("width", "T20", N, width)
+        ("width", name, N, width)
+        for name in ("T20", "T2")
         for N in (63, 127)
-        for width in ("default", "full_gap", "twice", "four_times")
+        for width in ("half_gap", "default", "twice", "four_times")
     ),
     *(
-        ("start", "T20", N, start)
+        ("start", name, N, start)
+        for name in ("T20", "T2")
         for N in (63, 127)
         for start in ("monotone", "standard")
     ),
-    *(("start", "T2", N, "standard") for N in (63, 127)),
     *(("newton", "T20", N, "") for N in (63, 127)),
+    *(
+        ("regularised", name, N, delta)
+        for name in ("T2", "T1", "T20")
+        for N in (63, 127)
+        for delta in (1e-4, 1e-2, 1e-1)
+    ),
+    *(("catalogue", name, N, "") for name in CATALOGUE for N in (17, 65)),
 ]
 """(check, problem, N, variant) of every row of filtered_checks.csv."""
 

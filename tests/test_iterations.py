@@ -20,6 +20,7 @@ from maesolvers import (
     FDMonotone,
     FDNewton,
     FDPoisson,
+    Filtered,
     Newton,
     PenaltyMLP,
     PoissonIteration,
@@ -231,7 +232,7 @@ def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
     # The filtered scheme answers through its parts (#23); its narrower part
     # is the monotone one.
-    declared = getattr(scheme, "monotone", scheme)
+    declared = scheme.monotone if isinstance(scheme, Filtered) else scheme
     assert (solver.domains, solver.boundaries, solver.dims) == (
         declared.domains,
         declared.boundaries,
