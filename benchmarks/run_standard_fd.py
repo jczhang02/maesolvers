@@ -92,9 +92,8 @@ def newton_rows(log: bool) -> Iterator[dict[str, object]]:
                 }
 
 
-def write(path: Path, rows: Iterator[dict[str, object]]) -> None:
+def write(path: Path, rows: list[dict[str, object]]) -> None:
     """Write rows as CSV, the header from the first row."""
-    rows = list(rows)
     with path.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -106,8 +105,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
     log = not parser.parse_args().no_mlflow
-    write(HERE / "fd_poisson_sequence.csv", poisson_rows(log))
-    write(HERE / "fd_newton_sequence.csv", newton_rows(log))
+    # Write only after every solve, so no run sees a dirty checkout.
+    poisson, newton = list(poisson_rows(log)), list(newton_rows(log))
+    write(HERE / "fd_poisson_sequence.csv", poisson)
+    write(HERE / "fd_newton_sequence.csv", newton)
 
 
 if __name__ == "__main__":
