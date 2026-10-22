@@ -49,7 +49,8 @@ from maesolvers import SHARED_TEST_SET, SOLVERS
 for name in SHARED_TEST_SET:
     problem = CATALOGUE[name]
     supported = [key for key, preset in SOLVERS.items() if preset().supports(problem)]
-    print(name, supported)  # T1 ['FDNewton', 'FDPoisson', 'PenaltyMLP'], ...
+    print(name, supported)
+    # T1 ['FDHybrid', 'FDMonotone', 'FDNewton', 'FDPoisson', 'PenaltyMLP'], ...
 ```
 
 Solving an unsupported problem raises `UnsupportedProblemError`, before any work is done.
