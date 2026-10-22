@@ -333,3 +333,208 @@ A new iteration that calls other scheme methods lists them in its own `requires`
 
 A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, so its fields are its parameters (an iteration checks this as the base class checks a solver), and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
 `Standard9` in `maesolvers/classical/schemes.py` is the model to follow; `docs/methods/standard9.md` describes its mathematics.
+
+## Neural solvers (needs the `neural` extra)
+
+A neural solver represents the solution by a network and trains it to satisfy the equation at collocation points.
+Its classes import with numpy alone, so they can be configured and listed anywhere; a solve needs torch and lightning, in the `neural` extra (`pip install "maesolvers[neural] @ git+https://github.com/jczhang02/maesolvers"`), and raises `ImportError` naming the extra without them.
+
+### Train the preset
+
+`PenaltyMLP` is the penalty MLP of Nystrom and Vestberg (2023), with the paper's defaults: 3000 interior and 400 boundary points, a 5 x 10 sigmoid network inside the ansatz `u = G + D N`, and up to 5000 L-BFGS steps.
+Here it trains briefly, on the CPU, on fewer points.
+
+```python
+from maesolvers import T6, PenaltyMLP
+
+solver = PenaltyMLP(interior=500, boundary=100, max_steps=50, seed=0, accelerator="cpu")
+result = solver.solve(T6)
+print(evaluate(result))  # on the shared evaluation grid: the network has no nodes
+print(result.info["stop"], result.info["iterations"], result.info["loss_terms"])
+print(result.u([[0.2, 0.3]]), result.hessian([[0.2, 0.3]]))  # autograd Hessian
+```
+
+The result is measured like any other: `evaluate` takes the errors on the shared evaluation grid, never at the training points, and the convexity fields from the autograd Hessian there.
+`result.info["stop"]` says why the training ended: `"converged"` (the largest gradient component fell to `tol`), `"max_steps"`, `"stalled"` (a step changed nothing) or `"diverged"` (the loss was not finite).
+The `seed` fixes the collocation points and the initial network, so the same call gives the same result on the same device; a reported run uses the seeds 0 to 9 and `maesolvers.metrics.summarize` aggregates them (ADR 0007, 0008).
+`accelerator="auto"` (the default) trains on a GPU when there is one; for networks this small the CPU is often as fast.
+Every step reaches the callbacks with the loss terms as metrics, so `MLflowLogger` logs a training curve.
+
+### Compose the parts
+
+A neural solver is four parts (ADR 0004): a network, a loss, a sampler and an optimizer, run by the shared training loop of `NeuralSolver`.
+`PenaltyMLP()` is this composition:
+
+```python
+from maesolvers import (
+    LBFGS,
+    MLP,
+    HardDirichlet,
+    NeuralSolver,
+    PenaltyLoss,
+    UniformSampler,
+)
+
+composed = NeuralSolver(
+    network=HardDirichlet(network=MLP(width=10, depth=5, activation="sigmoid")),
+    loss=PenaltyLoss(convexity_weight=1e4),
+    sampler=UniformSampler(interior=3000, boundary=400),
+    optimizer=LBFGS(),
+    max_steps=5000,
+)
+assert all(
+    getattr(composed, name) == getattr(PenaltyMLP(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps")
+)
+```
+
+Swap one part to get another method: `MLP()` as the network with `PenaltyLoss(boundary_weight=100.0)` imposes the boundary condition by a penalty instead of the ansatz, and `Adam(lr=1e-3)` replaces L-BFGS.
+Every method with the same sampler and seed trains on the same collocation points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
+
+### Write your own network, loss or sampler
+
+A part is a frozen dataclass, like a solver: it subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, and its fields are its hyperparameters, which `Result.hparams` records and configurations set.
+The three parts below are a network that adds a convex quadratic to any other network, a loss that penalises a negative Laplacian instead of negative diagonal entries, and a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3).
+Put them in a module of your own, here `my_parts.py`.
+
+```python
+# my_parts.py
+from dataclasses import dataclass
+
+import numpy as np
+import torch
+
+from maesolvers.core import integer, nonnegative, positive
+from maesolvers.neural import Collocation, Loss, Network, UniformSampler, functional
+
+
+class _PlusQuadratic(torch.nn.Module):
+    def __init__(self, inner, alpha):
+        super().__init__()
+        self.inner, self.alpha = inner, alpha
+
+    def forward(self, x):
+        return self.inner(x) + 0.5 * self.alpha * (x**2).sum(dim=-1)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlusQuadratic(Network):
+    """Another network plus alpha |x|^2 / 2."""
+
+    network: Network
+    alpha: float = 1.0
+
+    def __post_init__(self):
+        object.__setattr__(self, "alpha", nonnegative("alpha", self.alpha))
+
+    def supports(self, problem):
+        return self.network.supports(problem)
+
+    def build(self, problem, collocation):
+        return _PlusQuadratic(self.network.build(problem, collocation), self.alpha)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LaplacianPenaltyLoss(Loss):
+    """Mean squared residual, a penalty on min(0, laplace u), and the boundary misfit."""
+
+    convexity_weight: float = 100.0
+    boundary_weight: float = 100.0
+
+    def __post_init__(self):
+        for name in ("convexity_weight", "boundary_weight"):
+            object.__setattr__(self, name, nonnegative(name, getattr(self, name)))
+
+    def __call__(self, u, batch):
+        hess = functional.hessian(u, batch.interior)
+        laplacian = torch.diagonal(hess, dim1=-2, dim2=-1).sum(dim=-1)
+        terms = {
+            "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).mean(),
+            "convexity": torch.clamp(laplacian, max=0.0).pow(2).mean(),
+            "boundary": functional.mean_squared_misfit(u(batch.boundary), batch.g),
+        }
+        loss = (
+            terms["equation"]
+            + self.convexity_weight * terms["convexity"]
+            + self.boundary_weight * terms["boundary"]
+        )
+        return {"loss": loss, **terms}
+
+
+@dataclass(frozen=True, kw_only=True)
+class CornerSampler(UniformSampler):
+    """Uniform points, plus `extra` boundary points within `radius` of `corner`."""
+
+    extra: int = 40
+    corner: tuple[float, float] = (0.0, 0.0)
+    radius: float = 0.04
+
+    def __post_init__(self):
+        super().__post_init__()
+        object.__setattr__(self, "extra", integer("extra", self.extra, 0))
+        object.__setattr__(self, "radius", positive("radius", self.radius))
+
+    def sample(self, problem, rng):
+        points = super().sample(problem, rng)
+        near = np.empty((0, problem.dim))
+        while len(near) < self.extra:
+            draw = problem.domain.sample_boundary(10 * self.extra, rng)
+            close = np.linalg.norm(draw - self.corner, axis=-1) < self.radius
+            near = np.concatenate([near, draw[close]])
+        boundary = np.concatenate([points.boundary, near[: self.extra]])
+        return Collocation(interior=points.interior, boundary=boundary)
+```
+
+What each part does:
+
+- A network's `build(problem, collocation)` returns a torch module that maps points of shape `(M, d)` to values of shape `(M,)`.
+  The solver calls it once per solve, with float64 as torch's default dtype and torch's generator seeded from the solver's seed, so a module made there is float64 and reproducible; the parameters that require a gradient are the ones the optimizer trains.
+  A network that fits something before training, like `HardDirichlet`, does it in `build`, where the collocation points are at hand.
+- A loss's `__call__(u, batch)` returns a dict of scalar tensors, with the total under `"loss"`; every entry is logged after each step under its name.
+  `batch` holds the tensors `interior` and `f`, `boundary` and `g` on the training device, and `maesolvers.neural.functional` holds the kernels: the autograd `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty` and `mean_squared_misfit`.
+- A sampler's `sample(problem, rng)` returns a `Collocation` and must draw only from `rng`, so that the seed decides the points.
+- `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
+  `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
+- `__post_init__` checks every parameter with `integer`, `positive` or `nonnegative`, as the shipped parts do.
+- An optimizer part subclasses `Optimizer` and returns a torch optimizer from `build(parameters)`; the training loop calls its `step(closure)` once per training step.
+
+Use them like the shipped parts.
+
+```python
+from my_parts import CornerSampler, LaplacianPenaltyLoss, PlusQuadratic
+
+from maesolvers import T3, Adam
+
+mine = NeuralSolver(
+    network=PlusQuadratic(network=MLP(width=8, depth=2, activation="softplus")),
+    loss=LaplacianPenaltyLoss(),
+    sampler=CornerSampler(interior=300, boundary=80),
+    optimizer=Adam(lr=1e-2),
+    max_steps=30,
+    accelerator="cpu",
+)
+result = mine.solve(T3)  # f = 1/|x| is singular at the corner (0, 0)
+print(result.info["loss_terms"], evaluate(result)["max"])
+assert len(mine.collocation(T3).boundary) == 80 + 40
+```
+
+With the `cli` extra, a configuration names a part of your own by its dotted `class_path`, nested in the solver's configuration, and `Result.hparams` records it the same way.
+
+```python
+from my_parts import PlusQuadratic
+
+config = {
+    "class_path": "NeuralSolver",
+    "init_args": {
+        "network": {
+            "class_path": "my_parts.PlusQuadratic",
+            "init_args": {"network": {"class_path": "MLP"}, "alpha": 0.5},
+        },
+        "loss": {"class_path": "my_parts.LaplacianPenaltyLoss"},
+        "sampler": {"class_path": "my_parts.CornerSampler", "init_args": {"extra": 20}},
+        "optimizer": {"class_path": "Adam"},
+    },
+}
+assert from_config(config).network == PlusQuadratic(network=MLP(), alpha=0.5)
+assert from_config(mine.hparams) == mine
+```
