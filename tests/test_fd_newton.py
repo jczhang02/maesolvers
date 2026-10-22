@@ -1,0 +1,38 @@
+import numpy as np
+import pytest
+
+from maesolvers import P1, P2, P4, P5, FDNewton
+from maesolvers.metrics import evaluate
+
+
+@pytest.mark.parametrize("problem", [P2, P4])
+def test_second_order_convergence(problem):
+    errors = []
+    for n in (16, 32, 64):
+        result = FDNewton(n=n).solve(problem)
+        assert result.info["converged"]
+        errors.append(evaluate(result)["max_nodes"])
+    rates = np.log2(np.array(errors[:-1]) / np.array(errors[1:]))
+    assert np.all(rates > 1.7), rates
+
+
+def test_solution_is_convex_on_p4():
+    m = evaluate(FDNewton(n=32).solve(P4))
+    assert m["nonconvex_fraction"] == 0.0
+    assert m["residual_max"] < 1e-8
+
+
+def test_corner_blowup_breaks_the_standard_scheme():
+    """Characterisation, not a goal: the non-monotone scheme converges in the
+    residual but to a discrete solution that is non-convex near the corner,
+    and the max error does not decrease with the grid (see benchmarks/)."""
+    results = {n: FDNewton(n=n).solve(P5) for n in (32, 64)}
+    assert all(r.info["converged"] for r in results.values())
+    metrics = {n: evaluate(r) for n, r in results.items()}
+    assert metrics[64]["nonconvex_fraction"] > 0.0
+    assert metrics[64]["max_nodes"] > 0.5 * metrics[32]["max_nodes"]
+
+
+def test_disk_domain_is_rejected():
+    with pytest.raises(TypeError):
+        FDNewton().solve(P1)
