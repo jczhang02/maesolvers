@@ -175,6 +175,47 @@ def _check_part_definition(cls: type, label: str) -> None:
         )
 
 
+def check_part(owner: str, part: object, base: type) -> None:
+    """Raise TypeError unless ``part`` is an instance of a well-defined subclass of ``base``.
+
+    Call it in the ``__post_init__`` of a solver or part that takes a part,
+    as the shipped composed solvers do, so that passing the class ``MLP``
+    for ``MLP()``, or a part of the wrong kind, fails at construction with a
+    message that names the field.
+
+    Parameters
+    ----------
+    owner
+        How the error messages name the field, such as ``"Newton.scheme"``.
+    part
+        The value of the field.
+    base
+        The part's base class, such as :class:`~maesolvers.classical.Scheme`.
+
+    Raises
+    ------
+    TypeError
+        If ``part`` is a class, is not an instance of ``base``, or its class
+        fails the check a solver class passes: its own frozen dataclass
+        decorator and keyword-only fields.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a network that wraps another:
+
+    >>> check_part("PlusQuadratic.network", self.network, Network)  # doctest: +SKIP
+    """
+    if isinstance(part, type):
+        raise TypeError(
+            f"{owner} must be an instance, got the class {part.__name__}; "
+            f"write {part.__name__}(...)"
+        )
+    cls = type(part)
+    if not isinstance(part, base):
+        raise TypeError(f"{owner} must subclass {base.__name__}, got {cls.__name__}")
+    _check_part_definition(cls, f"{owner}: {cls.__name__}")
+
+
 def _class_path(cls: type) -> str:
     """``maesolvers.<Name>`` for a class the package exports, else its module path."""
     # Looked up at call time: the package imports this module.

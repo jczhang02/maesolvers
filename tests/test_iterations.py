@@ -19,6 +19,7 @@ from maesolvers import (
     FDNewton,
     FDPoisson,
     Newton,
+    PenaltyMLP,
     PoissonIteration,
     Scheme,
     SchemeIteration,
@@ -213,13 +214,14 @@ def test_the_registry_lists_the_presets_read_only():
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
+        "PenaltyMLP": PenaltyMLP,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
-@pytest.mark.parametrize("solver", list(SOLVERS.values()))
-def test_registered_solvers_declare_their_support_on_the_class(solver):
+@pytest.mark.parametrize("solver", [FDMonotone, FDNewton, FDPoisson])
+def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
     assert (solver.domains, solver.boundaries, solver.dims) == (
         scheme.domains,

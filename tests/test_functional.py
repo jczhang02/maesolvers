@@ -1,0 +1,82 @@
+"""The torch kernels of the neural losses (needs the neural extra)."""
+
+import numpy as np
+import pytest
+
+torch = pytest.importorskip("torch")
+functional = pytest.importorskip("maesolvers.neural.functional")
+
+pytestmark = pytest.mark.neural
+
+
+def _points(m=20, d=2, seed=0):
+    rng = np.random.default_rng(seed)
+    return torch.tensor(rng.uniform(0, 1, (m, d)), dtype=torch.float64)
+
+
+def _exp_half_square(x):
+    return torch.exp(0.5 * (x**2).sum(dim=-1))
+
+
+@pytest.mark.parametrize("d", [1, 2, 3])
+def test_hessian_of_a_known_function(d):
+    x = _points(d=d)
+    u = _exp_half_square(x)
+    expected = (torch.eye(d) + x[:, :, None] * x[:, None, :]) * u[:, None, None]
+    hess = functional.hessian(_exp_half_square, x)
+    assert hess.shape == (20, d, d) and hess.dtype == torch.float64
+    torch.testing.assert_close(hess, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_hessian_of_an_affine_function_is_zero():
+    x = _points()
+    hess = functional.hessian(lambda p: p @ torch.tensor([1.0, 2.0], dtype=p.dtype), x)
+    assert torch.equal(hess, torch.zeros(20, 2, 2, dtype=torch.float64))
+
+
+def test_hessian_of_a_function_linear_in_one_coordinate():
+    x = _points()
+    hess = functional.hessian(lambda p: p[:, 0] ** 2 + 3.0 * p[:, 1], x)
+    expected = torch.zeros(20, 2, 2, dtype=torch.float64)
+    expected[:, 0, 0] = 2.0
+    torch.testing.assert_close(hess, expected)
+
+
+def test_hessian_keeps_the_graph_to_the_parameters():
+    weight = torch.tensor([1.5], dtype=torch.float64, requires_grad=True)
+    x = _points()
+    hess = functional.hessian(lambda p: weight * (p**2).sum(dim=-1), x)
+    (grad,) = torch.autograd.grad(hess.sum(), weight)
+    # The Hessian is 2 w I at each of the 20 points: d/dw of its sum is 2 * 2 * 20.
+    assert grad.item() == pytest.approx(80.0)
+    frozen = functional.hessian(_exp_half_square, x, create_graph=False)
+    assert not frozen.requires_grad
+
+
+def test_hessian_does_not_change_the_points():
+    x = _points()
+    before = x.clone()
+    functional.hessian(_exp_half_square, x)
+    assert torch.equal(x, before) and not x.requires_grad
+
+
+def test_monge_ampere_residual_is_the_determinant_minus_f():
+    hess = torch.tensor([[[2.0, 1.0], [1.0, 3.0]], [[1.0, 0.0], [0.0, 1.0]]])
+    residual = functional.monge_ampere_residual(hess, torch.tensor([5.0, 2.0]))
+    torch.testing.assert_close(residual, torch.tensor([0.0, -1.0]))
+
+
+def test_the_diagonal_penalty_is_the_mean_of_the_negative_parts_squared():
+    hess = torch.tensor([[[-1.0, 5.0], [5.0, 2.0]], [[-2.0, 0.0], [0.0, -3.0]]])
+    # (1 + 0) and (4 + 9), averaged over the two points.
+    assert functional.diagonal_convexity_penalty(hess).item() == pytest.approx(7.0)
+    convex = torch.eye(2).expand(4, 2, 2)
+    assert functional.diagonal_convexity_penalty(convex).item() == 0.0
+
+
+def test_the_misfit_is_a_mean_square_and_refuses_no_points():
+    values = torch.tensor([1.0, 3.0])
+    assert functional.mean_squared_misfit(values, torch.zeros(2)).item() == 5.0
+    empty = torch.zeros(0)
+    with pytest.raises(ValueError, match="empty tensors"):
+        functional.mean_squared_misfit(empty, empty)

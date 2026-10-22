@@ -25,6 +25,7 @@ from maesolvers import (
     from_config,
 )
 from maesolvers.classical import Scheme
+from maesolvers.neural import Loss, Network, NeuralSolver, Optimizer, Sampler
 
 pytest.importorskip("jsonargparse")
 
@@ -183,6 +184,15 @@ def _exported(base):
 
 SOLVER_CLASSES = _exported(Solver)
 SCHEME_CLASSES = _exported(Scheme)
+NEURAL_SLOTS = {
+    "network": (Network, {"class_path": "MLP"}),
+    "loss": (Loss, {"class_path": "PenaltyLoss"}),
+    "sampler": (Sampler, {"class_path": "UniformSampler"}),
+    "optimizer": (Optimizer, {"class_path": "LBFGS"}),
+}
+NEURAL_PART_CLASSES = [
+    (slot, name) for slot, (base, _) in NEURAL_SLOTS.items() for name in _exported(base)
+]
 
 
 def test_the_guards_see_every_exported_solver_and_scheme():
@@ -193,6 +203,14 @@ def test_the_guards_see_every_exported_solver_and_scheme():
         "PoissonIteration",
     }
     assert set(SCHEME_CLASSES) >= {"Standard9"}
+    assert {name for _, name in NEURAL_PART_CLASSES} >= {
+        "MLP",
+        "HardDirichlet",
+        "PenaltyLoss",
+        "UniformSampler",
+        "LBFGS",
+        "Adam",
+    }
 
 
 def _class(class_path, user_module):
@@ -210,8 +228,13 @@ def _numeric_parameters(cls):
 
 
 def _solver(cls, class_path, **init_args):
-    if any(f.name == "scheme" and f.init for f in dataclasses.fields(cls)):
+    """A configuration of ``cls`` with a default part in every required part slot."""
+    fields = {f.name for f in dataclasses.fields(cls) if f.init}
+    if "scheme" in fields:
         init_args.setdefault("scheme", {"class_path": "Standard9"})
+    for slot, (_, default) in NEURAL_SLOTS.items():
+        if slot in fields:
+            init_args.setdefault(slot, default)
     return {"class_path": class_path, "init_args": init_args}
 
 
@@ -238,6 +261,16 @@ def test_every_numeric_scheme_parameter_is_checked_against_its_type(
         part = {"class_path": scheme, "init_args": {name: "many"}}
         with pytest.raises(ValueError, match=f'key "{name}"'):
             from_config(_solver(Newton, "Newton", scheme=part))
+
+
+@pytest.mark.parametrize(("slot", "part"), NEURAL_PART_CLASSES)
+def test_every_numeric_neural_part_parameter_is_checked_against_its_type(slot, part):
+    names = _numeric_parameters(getattr(maesolvers, part))
+    assert names
+    for name in names:
+        config = _solver(getattr(maesolvers, part), part, **{name: "many"})
+        with pytest.raises(ValueError, match=f'key "{name}"'):
+            from_config(_solver(NeuralSolver, "NeuralSolver", **{slot: config}))
 
 
 def _with_init_args(**init_args):
