@@ -105,7 +105,7 @@ Table 7 does not follow it:
 Published: 0.2892.
 `h = 2 / (N - 1)` matches at every printed N above; `h = 2 / N` matches neither the value at the origin nor the nodal minimum.
 So in Table 7, N is the number of nodes per side, the boundary included, and the grid has `N^2` nodes.
-The same paper therefore uses two conventions, and neither is stated where the table is; only the comparison with a solver tells them apart.
+So Table 7 does not follow the rule the same paper states in Section 3.3; whether its other tables follow it was not checked.
 
 ## Not compared
 
