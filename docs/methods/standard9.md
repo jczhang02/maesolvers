@@ -50,7 +50,7 @@ The number of steps grows with the singularity of the problem: about 50 on T1 at
 It starts from `laplace u_0 = 2 sqrt(f)`, a lower bound for the Laplacian of the convex solution: `u_xx + u_yy >= 2 sqrt(f)` by the inequality of arithmetic and geometric means on the Hessian's eigenvalues.
 A step of length `t` is halved until it cuts the max residual by the factor `1 - 1e-4 t`; when 40 halvings do not, the solve stops unconverged.
 It stops when the max residual is at most `tol * max(1, max |f|)`; the measure is that residual (`residual`).
-On a smooth problem it needs 4 steps at every `n`.
+On T1 it needs 3 steps at `n = 16` and 4 at every `n` from 31 to 361.
 Nothing in the iteration prefers the convex root, so on a singular problem it may converge to a non-convex one.
 
 ## Source papers
@@ -85,11 +85,11 @@ The presets take the scheme's parameters flat: `FDPoisson(n=128, tol=1e-10)` is 
 
 ## Reproduction
 
-At the levels of ADR 0002:
+At the levels of ADR 0002, as `benchmarks/standard_fd.md` states them:
 
 | Problem | Source | `FDPoisson` | `FDNewton` |
 |---|---|---|---|
-| T1 | Froese-Oberman 2011, Table 3 | exact | exact |
+| T1 | Froese-Oberman 2011, Table 3 | exact at `N = 31` to 127, not run beyond | exact, against the column of the Poisson and Gauss-Seidel iterations, whose discrete solution it reaches |
 | T2 | Froese-Oberman 2011, Table 3 | exact | mismatch (Finding 2) |
 | T7 | Benamou-Froese-Oberman 2010, Table 7 | exact | mismatch from `N = 41` (Finding 2) |
 

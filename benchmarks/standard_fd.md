@@ -42,6 +42,14 @@ Reproduced: every value agrees with the published one to the digits printed, ord
 Both solvers reach the same discrete solution, as the 2010 paper states for its two iterations.
 Newton needs 4 iterations at every N; the papers never tabulate Newton on the standard scheme, so there is nothing to compare that against.
 
+Level (ADR 0002), per solver:
+
+- `FDPoisson`: exact at N = 31 to 127, the N its receipt covers (`POISSON_T1_UP_TO` in `run_standard_fd.py`); it was not run at N = 181 to 361.
+- `FDNewton`: exact at every printed N, against a column the papers credit to the Poisson and Gauss-Seidel iterations, not to Newton.
+  Newton reaches the same discrete solution as those iterations, so its values match the column; this is a check of the discrete solution, not a reproduction of a published Newton run.
+
+`tests/test_reproduction.py` pins N = 31 and 63 for both solvers.
+
 ## T2, example with blow-up
 
 | N | Published | FDPoisson | FDNewton | FDNewton min Hessian eigenvalue |
@@ -56,6 +64,13 @@ Newton needs 4 iterations at every N; the papers never tabulate Newton on the st
 | 361 | 5.41e-3 | 5.409e-3 | 22.25e-3 | -1182.3 |
 
 Reproduced with the Poisson iteration: every value agrees to the digits printed, order about `h^0.5`, and the discrete solution is convex at every node (smallest Hessian eigenvalue 0.71 at every N).
+
+Level (ADR 0002), per solver:
+
+- `FDPoisson`: exact at every printed N.
+  `tests/test_reproduction.py` pins N = 31 and 63.
+- `FDNewton`: mismatch.
+  It converges to a non-convex discrete solution at every N, whose error does not decrease with N (Finding 2).
 
 ## Finding 2: Newton on the standard scheme picks a non-convex root on T2
 
