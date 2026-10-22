@@ -104,6 +104,11 @@ The catalogue is provisional: the research repository has not fixed its test pro
 | `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
 
+Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
+A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
+A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
+`maesolvers.SOLVERS` lists the presets by name.
+
 ## Reproduction
 
 A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
@@ -114,7 +119,7 @@ A method counts as reproduced when it matches the source paper's own table, on t
 | P4 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
 | P4 | 361 | 0.05e-5 | | 5.276e-7 |
 | P5 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
-| P5 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
+| P5 | 361 | 5.41e-3 | 5.409e-3 | 22.25e-3 |
 
 Two things came out of this first comparison.
 The papers' grid convention, which none of them states, is `h = 1/N`.

@@ -1,7 +1,7 @@
 """Core types: domains, boundary conditions, problems, results and the solver base.
 
 Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
-:class:`Result`; the solvers live in :mod:`maesolvers.solvers`.
+:class:`Result`; the solvers live in :mod:`maesolvers.classical`.
 """
 
 from maesolvers.core.boundary import BoundaryCondition, Dirichlet, Transport
