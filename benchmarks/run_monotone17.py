@@ -3,9 +3,10 @@
 Runs FDMonotone on T1, T2 and T20 over the grid sizes of Froese-Oberman,
 J. Comput. Phys. 230 (2011), Table 3 (the SIAM J. Numer. Anal. 49 (2011)
 Table 3 sizes are a subset), with the 9-, 17- and 33-point stencils and both
-boundary treatments, and on the cone T21, which the catalogue lacks and this
-script builds for each grid. Then it runs Newton from the papers' start for
-1 to 8 steps on the coarse grids (monotone17.md, Finding 2). Every solve is
+boundary treatments, the 17-point stencil also with h = 1/(N - 1), and on the
+cone T21, which the catalogue lacks and this script builds for each grid.
+Then it runs Newton from the papers' start for 1 to 8 steps on the coarse
+grids (monotone17.md, Finding 2). Every solve is
 one MLflow run in maesolvers-monotone17-<problem> unless --no-mlflow is
 given. The solves run in --processes worker processes (default 12), so set
 one thread each. Run it on a100server from the repository root::
@@ -166,6 +167,9 @@ def sequence(task: tuple[str, int, str, bool]) -> list[dict[str, Any]]:
         grids += [("1/N", N, N) for N in JCP_N[:2]]
     else:
         grids = [("1/N", N, N) for N in JCP_N]
+        if stencil == 17:
+            # The other grid convention for the JCP column (Finding 3).
+            grids += [("1/(N-1)", N, N - 1) for N in JCP_N]
     for convention, N, n in grids:
         problem = cone(n) if name == "T21" else {"T1": T1, "T2": T2, "T20": T20}[name]
         solver = FDMonotone(n=n, stencil=stencil, boundary=boundary)
