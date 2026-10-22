@@ -387,7 +387,6 @@ def test_solution_info_may_not_override_run_fields():
         (dict(tol=np.inf), ValueError, "tol must be"),
         (dict(spline_degree=0), ValueError, "spline_degree"),
         (dict(spline_degree=6), ValueError, "spline_degree"),
-        (dict(n=2, spline_degree=3), ValueError, "spline_degree"),
         (dict(max_iter=0), ValueError, "max_iter"),
         (dict(n=8.5), TypeError, "n must be an integer"),
         (dict(n=True), TypeError, "n must be an integer"),

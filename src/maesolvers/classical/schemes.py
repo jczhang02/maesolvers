@@ -16,7 +16,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 import numpy as np
 import scipy.sparse as sp
@@ -203,11 +203,35 @@ _BISECTIONS = 64
 """Halvings that locate a boundary crossing on a grid segment, past float64 precision."""
 
 
-def shortley_weller_operators(
-    domain: Domain, n: int
-) -> tuple[
-    np.ndarray, np.ndarray, sp.csr_matrix, sp.csr_matrix, sp.csr_matrix, np.ndarray
-]:
+class ShortleyWellerOperators(NamedTuple):
+    """What :func:`shortley_weller_operators` returns; it unpacks as a tuple.
+
+    Attributes
+    ----------
+    nodes : numpy.ndarray
+        Shape ``(k + m, 2)``: the ``k`` grid nodes that carry unknowns, in the
+        flat order of :func:`difference_operators`, then the ``m`` boundary
+        points.
+    interior : numpy.ndarray
+        Shape ``(k + m,)``, boolean: True at the first ``k``.
+    dxx, dyy, dxy : scipy.sparse.csr_matrix
+        Shape ``(k, k + m)``: from the values at ``nodes`` to the differences
+        at the ``k`` nodes.
+    min_step : numpy.ndarray
+        Shape ``(k,)``: the smallest step fraction (``a`` or ``b``) in the
+        stencil of each of the ``k`` nodes, 1 where every neighbour is in the
+        open domain. The weights grow like ``1 / min_step``.
+    """
+
+    nodes: np.ndarray
+    interior: np.ndarray
+    dxx: sp.csr_matrix
+    dyy: sp.csr_matrix
+    dxy: sp.csr_matrix
+    min_step: np.ndarray
+
+
+def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators:
     """Second differences on a uniform grid cut by a curved boundary.
 
     The grid has ``n`` cells per side over the domain's bounding box, and its
@@ -230,8 +254,10 @@ def shortley_weller_operators(
     boundary (in the closed but not in the open domain), the nodes of the open
     domain closer to the boundary than ``1e-6`` steps along a grid direction
     (rounding puts nodes that lie on a circle in exact arithmetic, such as
-    ``(15/17, 8/17)`` on the unit circle, on either side of it), and the
-    crossings. A crossing is looked for on the segment to an outside
+    ``(15/17, 8/17)`` on the unit circle, on either side of it), the nodes on
+    the edges of the bounding box that the closed domain contains (the box
+    touches the domain there, and rounding may put such a node in the open
+    domain), and the crossings. A crossing is looked for on the segment to an outside
     neighbour only, so a boundary that crosses a grid segment twice (a
     non-convex domain with features finer than the grid) is not resolved.
 
@@ -244,19 +270,11 @@ def shortley_weller_operators(
 
     Returns
     -------
-    nodes : numpy.ndarray
-        Shape ``(k + m, 2)``: the ``k`` grid nodes that carry unknowns, in the
-        flat order of :func:`difference_operators`, then the ``m`` boundary
-        points.
-    interior : numpy.ndarray
-        Shape ``(k + m,)``, boolean: True at the first ``k``.
-    dxx, dyy, dxy : scipy.sparse.csr_matrix
-        Shape ``(k, k + m)``: from the values at ``nodes`` to the differences
-        at the ``k`` nodes.
-    min_step : numpy.ndarray
-        Shape ``(k,)``: the smallest step fraction (``a`` or ``b``) in the
-        stencil of each of the ``k`` nodes, 1 where every neighbour is in the
-        open domain. The weights grow like ``1 / min_step``.
+    ShortleyWellerOperators
+        The ``k`` nodes with unknowns and the ``m`` boundary points, the
+        mask of the first, the three operators from the values at all of
+        them to the differences at the first, and the smallest step fraction
+        of each stencil.
 
     Raises
     ------
@@ -269,10 +287,14 @@ def shortley_weller_operators(
     h = np.array([x[1] - x[0], y[1] - y[0]])
     grid = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
     inside = domain.interior(grid)
+    # The edges of the bounding box only touch the closed domain, so a node
+    # there joins the boundary even if it tests inside by rounding; every
+    # node left with an unknown then has its eight neighbours in the grid.
+    inside[[0, -1], :] = False
+    inside[:, [0, -1]] = False
     on_boundary = domain.contains(grid) & ~inside
     # The step fraction to the boundary along each half-direction, 1 where the
-    # neighbour is in the closed domain. A node of the open domain is never on
-    # the edge of the bounding box, so its neighbours exist.
+    # neighbour is in the closed domain.
     halves = [(sign * di, sign * dj) for di, dj in _SW_DIRECTIONS for sign in (1, -1)]
     ii, jj = np.nonzero(inside)
     t = np.ones((len(halves), ii.size))
@@ -323,7 +345,9 @@ def shortley_weller_operators(
     dxy.eliminate_zeros()  # the centre of D_xy cancels at a full stencil
     interior = np.zeros(k + m, dtype=bool)
     interior[:k] = True
-    return np.concatenate(points), interior, dxx, dyy, dxy, np.min(t, axis=0)
+    return ShortleyWellerOperators(
+        np.concatenate(points), interior, dxx, dyy, dxy, np.min(t, axis=0)
+    )
 
 
 def _crossing(domain: Domain, start: np.ndarray, step: np.ndarray) -> np.ndarray:
@@ -378,6 +402,9 @@ class Grid:
         Solves ``(axx + ayy) v = rhs`` by a sparse LU factorisation.
     interpolate
         Builds the solution off the nodes from the values at ``nodes``.
+    interpolant
+        What :attr:`interpolate` builds: ``"spline(k)"`` for the tensor
+        spline of degree ``k`` on a box, ``"clough_tocher"`` otherwise.
     """
 
     h: tuple[float, float]
@@ -394,6 +421,7 @@ class Grid:
     bxy: sp.csc_matrix
     laplace: Callable[[np.ndarray], np.ndarray]
     interpolate: Callable[[np.ndarray], Field]
+    interpolant: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -418,9 +446,11 @@ class Standard9(Scheme):
         ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes on a box, 1 to 5 and at most ``n``. On a curved domain the
-        solution off the nodes is the piecewise cubic Clough-Tocher
-        interpolant, whatever the degree.
+        nodes on a box, 1 to 5; a grid with fewer than ``spline_degree``
+        cells per side takes degree ``n``. On a curved domain the solution
+        off the nodes is the piecewise cubic Clough-Tocher interpolant,
+        whatever the degree. ``Result.info["interpolant"]`` names the one
+        used.
 
     Attributes
     ----------
@@ -442,10 +472,9 @@ class Standard9(Scheme):
     def __post_init__(self) -> None:
         n = integer("n", self.n, 2)
         spline_degree = integer("spline_degree", self.spline_degree, 1)
-        if spline_degree > min(5, n):
+        if spline_degree > 5:
             raise ValueError(
-                f"spline_degree must be between 1 and min(5, n) = {min(5, n)}, "
-                f"got {spline_degree}"
+                f"spline_degree must be between 1 and 5, got {spline_degree}"
             )
         object.__setattr__(self, "n", n)
         object.__setattr__(self, "spline_degree", spline_degree)
@@ -501,7 +530,8 @@ class Standard9(Scheme):
             interior = _interior_mask(n).ravel()
             dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
             row_scale = np.ones(np.count_nonzero(interior))
-            degree = self.spline_degree
+            degree = min(self.spline_degree, n)  # a spline needs degree + 1 knots
+            interpolant = f"spline({degree})"
 
             def interpolate(values: np.ndarray) -> Field:
                 return _spline(x, y, values, degree)
@@ -510,6 +540,7 @@ class Standard9(Scheme):
             nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
                 problem.domain, n
             )
+            interpolant = "clough_tocher"
 
             def interpolate(values: np.ndarray) -> Field:
                 return _scattered(nodes, values)
@@ -532,6 +563,7 @@ class Standard9(Scheme):
             bxy=bxy,
             laplace=factorized((axx + ayy).tocsc()),
             interpolate=interpolate,
+            interpolant=interpolant,
         )
 
     def rhs(self, grid: Grid) -> np.ndarray:
@@ -634,7 +666,7 @@ class Standard9(Scheme):
         return grid.laplace(rhs - lap_b)
 
     def solution(self, grid: Grid, v: np.ndarray) -> Solution:
-        """Node values, the discrete Hessian, the spline and the final residual.
+        """Node values, the discrete Hessian, the interpolant and the final residual.
 
         Parameters
         ----------
@@ -646,8 +678,12 @@ class Standard9(Scheme):
         Returns
         -------
         Solution
-            ``info`` holds the spacing ``h`` and ``residual_max``, the max
-            absolute residual.
+            ``u`` is the spline or the Clough-Tocher interpolant through the
+            node values. ``info`` holds the spacing ``h``; ``residual_max``,
+            the max absolute value of :meth:`residual` (row-scaled next to a
+            curved boundary); ``min_step``, the smallest step fraction of a
+            stencil (1 on a box); and ``interpolant``, ``"spline(k)"`` or
+            ``"clough_tocher"``.
         """
         values = np.empty(len(grid.nodes))
         values[grid.interior] = v
@@ -667,6 +703,8 @@ class Standard9(Scheme):
             info={
                 "h": grid.h,
                 "residual_max": float(np.max(np.abs(self.residual(grid, v)))),
+                "min_step": float(np.min(grid.row_scale)),
+                "interpolant": grid.interpolant,
             },
         )
 
@@ -688,15 +726,23 @@ def _spline(x: np.ndarray, y: np.ndarray, values: np.ndarray, degree: int) -> Fi
 def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
     """Clough-Tocher interpolant through values at scattered nodes in the plane.
 
-    The interpolant covers the convex hull of the nodes. Along a curved
-    boundary the domain reaches past it in slivers between consecutive
-    boundary points, of width ``O(h^2)``; a point there takes the linear
-    interpolant along the nearest hull edge at its projection onto that edge.
+    Inside the convex hull of the nodes it is scipy's piecewise cubic
+    interpolant. The domain reaches past the hull: along a smooth boundary in
+    slivers of width ``O(h^2)`` between consecutive boundary points, at a
+    corner of the domain that is not a grid node in a wedge of width
+    ``O(h)``. A point ``q`` there is extrapolated to first order from its
+    projection ``p`` on the nearest hull edge, ``u(p) + grad u(p) . (q - p)``:
+    ``u`` linear along the edge, and ``grad u`` linear between the gradients
+    the Clough-Tocher interpolant estimates at the edge's two nodes. Both
+    are ``O(h)``-accurate or better, so the error is ``O(h^2)`` in the
+    wedges as in the slivers.
     """
     spline = CloughTocher2DInterpolator(nodes, values)
+    # The gradients at the nodes, shape (k, 1, 2): an attribute scipy sets
+    # on construction but does not document; the corner tests pin its use.
+    grad = np.asarray(spline.grad).reshape(len(nodes), 2)
     hull = spline.tri.convex_hull
-    start, edge = nodes[hull[:, 0]], nodes[hull[:, 1]] - nodes[hull[:, 0]]
-    v0, dv = values[hull[:, 0]], values[hull[:, 1]] - values[hull[:, 0]]
+    start, end = hull[:, 0], hull[:, 1]
 
     def u(p: np.ndarray) -> np.ndarray:
         p = np.asarray(p, dtype=float)
@@ -704,14 +750,55 @@ def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
         out = spline(flat)
         outside = spline.tri.find_simplex(flat) < 0
         if np.any(outside):
-            q = flat[outside][:, None, :]
-            s = np.clip(
-                np.sum((q - start) * edge, axis=-1) / np.sum(edge**2, axis=-1), 0, 1
+            q = flat[outside]
+            edge, s = _nearest_on_segments(q, nodes[start], nodes[end])
+            i, j, s = start[edge], end[edge], s[:, None]
+            on_edge = (1.0 - s) * nodes[i] + s * nodes[j]
+            gradient = (1.0 - s) * grad[i] + s * grad[j]
+            out[outside] = (
+                (1.0 - s[:, 0]) * values[i]
+                + s[:, 0] * values[j]
+                + np.sum(gradient * (q - on_edge), axis=-1)
             )
-            gap = np.sum((start + s[..., None] * edge - q) ** 2, axis=-1)
-            nearest = np.argmin(gap, axis=1)
-            along = s[np.arange(len(nearest)), nearest]
-            out[outside] = v0[nearest] + along * dv[nearest]
         return out.reshape(p.shape[:-1])
 
     return u
+
+
+_PAIRS_PER_BLOCK = 2**18
+"""Point-segment pairs per block of :func:`_nearest_on_segments`: some 20 MB of temporaries."""
+
+
+def _nearest_on_segments(
+    q: np.ndarray, a: np.ndarray, b: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Find the segment from ``a`` to ``b`` nearest each point, and where on it.
+
+    Parameters
+    ----------
+    q
+        Shape ``(m, 2)``: the points.
+    a, b
+        Shape ``(e, 2)``: the ends of the segments.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        Shape ``(m,)`` each: the index of the nearest segment, and the
+        fraction ``s`` in ``[0, 1]`` of the nearest point ``a + s (b - a)`` on
+        it. The points go through in blocks, so memory stays bounded however
+        many there are.
+    """
+    d = b - a
+    length2 = np.sum(d**2, axis=-1)
+    index = np.empty(len(q), dtype=int)
+    along = np.empty(len(q))
+    size = max(1, _PAIRS_PER_BLOCK // len(a))
+    for lo in range(0, len(q), size):
+        block = q[lo : lo + size, None, :]
+        s = np.clip(np.sum((block - a) * d, axis=-1) / length2, 0.0, 1.0)
+        gap = np.sum((a + s[..., None] * d - block) ** 2, axis=-1)
+        nearest = np.argmin(gap, axis=1)
+        index[lo : lo + size] = nearest
+        along[lo : lo + size] = s[np.arange(len(nearest)), nearest]
+    return index, along

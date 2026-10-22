@@ -128,6 +128,19 @@ def test_solution_fills_the_boundary_and_leaves_its_hessian_undefined():
     assert solution.u(point) == pytest.approx(_quadratic(point), abs=1e-12)
 
 
+@pytest.mark.parametrize(("n", "interpolant"), [(2, "spline(2)"), (4, "spline(3)")])
+def test_a_coarse_box_takes_a_spline_of_degree_n(n, interpolant):
+    """A spline needs degree + 1 knots per axis; n = 2 gives three."""
+    scheme = Standard9(n=n)
+    grid = scheme.discretize(QUADRATIC)
+    solution = scheme.solution(grid, _quadratic(grid.nodes[grid.interior]))
+    assert scheme.spline_degree == 3
+    assert solution.info["interpolant"] == interpolant
+    assert solution.info["min_step"] == 1.0
+    point = np.array([[0.3, 0.2]])
+    assert solution.u(point) == pytest.approx(_quadratic(point), abs=1e-12)
+
+
 def test_supports_2d_dirichlet_problems_on_its_domains_only():
     scheme = Standard9()
     assert scheme.supports(T1) and scheme.supports(T6) and scheme.supports(T8)
@@ -146,7 +159,7 @@ def test_supports_2d_dirichlet_problems_on_its_domains_only():
         (dict(n=1), ValueError, "n must be at least 2"),
         (dict(n=8.5), TypeError, "n must be an integer"),
         (dict(spline_degree=0), ValueError, "spline_degree must be at least 1"),
-        (dict(n=4, spline_degree=5), ValueError, r"min\(5, n\) = 4"),
+        (dict(spline_degree=6), ValueError, "between 1 and 5, got 6"),
         (dict(spline_degree="3"), TypeError, "spline_degree must be an integer"),
     ],
 )
