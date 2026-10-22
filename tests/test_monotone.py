@@ -25,6 +25,7 @@ from maesolvers import (
     from_config,
 )
 from maesolvers.classical.monotone import (
+    angular_resolution,
     directional_difference,
     pair_jacobian_coefficients,
     pair_values,
@@ -53,6 +54,21 @@ def _grid(n, lo=0.0, side=1.0):
 def _interior_nodes(x, y):
     nodes = np.stack(np.meshgrid(x[1:-1], y[1:-1], indexing="ij"), axis=-1)
     return nodes.reshape(-1, 2)
+
+
+@pytest.mark.parametrize(
+    ("points", "dtheta"),
+    [(9, np.pi / 8), (17, np.arctan(0.5) / 2), (33, np.arctan(1 / 3) / 2)],
+)
+def test_angular_resolution_is_half_the_largest_gap_between_directions(points, dtheta):
+    assert angular_resolution(points) == pytest.approx(dtheta, rel=1e-14)
+    assert Monotone17(stencil=points).angular_resolution == angular_resolution(points)
+    # Oberman 2008, eq. (3.3): the largest distance from an angle to the stencil.
+    angles = np.linspace(0, np.pi, 100_001)
+    directions = stencil_pairs(points).reshape(-1, 2)
+    theta = np.arctan2(directions[:, 1], directions[:, 0])
+    gap = np.abs(np.angle(np.exp(2j * (angles[:, None] - theta)))) / 2
+    assert np.max(np.min(gap, axis=1)) == pytest.approx(dtheta, abs=1e-4)
 
 
 @pytest.mark.parametrize(("points", "pairs"), [(9, 2), (17, 4), (33, 8)])

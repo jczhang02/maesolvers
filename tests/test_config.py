@@ -220,11 +220,20 @@ def _class(class_path, user_module):
 
 def _numeric_parameters(cls):
     hints = typing.get_type_hints(cls)
+    numeric = (int, float, int | None, float | None)
     return [
-        f.name
-        for f in dataclasses.fields(cls)
-        if f.init and hints[f.name] in (int, float)
+        f.name for f in dataclasses.fields(cls) if f.init and hints[f.name] in numeric
     ]
+
+
+def _scheme_parts(cls):
+    """A default part for every field of ``cls`` that takes a scheme (Filtered's)."""
+    hints = typing.get_type_hints(cls)
+    return {
+        f.name: {"class_path": "Monotone17"}
+        for f in dataclasses.fields(cls)
+        if f.init and hints[f.name] is Scheme
+    }
 
 
 def _solver(cls, class_path, **init_args):
@@ -255,10 +264,11 @@ def test_every_numeric_solver_parameter_is_checked_against_its_type(
 def test_every_numeric_scheme_parameter_is_checked_against_its_type(
     user_module, scheme
 ):
-    names = _numeric_parameters(_class(scheme, user_module))
+    cls = _class(scheme, user_module)
+    names = _numeric_parameters(cls)
     assert names
     for name in names:
-        part = {"class_path": scheme, "init_args": {name: "many"}}
+        part = {"class_path": scheme, "init_args": {**_scheme_parts(cls), name: "many"}}
         with pytest.raises(ValueError, match=f'key "{name}"'):
             from_config(_solver(Newton, "Newton", scheme=part))
 

@@ -29,9 +29,11 @@ from maesolvers.catalogue import (
     T22,
 )
 from maesolvers.classical import (
+    FDFiltered,
     FDMonotone,
     FDNewton,
     FDPoisson,
+    Filtered,
     Monotone17,
     Newton,
     PoissonIteration,
@@ -95,9 +97,11 @@ __all__ = [
     "Dirichlet",
     "Disk",
     "Ellipse",
+    "FDFiltered",
     "FDMonotone",
     "FDNewton",
     "FDPoisson",
+    "Filtered",
     "HardDirichlet",
     "IterativeSolver",
     "Monotone17",

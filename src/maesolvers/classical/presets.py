@@ -10,11 +10,12 @@ like every solver they declare their support on the class.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import ClassVar, Generic, Literal, TypeVar
 
+from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17
-from maesolvers.classical.schemes import Standard9
+from maesolvers.classical.schemes import Scheme, Standard9
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
 
@@ -100,39 +101,20 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
-@dataclass(frozen=True, kw_only=True)
-class _Monotone17Preset:
-    """The fields and support of a preset on :class:`Monotone17`.
+_SchemeT = TypeVar("_SchemeT", bound=Scheme)
 
-    Listed first among a preset's bases, so its ``__post_init__`` builds the
-    scheme from the flat fields before the iteration checks it.
+
+class _EqualSides(Generic[_SchemeT]):
+    """The support check of a preset whose scheme needs Monotone17's square box.
+
+    Listed among a preset's bases before the iteration, whose ``check`` it
+    calls after its own.
     """
 
     domains: ClassVar[tuple[type, ...]] = Monotone17.domains
     boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
     dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
-
-    scheme: Monotone17 = field(init=False, repr=False)
-    n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
-    boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
-    jacobian_floor: float = Monotone17.jacobian_floor
-    spline_degree: int = Monotone17.spline_degree
-
-    def __post_init__(self) -> None:
-        scheme = Monotone17(
-            n=self.n,
-            stencil=self.stencil,
-            boundary=self.boundary,
-            jacobian_floor=self.jacobian_floor,
-            spline_degree=self.spline_degree,
-        )
-        object.__setattr__(self, "scheme", scheme)
-        object.__setattr__(self, "n", scheme.n)
-        object.__setattr__(self, "stencil", scheme.stencil)
-        object.__setattr__(self, "jacobian_floor", scheme.jacobian_floor)
-        object.__setattr__(self, "spline_degree", scheme.spline_degree)
-        super().__post_init__()  # type: ignore[misc]
+    scheme: _SchemeT
 
     def check(self, problem: Problem) -> None:
         """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
@@ -162,6 +144,37 @@ class _Monotone17Preset:
 
 
 @dataclass(frozen=True, kw_only=True)
+class _Monotone17Preset(_EqualSides[Monotone17]):
+    """The fields and support of a preset on :class:`Monotone17`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    scheme: Monotone17 = field(init=False, repr=False)
+    n: int = Monotone17.n
+    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
+    jacobian_floor: float = Monotone17.jacobian_floor
+    spline_degree: int = Monotone17.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = Monotone17(
+            n=self.n,
+            stencil=self.stencil,
+            boundary=self.boundary,
+            jacobian_floor=self.jacobian_floor,
+            spline_degree=self.spline_degree,
+        )
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "stencil", scheme.stencil)
+        object.__setattr__(self, "jacobian_floor", scheme.jacobian_floor)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
 class FDMonotone(_Monotone17Preset, Newton):
     """The monotone wide-stencil scheme solved by damped Newton.
 
@@ -185,6 +198,80 @@ class FDMonotone(_Monotone17Preset, Newton):
     jacobian_floor
         The floor of the Jacobian's factors, times ``1 / (2 h^2)``, as in
         :class:`Monotone17`.
+    max_iter
+        Most Newton steps.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5 and at most ``n``.
+    """
+
+    max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _FilteredPreset(_EqualSides[Filtered]):
+    """The fields and support of a preset on :class:`Filtered`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme, :class:`Standard9` filtered with :class:`Monotone17` on one grid,
+    from the flat fields before the iteration checks it. The support is
+    Monotone17's, which Standard9's contains.
+    """
+
+    scheme: Filtered = field(init=False, repr=False)
+    n: int = Monotone17.n
+    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
+    jacobian_floor: float = Monotone17.jacobian_floor
+    epsilon: float | None = None
+    spline_degree: int = Monotone17.spline_degree
+
+    def __post_init__(self) -> None:
+        monotone = Monotone17(
+            n=self.n,
+            stencil=self.stencil,
+            boundary=self.boundary,
+            jacobian_floor=self.jacobian_floor,
+            spline_degree=self.spline_degree,
+        )
+        accurate = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
+        scheme = Filtered(accurate=accurate, monotone=monotone, epsilon=self.epsilon)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", monotone.n)
+        object.__setattr__(self, "stencil", monotone.stencil)
+        object.__setattr__(self, "jacobian_floor", monotone.jacobian_floor)
+        object.__setattr__(self, "epsilon", scheme.epsilon)
+        object.__setattr__(self, "spline_degree", monotone.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDFiltered(_FilteredPreset, Newton):
+    """The filtered scheme of Froese and Oberman (2013) solved by Newton.
+
+    ``FDFiltered(n=n, stencil=s, ...)`` is ``Newton(scheme=Filtered(
+    accurate=Standard9(n=n), monotone=Monotone17(n=n, stencil=s, ...)))``
+    with ``max_iter=200``: the standard 9-point scheme where it nearly agrees
+    with the monotone wide-stencil scheme, the monotone scheme where they
+    differ by more than twice the filter width (``docs/methods/filtered.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the monotone scheme's stencil: 9, 17 or 33.
+    boundary
+        ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
+    jacobian_floor
+        The floor of the monotone Jacobian's factors, times ``1 / (2 h^2)``,
+        as in :class:`Monotone17`.
+    epsilon
+        The filter width; None takes Froese and Oberman's
+        ``sqrt(h) + dtheta / 10``, as in :class:`Filtered`.
     max_iter
         Most Newton steps.
     tol
