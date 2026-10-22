@@ -148,6 +148,16 @@ def test_the_output_record_is_not_a_config_file(tmp_path, capsys):
     assert "run.solver" in capsys.readouterr().err
 
 
+def test_an_output_path_in_a_config_file_is_relative_to_the_file(tmp_path, monkeypatch):
+    (tmp_path / "configs").mkdir()
+    path = tmp_path / "configs" / "run.yaml"
+    path.write_text(COMPOSED_YAML + "output: out.json\n")
+    monkeypatch.chdir(tmp_path)
+    main(["solve", "--config", str(path)])
+    assert (tmp_path / "configs" / "out.json").is_file()
+    assert not (tmp_path / "out.json").exists()
+
+
 def test_a_printed_config_reruns(tmp_path, capsys):
     path = tmp_path / "run.yaml"
     path.write_text(COMPOSED_YAML)
