@@ -2,6 +2,7 @@
 #
 # a100server layout (see CLAUDE.md, Experiments):
 #   code    /jczhang02/maesolvers           clone of the bare repo below
+#   wt      /jczhang02/maesolvers-wt/<branch>  one worktree per pushed branch
 #   bare    /jczhang02/git/maesolvers.git   `git push a100server`
 #   data    /jczhang02/maesolvers-data      logs/, data/
 #   venv    /root/.venvs/maesolvers         outside the code tree
@@ -15,6 +16,9 @@ bare := "/jczhang02/git/maesolvers.git"
 data := "/jczhang02/maesolvers-data"
 venv := "/root/.venvs/maesolvers"
 port := "30000"
+wt_root := "/jczhang02/maesolvers-wt"
+# Server worktree of the current branch (see push)
+wt := wt_root + "/" + replace(`git branch --show-current`, "/", "-")
 env := "UV_PROJECT_ENVIRONMENT=" + venv + " UV_CACHE_DIR=/jczhang02/.cache/uv MLFLOW_TRACKING_URI=http://127.0.0.1:" + port
 
 default:
@@ -41,29 +45,33 @@ server-init:
 # Push BRANCH (default: current) to a100server and check it out there
 push branch=`git branch --show-current`:
     git push -q {{ server }} {{ branch }}
-    ssh {{ server }} 'cd {{ repo }} && git fetch -q origin && git checkout -q -B {{ branch }} origin/{{ branch }} && git log --oneline -1'
+    ssh {{ server }} 'set -e; cd {{ repo }}; git fetch -q origin; d={{ wt_root }}/$(printf %s {{ branch }} | tr / -); \
+        if [ -d "$d" ]; then git -C "$d" checkout -q --detach origin/{{ branch }}; \
+        else mkdir -p {{ wt_root }}; git worktree add -q --detach "$d" origin/{{ branch }}; fi; \
+        echo "$d"; git -C "$d" log --oneline -1'
 
 # a100server reaches PyPI only through the Shanhe mirror, so server-sync
 # installs the versions pinned in uv.lock from there instead of `uv sync`.
+# Every branch shares one venv; the code comes from the branch's server
+# worktree through PYTHONPATH, so runs on different branches never mix.
 
-# Install the locked environment (with the neural extra and mlflow) on a100server
+# Install the current branch's locked environment (all extras, mlflow) on a100server
 server-sync:
-    ssh {{ server }} 'set -e; cd {{ repo }}; export {{ env }}; \
+    ssh {{ server }} 'set -e; cd {{ wt }}; export {{ env }}; exec 9>/tmp/maesolvers-sync.lock; flock 9; \
         test -x {{ venv }}/bin/python || uv venv -q --python 3.12 {{ venv }}; \
-        uv export -q --frozen --no-hashes --no-emit-project --extra neural --group experiments -o /tmp/maesolvers-requirements.txt; \
-        uv pip install -q --python {{ venv }}/bin/python -r /tmp/maesolvers-requirements.txt; \
-        uv pip install -q --python {{ venv }}/bin/python --no-deps -e .; \
-        {{ venv }}/bin/python -c "import maesolvers, torch, mlflow; print(\"maesolvers\", maesolvers.__file__, \"torch\", torch.__version__, \"cuda\", torch.cuda.is_available(), \"mlflow\", mlflow.__version__)"'
+        uv export -q --frozen --no-hashes --no-emit-project --all-extras --group experiments -o /tmp/maesolvers-req-$$.txt; \
+        uv pip install -q --python {{ venv }}/bin/python -r /tmp/maesolvers-req-$$.txt; \
+        PYTHONPATH={{ wt }}/src {{ venv }}/bin/python -c "import maesolvers, torch, mlflow; print(\"maesolvers\", maesolvers.__file__, \"torch\", torch.__version__, \"cuda\", torch.cuda.is_available(), \"mlflow\", mlflow.__version__)"'
 
-# Run CMD in the a100server checkout, in the project environment (foreground)
+# Run CMD in the current branch's a100server worktree (after `just push`), foreground
 remote +cmd:
-    ssh {{ server }} 'cd {{ repo }} && {{ env }} uv run --no-sync {{ cmd }}'
+    ssh {{ server }} 'cd {{ wt }} && {{ env }} PYTHONPATH={{ wt }}/src uv run --no-sync {{ cmd }}'
 
 # CMD runs inside a double-quoted tmux command: avoid " and $ in it.
 
 # Run CMD on a100server in tmux session maesolvers-NAME; log to data/logs/NAME.log
 remote-bg name +cmd:
-    ssh {{ server }} 'cd {{ repo }} && tmux new-session -d -s maesolvers-{{ name }} "{{ env }} uv run --no-sync {{ cmd }} 2>&1 | tee -a {{ data }}/logs/{{ name }}.log"'
+    ssh {{ server }} 'cd {{ wt }} && tmux new-session -d -s maesolvers-{{ name }} "{{ env }} PYTHONPATH={{ wt }}/src uv run --no-sync {{ cmd }} 2>&1 | tee -a {{ data }}/logs/{{ name }}.log"'
     @echo "attach: ssh -t {{ server }} tmux attach -t maesolvers-{{ name }}; log: {{ data }}/logs/{{ name }}.log"
 
 # URL of the shared MLflow UI

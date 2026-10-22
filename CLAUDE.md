@@ -40,8 +40,9 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 ## Experiments
 
 - Run numerical experiments and training on `a100server` (ssh host alias), not on the local machine.
-- Commit first, then `just push` and run in the server checkout with `just remote <cmd>`, or `just remote-bg <name> <cmd>` for long runs (tmux session `maesolvers-<name>`, log in the data dir).
-  After a change to `uv.lock`, run `just server-sync`: the server reaches PyPI only through the Shanhe mirror.
+- Commit first, then `just push` and run in the branch's own server worktree (`/jczhang02/maesolvers-wt/<branch>`) with `just remote <cmd>`, or `just remote-bg <name> <cmd>` for long runs (tmux session `maesolvers-<name>`, log in the data dir).
+  After a change to `uv.lock`, run `just server-sync` (it installs every extra into the shared venv, under a lock): the server reaches PyPI only through the Shanhe mirror.
+  Pick a free GPU with `nvidia-smi` and set `CUDA_VISIBLE_DEVICES`; other runs may share the server.
 - Log every experiment to MLflow with `maesolvers.tracking.run`; it tags the git commit and whether the checkout was dirty.
   The server is shared with the research repository; name experiments `maesolvers-<method>-<problem>`.
   The UI is at `just mlflow-ui` (port 30000); it is started from the research repository, not from here.
