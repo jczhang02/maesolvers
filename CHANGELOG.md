@@ -2,6 +2,16 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `Monotone17(n, stencil=17, boundary="narrow", jacobian_floor=1e-12, spline_degree=3)`, the monotone wide-stencil scheme of Froese-Oberman 2011 on a 2D box with equal sides, with the 9-, 17- and 33-point stencils (`stencil`), exported at the top level and from `maesolvers.classical`.
+  It provides `residual`, `jacobian` (a generalised Jacobian, so `Newton` on it is a semi-smooth Newton method) and `solve_laplace`, so `Newton(scheme=Monotone17(...))` solves it; `PoissonIteration` refuses it, as it has no `second_derivatives`.
+  Below zero each pair's product continues with a positive slope, so only discretely convex grid functions solve the scheme; `boundary` chooses between leaving the wide pairs out next to the boundary (`"narrow"`, which matches the published tables) and shortening their arms to the boundary (`"interpolate"`, which the papers describe).
+  The pure kernels `stencil_pairs`, `directional_difference`, `pair_values` and `pair_jacobian_coefficients` are in `maesolvers.classical.monotone`, with `MonotoneGrid`, the context `Monotone17.discretize` returns, whose fields may change with the scheme.
+- The preset `FDMonotone(n, stencil, boundary, jacobian_floor, spline_degree, max_iter=200, tol=1e-10)`, `Newton` on `Monotone17`, registered in `SOLVERS`.
+
 ## 0.0.2 (2026-10-22)
 
 ### Added
