@@ -11,7 +11,9 @@ The same scheme under two iterations can reach different discrete solutions
 (``benchmarks/standard_fd.md``, Finding 2).
 """
 
-from __future__ import annotations
+# No `from __future__ import annotations` here: jsonargparse reads the field types
+# (ADR 0005), and in a subclass from another module (a preset, a user's iteration)
+# it cannot resolve the string annotation "Scheme"; tests/test_config.py guards it.
 
 from dataclasses import dataclass, is_dataclass
 from typing import Any, ClassVar

@@ -5,6 +5,8 @@ condition, exact solution when known), a :class:`Solver` whose
 ``solve(problem)`` returns a :class:`Result` (the solution as a callable plus,
 for grid methods, the nodes, values and discrete Hessian), and
 :func:`maesolvers.metrics.evaluate`, which measures any result the same way.
+:func:`from_config` builds a solver and picks a problem from a configuration
+(it needs the ``cli`` extra).
 """
 
 from maesolvers.catalogue import (
@@ -34,6 +36,7 @@ from maesolvers.classical import (
     SchemeIteration,
     Standard9,
 )
+from maesolvers.config import from_config
 from maesolvers.core import (
     Box,
     Callback,
@@ -91,4 +94,5 @@ __all__ = [
     "Trace",
     "Transport",
     "UnsupportedProblemError",
+    "from_config",
 ]
