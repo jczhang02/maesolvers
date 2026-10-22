@@ -1,6 +1,7 @@
 """Iterations composed with a scheme, the presets, and the registry (ADR 0004)."""
 
 import dataclasses
+import inspect
 import json
 import re
 from typing import ClassVar
@@ -22,6 +23,7 @@ from maesolvers import (
     Standard9,
     UnsupportedProblemError,
 )
+from maesolvers.classical import iterations
 from maesolvers.metrics import evaluate
 
 
@@ -240,3 +242,18 @@ def test_a_scheme_is_set_from_the_command_line():
     args = ["--solver.scheme", "Standard9", "--solver.scheme.n", "16"]
     solver = parser.instantiate(parser.parse_args(args)).solver
     assert solver == Newton(scheme=Standard9(n=16))
+
+
+@pytest.mark.parametrize(
+    ("iteration", "protocol"),
+    [(Newton, iterations._NewtonScheme), (PoissonIteration, iterations._PoissonScheme)],
+)
+def test_requires_names_the_scheme_methods_the_iteration_is_typed_against(
+    iteration, protocol
+):
+    # `requires` is the runtime check, the Protocol what pyright checks; rhs is in Scheme.
+    typed = {name for name, _ in inspect.getmembers(protocol, inspect.isfunction)}
+    assert {name for name in typed if not name.startswith("_")} == {
+        "rhs",
+        *iteration.requires,
+    }
