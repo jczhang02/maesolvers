@@ -46,4 +46,4 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | 复现 | reproduction | Running a method on its source paper's own test problem and comparing with the paper's own table. Its verdict is one of five levels: exact, order of magnitude, statistical, figure only, mismatch. | 验证, 对齐 |
 | 发现 | finding | A recorded difference between our run and the published one, kept with its explanation instead of tuned away. | |
 | 复现表 | reproduction table | Published numbers next to ours, per method. The only table with published numbers. | |
-| 对比表 | comparison table | Our runs of every method on the shared test set. It carries no published numbers. | 横向比较表 (in English writing), leaderboard |
+| 对比表, 横向比较表 | comparison table | Our runs of every method on the shared test set. It carries no published numbers. | leaderboard |
