@@ -135,7 +135,11 @@ def directional_difference(
     scale = 2.0 / (length2 * forward * backward * (forward + backward))
     m = (n - 1) ** 2
     rows = np.arange(m)
-    r, c, v = [rows], [rows], [-(forward + backward) * scale]
+    # Annotated lists: numpy's stubs would otherwise pin the element type to
+    # the first array's shape, and pyright rejects the appends.
+    r: list[np.ndarray] = [rows]
+    c: list[np.ndarray] = [rows]
+    v: list[np.ndarray] = [-(forward + backward) * scale]
     data = np.zeros(m)
     arms = ((forward, 1, backward * scale), (backward, -1, forward * scale))
     for t, sign, weight in arms:
@@ -424,7 +428,7 @@ class Monotone17(Scheme):
         shape = (len(pairs), 2, (n - 1) ** 2)
         full = np.array([part[2] for part in parts]).reshape(shape)
         if self.boundary == "narrow":
-            available = full.all(axis=1)
+            available = full[:, 0] & full[:, 1]  # both directions of a pair
         else:
             available = np.ones((len(pairs), (n - 1) ** 2), dtype=bool)
         f = problem.f(nodes[interior])
