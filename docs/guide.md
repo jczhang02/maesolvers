@@ -48,10 +48,8 @@ from maesolvers import SHARED_TEST_SET, SOLVERS
 
 for name in SHARED_TEST_SET:
     problem = CATALOGUE[name]
-    for key, preset in SOLVERS.items():
-        solver = preset(n=32)
-        if solver.supports(problem):
-            print(name, key, f"{evaluate(solver.solve(problem))['max']:.2e}")
+    supported = [key for key, preset in SOLVERS.items() if preset().supports(problem)]
+    print(name, supported)  # T1 ['FDNewton', 'FDPoisson', 'PenaltyMLP'], ...
 ```
 
 Solving an unsupported problem raises `UnsupportedProblemError`, before any work is done.
