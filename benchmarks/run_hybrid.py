@@ -232,7 +232,7 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
 CHECK_TASKS: list[tuple[str, str, int, Any]] = [
     *(
         ("section81", "T2", N, (scheme, start))
-        for N in (31, 63, 127)
+        for N in (31, 63, 127, 361)
         for scheme, start in (
             ("standard", "exact"),
             ("standard", "exact, undamped"),
