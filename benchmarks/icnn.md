@@ -32,8 +32,9 @@ Against the penalty MLP of the same paper on the same problem (`penalty_mlp.md`,
 
 ## T6 (Example 4.6): mismatch
 
-Table 1 gives the max and the average absolute error at 10^6 random interior points of one run per noise level; the `stdev = 0` row is the run without noise, the run of Figure 7 ("the result after 5000 iterations of BFGS"; its colorbar ends at about 8.5e-6).
-The paper trained the Table 1 runs "until convergence or at most 10,000 iterations", with the architecture of Example 4.2, 3000 interior and 400 boundary points, the points on each piece of the boundary in proportion to its length.
+Table 1 gives the max and the average absolute error at 10^6 random interior points of one run per noise level; the `stdev = 0` row is the run without noise, probably the run of Figure 7 (its colorbar ends near 8.5e-6; but Figure 7 is "the result after 5000 iterations of BFGS", and the Table 1 runs went on to at most 10000).
+The paper trained the Table 1 runs "until convergence or at most 10,000 iterations", with "the same network architecture as in Example 4.2", 3000 interior and 400 boundary points, the points on each piece of the boundary in proportion to its length.
+Example 4.6 does not give the loss; we carry it over from Example 4.2 by assumption: `C = 100`, and the equation term also at the boundary points (which the paper's Section 5 leaves out).
 
 | Measure | Table 1, `stdev = 0` (one run) | Ours, median [5%, 95%] | Published inside the band |
 |---|---|---|---|
@@ -55,7 +56,7 @@ The penalty MLP, run next to this table in `penalty_mlp.md`, ends at 6.10e-3 [3.
 
 ## Finding 1: the optimizer, not the start, decides the accuracy
 
-The first receipts of this branch (commit bc4c637) trained the network with `LBFGS()`, the optimizer of the penalty MLP: 100 curvature pairs.
+The first receipts of this branch (MLflow runs `seed=<s> preset` tagged with commit f700c85, which added `run_icnn.py` to the network code of bc4c637) trained the network with `LBFGS()`, the optimizer of the penalty MLP: 100 curvature pairs.
 On T1 every seed stopped at the 10000-step budget with a loss of 1.23e-2 [1.87e-3, 3.82e-2] and a max error of 1.39e-2 [5.22e-3, 2.93e-2] on the shared grid, about 500 times the figure's top: a mismatch.
 The loss was still falling, slowly; the paper's run had converged after 2287 iterations.
 
@@ -98,6 +99,7 @@ We keep the sum, as the paper prints it; with it, the paper's 2287 iterations ar
 
 - **Error measure.** The paper measures at 10^6 random interior points (Section 4.6) or plots on the square (Figure 2); the library's primary error is on the shared evaluation grid (ADR 0007), and the receipts report both. Our 10^6 points are uniform in the domain, drawn by rejection from one fixed generator seed (2023), the points of `run_penalty_mlp.py`.
 - **Optimizer.** One iteration of SciPy's BFGS per training step (`BFGS`), up to rounding the paper's optimizer; the training stops on the largest gradient component (SciPy's default `norm=inf`), not on the Euclidean norm the paper's text names.
+- **T6 loss.** Example 4.6 names only the architecture of Example 4.2; the boundary weight `C = 100` and the equation term at the boundary points are carried over from Example 4.2 by assumption.
 - **Budget.** 10000 steps, the cap the paper states for Table 1; the paper gives no cap for Example 4.2, whose run converged after 2287 iterations.
 - **Initial parameters.** Normal with standard deviation 1 for every parameter, the roots `V_j` of the non-negative weights included; the paper says "the normal distribution" and no more.
 - **Float64** throughout, as ADR 0008 requires; the paper does not say which precision it used (TensorFlow's default is float32).

@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is pre-alpha (0.0.x): the interface may change until 0.1; two finite-difference solvers and two neural solvers are in.
+> It is pre-alpha (0.0.x): the interface may change until 0.1; four finite-difference solvers and two neural solvers are in.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -212,8 +212,8 @@ On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
-The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2.
-On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1; it needs the dense BFGS of SciPy, which the paper ran, and a limited-memory L-BFGS leaves it near 1e-2 (`benchmarks/icnn.md`).
+The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2; it needs the dense BFGS of SciPy, which the paper ran, and on T1 a limited-memory L-BFGS leaves it near 1e-2.
+On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1 (`benchmarks/icnn.md`).
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
@@ -240,7 +240,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ## Layout
 
-- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive` and `nonnegative`, and the part check `check_part`.
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, and the part check `check_part`.
 - `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` and `Hybrid`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton`, `FDPoisson`, `FDMonotone` and `FDHybrid`.
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.

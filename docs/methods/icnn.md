@@ -53,7 +53,7 @@ The other ICNN of the roadmap, Caboussat and Peruso (2025), trains an ICNN on th
 |---|---|---|---|
 | `DirichletICNN` | `width`, `depth` | 10, 5 | units per hidden layer and hidden layers of the network (`ICNN`) |
 | `DirichletICNN` | `init_std` | 1 | standard deviation of every initial parameter of the network (`ICNN`) |
-| `DirichletICNN` | `boundary_weight` | 100 | `C`, the weight of the boundary misfit (`PenaltyLoss`) |
+| `DirichletICNN` | `boundary_weight` | 100 | `C`, the weight of the boundary misfit (`PenaltyLoss`), positive: without the ansatz, this term alone imposes `g` |
 | `DirichletICNN` | `interior_points`, `boundary_points` | 3000, 400 | collocation points inside and on the boundary (`UniformSampler`) |
 | `NeuralSolver` | `max_steps` | 10000 (preset), 1000 | most training steps |
 | `NeuralSolver` | `tol` | 1e-5 | largest gradient component at which the training stops, converged |
@@ -80,6 +80,8 @@ The preset takes the parameters of its parts flat: `DirichletICNN(width=20, seed
 - Within the 10000-step budget no seed meets the stopping test, and on T6 the errors are about 13 times those of the paper's Table 1 (`benchmarks/icnn.md`, T6 and Finding 2).
 - Convexity holds by construction, but the class of functions is narrower than that of a plain network of the same size: every hidden unit is convex, so a solution that is nearly affine in some direction, or whose Hessian degenerates, as for `f = 0` on a set (T4, T5, T20), is harder to represent.
 - With the standard normal start, the squared roots have mean 1, so the activations grow from layer to layer and the first loss is very large (about 6e19 on T1 for seed 0); BFGS brings it down within a few hundred steps, but the start is far from the solution.
+  The first loss grows with the dimension, since every layer reads all `d` inputs: at the defaults and seeds 0 to 2 it is 6e19 to 1e21 on T1 and T6 (2D), 2e26 to 3e28 on T9 (3D) and 2e33 to 3e36 on T10 (4D).
+- `DirichletICNN` runs on T9 and T10 (3D and 4D Dirichlet problems), but its accuracy there is not measured: the paper's Tables 2 and 3 are not reproduced (`benchmarks/icnn.md`, Not compared), and the tests train only a few steps in 3D.
 - `BFGS` stores a dense `n x n` matrix and multiplies by it at every step, so it suits networks of a few thousand parameters at most; for a larger `ICNN`, pass `LBFGS()` and expect slower training.
 - The training is deterministic only on one machine with one torch thread count; `result.info` records `device` and `threads`, and the receipts use one thread per seed.
 
