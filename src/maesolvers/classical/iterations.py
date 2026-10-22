@@ -143,7 +143,7 @@ class SchemeIteration(IterativeSolver[Any, np.ndarray]):
         return self.scheme.discretize(problem)
 
     def finalize(self, problem: Problem, context: Any, state: np.ndarray) -> Solution:
-        """The scheme's solution fields for the final iterate.
+        """Return the scheme's solution fields for the final iterate.
 
         Parameters
         ----------

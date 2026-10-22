@@ -56,7 +56,7 @@ def _git(*args: str) -> str:
 
 
 def git_tags() -> dict[str, str]:
-    """The git state of the checkout that holds the current working directory.
+    """Read the git state of the checkout that holds the current working directory.
 
     Returns
     -------
@@ -104,7 +104,7 @@ def run(
 
 
 def flatten(config: Any, prefix: str = "") -> dict[str, Any]:
-    """A configuration as flat MLflow parameters with dotted keys.
+    """Flatten a configuration into MLflow parameters with dotted keys.
 
     Parameters
     ----------

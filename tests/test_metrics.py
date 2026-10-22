@@ -63,7 +63,10 @@ def test_neural_style_result_is_measured_on_the_shared_grid():
 def test_grid_result_is_measured_at_its_nodes_and_on_the_grid():
     nodes = np.array([[0.5, 0.5], [0.25, 0.75]])
     result = Result(
-        T1, _shifted(T1, 2e-3), nodes=nodes, values=T1.exact(nodes) + [1e-3, -3e-3]
+        T1,
+        _shifted(T1, 2e-3),
+        nodes=nodes,
+        values=T1.exact(nodes) + np.array([1e-3, -3e-3]),
     )
     m = evaluate(result)
     assert m["max"] == pytest.approx(3e-3)

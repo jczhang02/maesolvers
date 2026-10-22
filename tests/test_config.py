@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import json
+import re
 import sys
 import textwrap
 import typing
@@ -299,5 +300,5 @@ def test_a_bad_value_raises_what_the_constructor_raises(init_args, error, messag
 
 
 def test_a_missing_file_is_a_file_not_found_error(tmp_path):
-    with pytest.raises(FileNotFoundError, match="nothing.yaml"):
+    with pytest.raises(FileNotFoundError, match=re.escape("nothing.yaml")):
         from_config(tmp_path / "nothing.yaml")

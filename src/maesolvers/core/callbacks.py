@@ -21,7 +21,7 @@ class Callback:
     """
 
     def on_solve_start(self, solver: Solver, problem: Problem) -> None:
-        """Called after the problem passed the solver's check, before setup.
+        """Observe the start of a solve: the problem passed the check, setup comes next.
 
         Parameters
         ----------
@@ -34,7 +34,7 @@ class Callback:
     def on_step_end(
         self, solver: Solver, step: int, metrics: Mapping[str, float]
     ) -> None:
-        """Called after every iteration or training step.
+        """Observe the end of every iteration or training step.
 
         Parameters
         ----------
@@ -47,7 +47,7 @@ class Callback:
         """
 
     def on_solve_end(self, solver: Solver, result: Result) -> None:
-        """Called with the finished result.
+        """Observe the finished result.
 
         Parameters
         ----------

@@ -86,7 +86,7 @@ class Box:
             raise ValueError(
                 f"Box.lo and Box.hi need the same length >= 1, got {lo} and {hi}"
             )
-        if not all(a < b for a, b in zip(lo, hi)):
+        if not all(a < b for a, b in zip(lo, hi, strict=True)):
             raise ValueError(f"Box needs lo < hi in every coordinate, got {lo}, {hi}")
         object.__setattr__(self, "lo", lo)
         object.__setattr__(self, "hi", hi)

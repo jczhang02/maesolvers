@@ -91,7 +91,7 @@ class Solution:
 
 
 def _config(obj: object) -> Any:
-    """The configuration of a part, nested parts included.
+    """Return the configuration of a part, nested parts included.
 
     Parameters
     ----------
@@ -383,7 +383,7 @@ class IterativeSolver(Solver[ContextT, IterateT]):
 
     @abstractmethod
     def initial_guess(self, problem: Problem, context: ContextT) -> IterateT:
-        """The first iterate.
+        """Return the first iterate.
 
         Parameters
         ----------

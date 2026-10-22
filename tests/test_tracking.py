@@ -1,5 +1,6 @@
 """MLflow logging: the git tags, the flattened parameters and the logger."""
 
+import re
 import subprocess
 import sys
 import types
@@ -161,7 +162,7 @@ def test_logger_sends_nothing_between_start_and_end(monkeypatch):
 
 def test_logger_needs_an_active_run(monkeypatch):
     FakeMLflow(active=False).install(monkeypatch)
-    with pytest.raises(RuntimeError, match="tracking.run"):
+    with pytest.raises(RuntimeError, match=re.escape("tracking.run")):
         FDNewton(n=8).solve(T1, callbacks=[tracking.MLflowLogger()])
 
 

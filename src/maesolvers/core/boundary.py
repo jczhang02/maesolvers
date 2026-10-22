@@ -7,7 +7,6 @@ types below; solvers declare which types they support.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
 
 from maesolvers.core.domains import Domain, Field
 
@@ -56,5 +55,5 @@ class Transport:
             )
 
 
-BoundaryCondition = Union[Dirichlet, Transport]
+BoundaryCondition = Dirichlet | Transport
 """Any boundary condition a :class:`~maesolvers.core.problem.Problem` accepts."""

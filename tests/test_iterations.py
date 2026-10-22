@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import re
 from typing import ClassVar
 
 import numpy as np
@@ -135,7 +136,9 @@ def test_the_scheme_must_be_a_frozen_dataclass_scheme_instance():
 
     with pytest.raises(TypeError, match="instance, got the class Standard9"):
         Newton(scheme=Standard9)
-    with pytest.raises(TypeError, match="PoissonIteration.scheme must subclass Scheme"):
+    with pytest.raises(
+        TypeError, match=re.escape("PoissonIteration.scheme must subclass Scheme")
+    ):
         PoissonIteration(scheme=object())
     for bad in (Plain(), Mutable(), Undecorated()):
         with pytest.raises(TypeError, match=f"frozen dataclass.*{type(bad).__name__}"):

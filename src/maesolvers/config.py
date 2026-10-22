@@ -86,7 +86,7 @@ def from_config(config: Mapping[str, Any] | str | os.PathLike[str]) -> Solver:
 
 
 def _load(path: str | os.PathLike[str]) -> Any:
-    """The content of a YAML or JSON file (JSON is YAML too)."""
+    """Read the content of a YAML or JSON file (JSON is YAML too)."""
     import yaml  # a dependency of jsonargparse
 
     if not os.path.isfile(path):

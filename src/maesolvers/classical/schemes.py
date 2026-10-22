@@ -61,7 +61,7 @@ class Scheme(ABC):
 
     @abstractmethod
     def discretize(self, problem: Problem) -> Any:
-        """The grid of one problem: nodes, operators and data.
+        """Build the grid of one problem: nodes, operators and data.
 
         Parameters
         ----------
@@ -76,7 +76,7 @@ class Scheme(ABC):
 
     @abstractmethod
     def rhs(self, grid: Any) -> np.ndarray:
-        """The right-hand side ``f`` at the unknowns.
+        """Return the right-hand side ``f`` at the unknowns.
 
         Parameters
         ----------
@@ -90,7 +90,7 @@ class Scheme(ABC):
 
     @abstractmethod
     def solution(self, grid: Any, v: np.ndarray) -> Solution:
-        """The solution fields of the result for the unknowns ``v``.
+        """Return the solution fields of the result for the unknowns ``v``.
 
         Parameters
         ----------
@@ -154,7 +154,7 @@ def difference_operators(
 
 
 def monge_ampere(uxx: np.ndarray, uyy: np.ndarray, uxy: np.ndarray) -> np.ndarray:
-    """The 2D Monge-Ampere operator ``u_xx u_yy - u_xy^2`` from second derivatives."""
+    """Apply the 2D Monge-Ampere operator ``u_xx u_yy - u_xy^2`` to second derivatives."""
     return uxx * uyy - uxy**2
 
 
@@ -303,7 +303,7 @@ class Standard9(Scheme):
         )
 
     def discretize(self, problem: Problem) -> Grid:
-        """The grid with ``n`` cells per side over the problem's box.
+        """Build the grid with ``n`` cells per side over the problem's box.
 
         Parameters
         ----------
@@ -351,7 +351,7 @@ class Standard9(Scheme):
         )
 
     def rhs(self, grid: Grid) -> np.ndarray:
-        """The right-hand side ``f`` at the unknowns.
+        """Return the right-hand side ``f`` at the unknowns.
 
         Parameters
         ----------
@@ -421,7 +421,7 @@ class Standard9(Scheme):
         return monge_ampere_jacobian(uxx, uyy, uxy, grid.axx, grid.ayy, grid.axy)
 
     def solve_laplace(self, grid: Grid, rhs: np.ndarray) -> np.ndarray:
-        """The unknowns of ``laplace u = rhs`` with the Dirichlet data.
+        """Solve ``laplace u = rhs`` with the Dirichlet data for the unknowns.
 
         Parameters
         ----------

@@ -1,5 +1,7 @@
 """Problem and boundary condition types."""
 
+import re
+
 import numpy as np
 import pytest
 
@@ -16,12 +18,12 @@ def _problem(**kwargs):
 
 
 def test_dirichlet_needs_a_callable():
-    with pytest.raises(TypeError, match="Dirichlet.g"):
+    with pytest.raises(TypeError, match=re.escape("Dirichlet.g")):
         Dirichlet(1.0)
 
 
 def test_transport_needs_a_domain_target():
-    with pytest.raises(TypeError, match="Transport.target"):
+    with pytest.raises(TypeError, match=re.escape("Transport.target")):
         Transport((0.0, 0.0))
 
 

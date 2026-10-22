@@ -51,8 +51,18 @@ testpaths = ["tests"]
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "E501"]
-ignore = ["E741"]
+select = ["E4", "E7", "E9", "F", "I", "E501", "B", "UP", "SIM", "RUF", "D"]
+# E741: the mathematics names variables l and I. D105: a dunder method does what
+# Python defines; __post_init__ validates, and the class docstring's Raises says how.
+ignore = ["E741", "D105"]
+
+[tool.ruff.lint.per-file-ignores]
+# Docstrings are required of the library (src/), not of its tests and scripts.
+"tests/**" = ["D"]
+"benchmarks/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 100

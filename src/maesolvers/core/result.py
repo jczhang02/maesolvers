@@ -125,7 +125,7 @@ class Result:
 
 
 def _read_only(array: object) -> np.ndarray:
-    """A read-only float copy of ``array``."""
+    """Return a read-only float copy of ``array``."""
     out = np.array(array, dtype=float)
     out.setflags(write=False)
     return out
