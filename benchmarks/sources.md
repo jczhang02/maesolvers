@@ -359,6 +359,97 @@ Results are only in figures: about 10 Newton iterations reach an L2 error on rho
 The only printed numbers are in the Fig. 2 caption (beta = 0.8, k = 2, N = 64): "The highest absolute value is 0.0609 (n = 1, top left), 0.0239 (n = 2, top right), 0.00949 (n = 3, bottom left) and 0.00379 (n = 4, bottom right)".
 Fig. 4 shows the L2 and L-infinity error of u for u_ex = beta sin(2 pi k x) sin(2 pi k y), beta = 0.02, k = 1, at N = 16, 32, 64, 128, 256 after 10 Newton iterations; the text gives order O(1/N^2) but prints no values.
 
+## 5. Froese, Oberman, SIAM J. Numer. Anal. (2013)
+
+B. D. Froese, A. M. Oberman, "Convergent filtered schemes for the Monge-Ampere partial differential equation", SIAM J. Numer. Anal. 51(1) (2013) 423-444, DOI 10.1137/120875065.
+Read: local journal PDF (Zotero item Y55FLDKL, attachment 2BQN6YP2); every value below was checked against a rendered image of pp. 438-442 (journal page numbers).
+
+Method (Section 4.1): the filtered scheme `F_H = F_M + eps S((F_A - F_M) / eps)`, with `F_M` the monotone wide-stencil scheme of their Section 1.7 (`min over pairs of prod max{D_vv u, delta} + sum min{D_vv u, delta}`, `delta` not printed), `F_A` the standard 9-point scheme ("see [FO11b] for details"), the filter `S` of eq. (1.3) (identity on `[-1, 1]`, `sign(x)(2 - |x|)` for `1 <= |x| <= 2`, zero beyond) and `eps(h, dtheta) = sqrt(h) + dtheta / 10`.
+`dtheta` is not given a value; Oberman 2008, eq. (3.3), defines it as the largest angle between a direction and the nearest stencil direction.
+Solved by Newton, `u^{n+1} = u^n - (grad F_H[u^n])^{-1} F_H[u^n]`, with the Jacobian approximated by `(1 - S') grad F_M + max{S', 0} grad F_A` "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
+"We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
+No start, damping or stopping rule is stated.
+Section 4.2: "All computations are performed on the domain [0, 1] x [0, 1], which is discretized on an N x N grid."
+No definition of `h` in terms of `N`; the values match `h = 1/(N - 1)`, `N` nodes per side (`filtered.md`, Finding 1).
+
+Name map (Section 4.2, `x0 = (0.5, 0.5)`):
+- "C^2 example", eq. (4.1): `u = exp(|x - x0|^2 / 2)`, `f = (1 + |x - x0|^2) exp(|x - x0|^2)`. Centred at `x0`, so not T1 (`exp(|x|^2 / 2)`), although the text says the four examples are those of [FO11a].
+- "C^1 example", eq. (4.2): T20.
+- "Example with blow-up", eq. (4.3): T2, `u = -sqrt(2 - |x|^2)`, uncentred.
+- "C^{0,1} (Lipschitz) example", eq. (4.4): the cone T21, `f = 4/h^2` on `|x - x0| <= h/2`, 0 elsewhere.
+
+### Table 4.1, "Accuracy of the monotone and filtered schemes", max error
+
+C^2 example (4.1), all values `x 10^-5`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 9.45 | 4.54 | 9.12 | 4.54 | 9.38 | 4.54 |
+| 63 | 4.91 | 1.04 | 3.42 | 1.04 | 3.40 | 1.04 |
+| 127 | 3.79 | 0.26 | 1.67 | 0.26 | 1.39 | 0.26 |
+| 255 | 3.51 | 0.06 | 1.17 | 0.06 | 0.66 | 0.06 |
+| 361 | 3.48 | 0.03 | 1.08 | 0.03 | 0.51 | 0.03 |
+
+C^1 example (4.2), all values `x 10^-4`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 21.54 | 3.73 | 8.66 | 3.99 | 6.39 | 3.67 |
+| 63 | 21.33 | 1.51 | 6.82 | 1.40 | 3.18 | 1.46 |
+| 127 | 21.55 | 0.92 | 6.63 | 0.76 | 2.49 | 0.78 |
+| 255 | 21.51 | 0.38 | 6.58 | 0.46 | 2.36 | 0.37 |
+| 361 | 21.53 | 0.23 | 6.62 | 0.31 | 2.37 | 0.28 |
+
+Example with blow-up (4.3), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 |
+| 63 | 0.86 | 0.59 | 0.59 | 0.59 | 0.59 | 0.59 |
+| 127 | 0.83 | 0.20 | 0.35 | 0.20 | 0.20 | 0.20 |
+| 255 | 0.83 | 0.15 | 0.33 | 0.13 | 0.16 | 0.08 |
+| 361 | 0.83 | 0.17 | 0.33 | 0.13 | 0.15 | 0.08 |
+
+C^{0,1} (Lipschitz) example (4.4), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 11.83 | 10.42 | 3.56 | 4.16 | 1.61 | 1.23 |
+| 63 | 11.10 | 11.56 | 3.49 | 2.82 | 1.65 | 1.90 |
+| 127 | 11.80 | 10.97 | 3.45 | 2.83 | 1.64 | 1.11 |
+| 255 | 10.47 | 11.03 | 3.46 | 3.06 | 1.64 | 1.15 |
+| 361 | 10.40 | 10.37 | 3.45 | 3.22 | 1.64 | 1.12 |
+
+### Table 4.2, "Newton iterations, computation time, and accuracy for the hybrid and filtered schemes on a 17-point stencil"
+
+The "Standard" column prints a dash at `N = 255` and 361 for the C^1 and the Lipschitz examples.
+The hybrid columns are the a priori hybrid scheme of FO 2011 JCP.
+
+| Example | N | Iterations Hybrid | Iterations Filtered | CPU s Hybrid | CPU s Filtered | Max error Hybrid | Max error Filtered | Max error Standard |
+|---|---|---|---|---|---|---|---|---|
+| C^2 (`x 10^-5`) | 31 | 3 | 2 | 0.1 | 0.1 | 6.76 | 4.54 | 4.54 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 1.46 | 1.06 | 1.06 |
+| | 127 | 3 | 2 | 2.4 | 2.0 | 0.35 | 0.26 | 0.26 |
+| | 255 | 3 | 2 | 12.5 | 9.9 | 0.09 | 0.06 | 0.06 |
+| | 361 | 3 | 2 | 28.2 | 22.5 | 0.04 | 0.03 | 0.03 |
+| C^1 (`x 10^-4`) | 31 | 2 | 2 | 0.1 | 0.1 | 6.62 | 3.99 | 3.78 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 2.75 | 1.40 | 1.34 |
+| | 127 | 5 | 3 | 3.8 | 2.6 | 1.68 | 0.76 | 0.59 |
+| | 255 | 5 | 3 | 19.1 | 12.9 | 0.85 | 0.46 | -- |
+| | 361 | 5 | 6 | 48.3 | 50.6 | 0.60 | 0.31 | -- |
+| Blow-up (`x 10^-3`) | 31 | 6 | 7 | 0.3 | 0.3 | 1.74 | 1.74 | 17.38 |
+| | 63 | 9 | 9 | 1.4 | 1.5 | 0.59 | 0.59 | 12.62 |
+| | 127 | 11 | 11 | 8.6 | 8.4 | 0.20 | 0.20 | 9.04 |
+| | 255 | 7 | 8 | 30.5 | 32.4 | 0.07 | 0.13 | 6.43 |
+| | 361 | 11 | 12 | 101.5 | 108.7 | 0.04 | 0.13 | 5.42 |
+| Lipschitz (`x 10^-3`) | 31 | 6 | 7 | 0.2 | 0.2 | 3.57 | 4.16 | 5.19 |
+| | 63 | 6 | 9 | 1.0 | 1.4 | 3.49 | 2.82 | 2.86 |
+| | 127 | 8 | 8 | 6.6 | 6.4 | 3.45 | 2.83 | 1.54 |
+| | 255 | 9 | 10 | 47.1 | 38.2 | 3.46 | 3.06 | -- |
+| | 361 | 10 | 9 | 155.8 | 81.7 | 3.45 | 3.22 | -- |
+
+The two tables print different filtered values for the C^2 example at `N = 63` (1.04 in Table 4.1, 1.06 in Table 4.2); every other filtered 17-point value appears in both and agrees.
+
 ## What a reproduction must match
 
 The only published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper.
