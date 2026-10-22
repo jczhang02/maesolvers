@@ -260,12 +260,47 @@ def test_hybrid_is_a_frozen_keyword_only_part_built_from_the_two_schemes():
 
 @pytest.mark.parametrize("problem", [T1, T2])
 def test_the_preset_is_its_composition(problem):
-    composed = Newton(scheme=Hybrid(n=12, band=2.0), max_iter=200)
+    composed = Newton(
+        scheme=Hybrid(n=12, band=2.0), start=Monotone17(n=12), max_iter=200
+    )
     ours = FDHybrid(n=12, band=2.0)
-    assert ours.scheme == composed.scheme and isinstance(ours, Newton)
+    assert isinstance(ours, Newton)
+    assert (ours.scheme, ours.start) == (composed.scheme, composed.start)
     a, b = ours.solve(problem), composed.solve(problem)
     np.testing.assert_array_equal(a.values, b.values)
     assert a.info["history"] == b.info["history"]
+
+
+def test_newton_from_the_poisson_start_reaches_a_non_convex_root_on_t2():
+    """Why the preset starts from the monotone root (benchmarks/hybrid.md)."""
+    n = 63
+    poisson = evaluate(Newton(scheme=Hybrid(n=n), max_iter=200).solve(T2))
+    ours = evaluate(FDHybrid(n=n).solve(T2))
+    assert poisson["nonconvex_fraction"] > 0.003 and poisson["max"] > 5e-3
+    assert ours["max"] == pytest.approx(5.7213e-4, rel=1e-4)
+
+
+def test_newton_starts_from_the_root_of_its_start_scheme():
+    start = Monotone17(n=16)
+    first = Newton(scheme=start).solve(T1)
+    solver = Newton(scheme=Hybrid(n=16), start=start)
+    assert solver.initial_guess(T1, solver.setup(T1)) == pytest.approx(
+        first.values[first.interior], abs=0
+    )
+
+
+def test_newton_checks_its_start():
+    with pytest.raises(TypeError, match=r"Newton\.start must be an instance"):
+        Newton(scheme=Hybrid(n=8), start=Monotone17)
+    with pytest.raises(TypeError, match=r"Newton\.start must subclass Scheme"):
+        Newton(scheme=Hybrid(n=8), start=FDMonotone(n=8))
+    with pytest.raises(ValueError, match="start has 81 unknowns on T1, the scheme 49"):
+        Newton(scheme=Hybrid(n=8), start=Monotone17(n=10)).solve(T1)
+    oblong = Problem("R", Box((0.0, 0.0), (2.0, 1.0)), _constant(1.0), Dirichlet(_bowl))
+    mixed = Newton(scheme=Standard9(n=8), start=Monotone17(n=8))
+    assert mixed.supports(T1) and not mixed.supports(oblong)
+    with pytest.raises(UnsupportedProblemError, match="Newton does not support R"):
+        mixed.solve(oblong)
 
 
 def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
@@ -292,8 +327,9 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
     [
         FDHybrid(n=10, stencil=33, epsilon=0.05, band=1.5),
         Newton(scheme=Hybrid(n=10, boundary="interpolate"), max_iter=9),
+        Newton(scheme=Hybrid(n=10), start=Monotone17(n=10, stencil=9)),
     ],
-    ids=["preset", "composed"],
+    ids=["preset", "composed", "with a start"],
 )
 def test_hparams_rebuild_the_solver(solver):
     pytest.importorskip("jsonargparse")

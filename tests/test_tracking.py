@@ -58,6 +58,7 @@ def test_flatten_dots_nested_parts():
         "scheme.spline_degree": 3,
         "max_iter": 3,
         "tol": 1e-10,
+        "start": None,
     }
     assert tracking.flatten({"terms": ({"w": 1}, 2)}) == {"terms.0.w": 1, "terms.1": 2}
 

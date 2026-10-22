@@ -33,6 +33,7 @@ class _Standard9Preset:
     dims: ClassVar[tuple[int, ...] | None] = Standard9.dims
 
     scheme: Standard9 = field(init=False, repr=False)
+    start: None = field(default=None, init=False, repr=False)
     n: int = Standard9.n
     spline_degree: int = Standard9.spline_degree
 
@@ -153,6 +154,7 @@ class _Monotone17Preset(_SquareBoxCheck):
     dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
 
     scheme: Monotone17 = field(init=False, repr=False)
+    start: None = field(default=None, init=False, repr=False)
     n: int = Monotone17.n
     stencil: Literal[9, 17, 33] = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
@@ -224,6 +226,7 @@ class _HybridPreset(_SquareBoxCheck):
     dims: ClassVar[tuple[int, ...] | None] = Hybrid.dims
 
     scheme: Hybrid = field(init=False, repr=False)
+    start: Monotone17 = field(init=False, repr=False)
     n: int = Hybrid.n
     stencil: Literal[9, 17, 33] = Hybrid.stencil
     boundary: Literal["narrow", "interpolate"] = Hybrid.boundary
@@ -243,6 +246,7 @@ class _HybridPreset(_SquareBoxCheck):
             band=self.band,
         )
         object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "start", scheme.monotone)
         for name in (
             "n",
             "stencil",
@@ -260,12 +264,15 @@ class FDHybrid(_HybridPreset, Newton):
     """The hybrid scheme of Froese-Oberman 2011 solved by damped Newton.
 
     ``FDHybrid(n=n, stencil=s, epsilon=e, band=b, ...)`` is
-    ``Newton(scheme=Hybrid(n=n, stencil=s, epsilon=e, band=b, ...), ...)``,
-    the column "Hybrid" of Froese-Oberman 2011, Table 3 (J. Comput. Phys.):
+    ``Newton(scheme=Hybrid(n=n, stencil=s, epsilon=e, band=b, ...),
+    start=Monotone17(n=n, stencil=s, ...), ...)``: Newton on the hybrid scheme
+    from the root of the monotone scheme, which the Poisson start does not
+    reach on T2 (``benchmarks/hybrid.md``). It is the column "Hybrid" of
+    Froese-Oberman 2011, Table 3 (J. Comput. Phys.):
     the standard 9-point scheme where the data are regular, the monotone
     wide-stencil scheme within ``band`` grid steps of the boundary and of
     where ``f`` is at most ``epsilon`` or at least ``1 / epsilon``.
-    ``max_iter`` is ``FDMonotone``'s.
+    ``max_iter`` is ``FDMonotone``'s, for each of the two Newton solves.
 
     Parameters
     ----------

@@ -15,8 +15,9 @@ singular set and to 1 elsewhere.
 
 :class:`Hybrid` composes the two schemes and the rule into a
 :class:`~maesolvers.classical.schemes.Scheme` that
-:class:`~maesolvers.classical.iterations.Newton` solves; a rule of your own is
-a subclass that overrides :meth:`Hybrid.weights`.
+:class:`~maesolvers.classical.iterations.Newton` solves, from the root of the
+monotone scheme as the paper does (its Section 7.1); a rule of your own is a
+subclass that overrides :meth:`Hybrid.weights`.
 """
 
 # No `from __future__ import annotations` here: jsonargparse reads the field
@@ -114,6 +115,11 @@ class Hybrid(Scheme):
     is at most ``epsilon`` or at least ``1 / epsilon`` or the boundary is
     flat (every side of a box), and 1 elsewhere (:func:`hybrid_weights`).
     The residual and the Jacobian are the same averages of the two schemes'.
+    The standard part has non-convex roots: ``Newton`` from its Poisson
+    start reaches one on T2 from ``n = 63`` on, and from the root of
+    ``Monotone17`` (``start=``, as :class:`FDHybrid
+    <maesolvers.classical.presets.FDHybrid>` does) the convex one
+    (``benchmarks/hybrid.md``).
 
     Parameters
     ----------
