@@ -1,17 +1,38 @@
-# maesolvers
+<div align="center">
+  <h1>maesolvers</h1>
+  <p><b>Solvers for the Monge-Amp&egrave;re equation, classical and neural, behind one interface and measured on one set of test problems.</b></p>
+  <a href="https://github.com/jczhang02/maesolvers/actions/workflows/ci.yml"><img src="https://github.com/jczhang02/maesolvers/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/deps-numpy%20%2B%20scipy-lightgrey?style=flat-square" alt="numpy + scipy">
+</div>
 
-Solvers for the Monge-Ampere equation `det D^2 u = f`, classical and neural, behind one interface.
-The library collects published methods, reproduces their reported numbers, and runs them on one shared set of test problems so that methods can be compared on equal terms.
+<p align="center">
+  <img src="benchmarks/standard_fd.svg" alt="Max error against grid size for the standard finite-difference scheme: our Poisson iteration and Newton solver next to the values printed in Froese-Oberman 2011" width="900">
+</p>
 
-Status: pre-alpha, version 0.0.x.
-The interface may change until 0.1.
+> maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
+> It is pre-alpha (0.0.x): the interface may change until 0.1, and the first two solvers are in.
+> The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
-## Three concepts
+## Features
 
-- `Problem`: domain, right-hand side `f`, boundary condition (Dirichlet data `g`, or a transport target set), and the exact solution when known.
-- A solver: any object with `solve(problem) -> Result`.
-- `Result`: the solution as a callable, plus the method's own nodes, values and discrete Hessian.
-  `maesolvers.metrics.evaluate(result)` applies the shared protocol: solution errors at the nodes and on a fixed grid, residual, convexity statistics, cost.
+- **One interface**: a `Problem` (domain, right-hand side, boundary condition, exact solution when known), any object with `solve(problem) -> Result`, and a `Result` that carries the solution as a callable plus the method's own nodes, values and discrete Hessian.
+- **Fixed catalogue**: test problems `P1` to `P5` with numbers that are never reused, so tables from different methods and different years line up.
+- **Shared metrics**: `evaluate(result)` reports solution errors at the method's nodes and on a common grid, the equation residual, convexity statistics and cost, the same way for every method.
+- **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
+- **Light dependencies**: numpy and scipy only; torch arrives with the `neural` extra and the neural solvers.
+
+## Quick Start
+
+maesolvers is not on PyPI yet; install it from GitHub.
+
+```sh
+uv add git+https://github.com/jczhang02/maesolvers        # in a uv project
+pip install git+https://github.com/jczhang02/maesolvers   # or with pip
+```
+
+Solve a catalogue problem and evaluate the result with the shared protocol.
 
 ```python
 from maesolvers import P4, FDNewton
@@ -21,10 +42,25 @@ result = FDNewton(n=64).solve(P4)
 print(evaluate(result))
 ```
 
+```text
+rel_l2_nodes: 6.31e-06       # relative L2 error at the method's own nodes
+max_nodes: 1.68e-05          # max error at the nodes (the number papers print)
+rel_l2_grid: 6.39e-06        # the same two errors on the shared 201 x 201 grid
+max_grid: 1.68e-05
+residual_rms: 3.12e-12       # det D^2 u_h - f, RMS and max, with the method's own Hessian
+residual_max: 2.07e-11
+eigmin_min: 1                # smallest Hessian eigenvalue over the nodes
+nonconvex_fraction: 0        # share of nodes where it is negative
+time: 0.0809                 # seconds
+iterations: 4
+unknowns: 3969
+```
+
+Any object with a `solve(problem)` method that returns a `Result` plugs into the same `evaluate`, so a new method is one class away from the comparison table.
+
 ## Test problems
 
-The catalogue `P1` to `P5` is fixed: numbers are never reused, a retired problem keeps its number.
-All five are two-dimensional.
+All five are two-dimensional; the numbering is shared with the research repository that defines them.
 
 | Name | Domain | `f` | Boundary | Exact solution | Tests |
 |---|---|---|---|---|---|
@@ -41,15 +77,35 @@ All five are two-dimensional.
 | `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
 
-Both reproduce the standard-scheme column of Table 3 in Froese-Oberman (JCP 2011, SIAM 2011) to three digits once the grid convention is `h = 1/N`; see `benchmarks/standard_fd.md`.
+## Reproduction
 
-Planned for 0.1: one monotone wide-stencil scheme, one neural baseline (ICNN), Shortley-Weller boundary handling for disks.
+A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
+`benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours.
 
-## Reproduction rule
+| Problem | N | Published | FDPoisson | FDNewton |
+|---|---|---|---|---|
+| P4 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
+| P4 | 361 | 0.05e-5 | | 5.276e-7 |
+| P5 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
+| P5 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
 
-A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the same order of magnitude.
-`benchmarks/sources.md` records the published numbers, `benchmarks/<method>.md` the comparison with ours.
-A mismatch is recorded as a finding, not tuned away.
+Two things came out of this first comparison.
+The papers' grid convention, which none of them states, is `h = 1/N`.
+Newton on the standard scheme converges in the residual on P5 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
+
+<details>
+<summary><strong>Redraw the figure</strong></summary>
+
+```sh
+uv run benchmarks/plot_standard_fd.py     # reads the CSVs next to it, writes standard_fd.svg
+```
+
+</details>
+
+## Roadmap
+
+Fixed for 0.1: a monotone wide-stencil scheme (Froese-Oberman 2011), one neural baseline (ICNN), and Shortley-Weller boundary handling so the disk problems P1 and P3 run.
+Which further methods belong in the library is an open question, tracked in the research repository.
 
 ## Development
 
@@ -59,4 +115,8 @@ uv run pytest
 uv run ruff format . && uv run ruff check .
 ```
 
-Dependencies are numpy and scipy only; the `neural` extra adds torch for the neural solvers.
+Tests check that every catalogue problem's exact solution satisfies its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
