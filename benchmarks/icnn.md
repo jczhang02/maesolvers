@@ -102,7 +102,8 @@ If the paper's code took the mean of the equation term instead, three facts foll
    BFGS sees two differences: its start `H0 = I` is not invariant under a scaling of the loss, and its stopping test is: a largest gradient component of 1e-5 on the mean form is 0.034 on the scaled sum.
    So `run_icnn.py --boundary-weight 340000 --tol 0.034` runs the mean reading, up to `H0`; with the preset's `tol = 1e-5` it runs the same minimiser with a test 3400 times stricter.
 2. **The reweighting acts on the boundary, where the max error is.** In every seed of all three runs below, the max on the boundary is at least the max inside; with the printed sum the root mean square boundary misfit is 4.1e-5 on T6 and 2.2e-5 on T1 (medians), the size of the max error.
-   The mean reading lowers it to 2.3e-6 and 1.4e-6, and the max error falls with it; the equation term, as a sum, is larger at its end than with the printed sum (7.3e-6 against 7.5e-7 on T6, medians): the reading trades a larger residual inside for a smaller misfit on the boundary.
+   The mean reading lowers it to 2.3e-6 and 1.4e-6, and the max error falls with it.
+   Its equation term, as a sum, ends larger than with the printed sum (7.3e-6 against 7.5e-7 on T6, medians) because its runs stop earlier; with the stricter test the same minimiser ends below it (1.7e-7), so the reweighting does not cost accuracy inside.
 3. **The mean reading reaches the statistical level against Table 1; Figure 2 does not tell the two readings apart.**
 
 | Seeds 0 to 9, median [5%, 95%] | Paper | Printed sum (the preset, the receipts) | Mean reading (`boundary_weight = 3.4e5`, `tol = 0.034`) | Same minimiser, stricter test (`boundary_weight = 3.4e5`, `tol = 1e-5`) |
@@ -152,9 +153,11 @@ just remote-bg icnn-t6 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchm
 
 Each takes about 17 minutes on a100server with ten CPU threads; run them one after the other, to stay within 16 threads.
 
-The mean reading of Finding 2, the same way, for T1 and T6 (drop `--tol 0.034` for its last column):
+The mean reading of Finding 2, for T1 and T6 (drop `--tol 0.034` for its last column), in a tmux session in the server worktree, since `just remote-bg` cannot pass the quoted run-name prefix:
 
 ```sh
-just remote-bg icnn-mean-t6 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchmarks/run_icnn.py T6 \
-  --boundary-weight 340000 --tol 0.034 --name "diagnostic mean-equation" --out /tmp/icnn-mean-tol-t6.csv
+UV_PROJECT_ENVIRONMENT=/root/.venvs/maesolvers MLFLOW_TRACKING_URI=http://127.0.0.1:30000 \
+  CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH=src \
+  uv run --no-sync python benchmarks/run_icnn.py T6 --boundary-weight 340000 --tol 0.034 \
+  --name "diagnostic mean-equation" --out /tmp/icnn-mean-tol-t6.csv
 ```
