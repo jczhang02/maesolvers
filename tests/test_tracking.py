@@ -67,9 +67,25 @@ class FakeMLflow(types.ModuleType):
     def __init__(self, active=True):
         super().__init__("mlflow")
         self.active, self.calls = active, []
+        self.entities = types.ModuleType("mlflow.entities")
+        self.entities.Metric = lambda key, value, timestamp, step: (key, value, step)
+        fake = self
+
+        class MlflowClient:
+            def log_batch(self, run_id, metrics=()):
+                fake.calls.append(("batch", run_id, list(metrics)))
+
+        self.MlflowClient = MlflowClient
+
+    def install(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "mlflow", self)
+        monkeypatch.setitem(sys.modules, "mlflow.entities", self.entities)
+        return self
 
     def active_run(self):
-        return object() if self.active else None
+        if not self.active:
+            return None
+        return types.SimpleNamespace(info=types.SimpleNamespace(run_id="id"))
 
     def set_tracking_uri(self, uri):
         self.calls.append(("uri", uri))
@@ -94,10 +110,10 @@ class FakeMLflow(types.ModuleType):
 
 
 def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
-    fake = FakeMLflow()
-    monkeypatch.setitem(sys.modules, "mlflow", fake)
-    result = FDNewton(n=8).solve(P4, callbacks=[tracking.MLflowLogger()])
-    tags, params, *steps, final = fake.calls
+    fake = FakeMLflow().install(monkeypatch)
+    logger = tracking.MLflowLogger()
+    result = FDNewton(n=8).solve(P4, callbacks=[logger])
+    tags, params, batch, final = fake.calls
     assert tags == ("tags", ["git.branch", "git.dirty", "mlflow.source.git.commit"])
     assert params == (
         "params",
@@ -111,25 +127,46 @@ def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
         },
     )
     history = result.info["history"]
-    assert steps == [
-        ("metrics", {"residual": r}, i) for i, r in enumerate(history, start=1)
-    ]
+    assert batch == (
+        "batch",
+        "id",
+        [("residual", r, i) for i, r in enumerate(history, start=1)],
+    )
     kind, metrics, step = final
     assert kind == "metrics" and step is None
     assert metrics["converged"] == 1.0 and metrics["iterations"] == len(history)
     assert {"max", "rms", "max_grid", "eigmin", "time", "unknowns"} <= set(metrics)
     assert all(type(v) is float for v in metrics.values())
+    assert logger.evaluation["max"] == metrics["max"]
+
+
+def test_logger_sends_nothing_between_start_and_end(monkeypatch):
+    fake = FakeMLflow().install(monkeypatch)
+    solver, logger = FDNewton(n=8), tracking.MLflowLogger()
+    logger.on_solve_start(solver, P4)
+    logged = list(fake.calls)
+    for step in (1, 2, 3):
+        logger.on_step_end(solver, step, {"residual": 1.0 / step})
+    assert fake.calls == logged
+    logger.on_solve_end(solver, solver.solve(P4))
+    batches = [call for call in fake.calls if call[0] == "batch"]
+    assert batches == [
+        (
+            "batch",
+            "id",
+            [("residual", 1.0, 1), ("residual", 0.5, 2), ("residual", 1 / 3, 3)],
+        )
+    ]
 
 
 def test_logger_needs_an_active_run(monkeypatch):
-    monkeypatch.setitem(sys.modules, "mlflow", FakeMLflow(active=False))
+    FakeMLflow(active=False).install(monkeypatch)
     with pytest.raises(RuntimeError, match="tracking.run"):
         FDNewton(n=8).solve(P4, callbacks=[tracking.MLflowLogger()])
 
 
 def test_run_sets_the_experiment_tags_and_params(monkeypatch):
-    fake = FakeMLflow()
-    monkeypatch.setitem(sys.modules, "mlflow", fake)
+    fake = FakeMLflow().install(monkeypatch)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:/nowhere")
     with tracking.run("maesolvers-x-P4", params={"seed": 0}, run_name="r") as active:
         assert active == "run"
@@ -154,3 +191,12 @@ def test_logger_against_a_real_mlflow_store(tmp_path, monkeypatch):
     assert "git.dirty" in data.tags
     history = mlflow.MlflowClient().get_metric_history(active.info.run_id, "residual")
     assert [m.step for m in history] == list(range(1, len(history) + 1))
+
+
+def test_importing_the_library_loads_no_extra():
+    code = (
+        "import sys, maesolvers, maesolvers.tracking; "
+        "loaded = {'mlflow', 'torch', 'jsonargparse'} & set(sys.modules); "
+        "assert not loaded, loaded"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

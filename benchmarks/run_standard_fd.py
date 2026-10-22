@@ -13,7 +13,6 @@ Each solve is one MLflow run in maesolvers-<solver>-<problem> unless
 from __future__ import annotations
 
 import argparse
-import contextlib
 import csv
 from collections.abc import Iterator
 from pathlib import Path
@@ -36,16 +35,16 @@ PUBLISHED = {
 def solve(
     solver: Solver, problem: Problem, run_name: str, log: bool
 ) -> tuple[Result, dict[str, float]]:
-    """Solve, log to MLflow if ``log``, and evaluate."""
-    run: contextlib.AbstractContextManager = contextlib.nullcontext()
-    callbacks = []
-    if log:
-        experiment = f"maesolvers-{type(solver).__name__.lower()}-{problem.name}"
-        run = tracking.run(experiment, run_name=run_name)
-        callbacks.append(tracking.MLflowLogger())
-    with run:
-        result = solver.solve(problem, callbacks=callbacks)
-    return result, evaluate(result)
+    """Solve, log to MLflow if ``log``, and evaluate once."""
+    if not log:
+        result = solver.solve(problem)
+        return result, evaluate(result)
+    experiment = f"maesolvers-{type(solver).__name__.lower()}-{problem.name}"
+    logger = tracking.MLflowLogger()
+    with tracking.run(experiment, run_name=run_name):
+        result = solver.solve(problem, callbacks=[logger])
+    assert logger.evaluation is not None  # set when the solve ends
+    return result, logger.evaluation
 
 
 def poisson_rows(log: bool) -> Iterator[dict[str, object]]:

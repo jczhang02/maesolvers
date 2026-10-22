@@ -27,6 +27,7 @@ from __future__ import annotations
 import numbers
 import os
 import subprocess
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -142,17 +143,29 @@ class MLflowLogger(Callback):
 
     At the start it sets :func:`git_tags` and logs the solver's flattened
     :attr:`~maesolvers.core.solver.Solver.hparams` (:func:`flatten`) and the
-    problem's name as parameters; after every step it logs the step's metrics
-    (``residual``, ``update``, ``loss``) at that step; at the end it logs the
-    numeric fields of :func:`~maesolvers.metrics.evaluate` and ``converged``
-    (1 or 0). Use one run per solve, opened with :func:`run`: MLflow refuses
-    to change a logged parameter.
+    problem's name as parameters. It keeps every step's metrics (``residual``,
+    ``update``, ``loss``) and sends them at the end in one batch, together
+    with the numeric fields of :func:`~maesolvers.metrics.evaluate` and
+    ``converged`` (1 or 0). So no MLflow call falls between the start and the
+    end of the solve, the region whose time ``Result.info["time"]`` reports.
+    Use one run per solve, opened with :func:`run`: MLflow refuses to change
+    a logged parameter.
+
+    Attributes
+    ----------
+    evaluation : dict or None
+        :func:`~maesolvers.metrics.evaluate` of the last result logged, None
+        before the first solve ends.
 
     Raises
     ------
     RuntimeError
         At the start of a solve, if no MLflow run is active.
     """
+
+    def __init__(self) -> None:
+        self.evaluation: dict[str, Any] | None = None
+        self._steps: list[tuple[str, float, int, int]] = []
 
     def on_solve_start(self, solver: Solver, problem: Problem) -> None:
         """Tag the run and log the hyperparameters and the problem."""
@@ -163,24 +176,34 @@ class MLflowLogger(Callback):
                 "MLflowLogger logs into the active MLflow run; open one with "
                 "maesolvers.tracking.run(experiment)"
             )
+        self._steps = []
         mlflow.set_tags(git_tags())
         mlflow.log_params({**flatten(solver.hparams), "problem": problem.name})
 
     def on_step_end(
         self, solver: Solver, step: int, metrics: Mapping[str, float]
     ) -> None:
-        """Log the step's metrics at ``step``."""
-        import mlflow
-
-        mlflow.log_metrics(dict(metrics), step=step)
+        """Keep the step's metrics, with the time and step, for the end."""
+        timestamp = int(time.time() * 1000)
+        self._steps.extend(
+            (key, float(value), timestamp, step) for key, value in metrics.items()
+        )
 
     def on_solve_end(self, solver: Solver, result: Result) -> None:
-        """Log the evaluation of the result and whether it converged."""
+        """Send the kept step metrics, the evaluation and whether it converged."""
         import mlflow
+        from mlflow.entities import Metric
 
+        if self._steps:
+            mlflow.MlflowClient().log_batch(
+                mlflow.active_run().info.run_id,
+                metrics=[Metric(*step) for step in self._steps],
+            )
+            self._steps = []
+        self.evaluation = evaluate(result)
         metrics = {
             key: float(value)
-            for key, value in evaluate(result).items()
+            for key, value in self.evaluation.items()
             if isinstance(value, numbers.Real) and not isinstance(value, bool)
         }
         metrics["converged"] = float(bool(result.info.get("converged", False)))
