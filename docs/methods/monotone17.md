@@ -103,7 +103,7 @@ The start changes the number of steps, not the solution.
 | `Monotone17` | `stencil` | 17 | points of the stencil: 9, 17 or 33 |
 | `Monotone17` | `boundary` | `"narrow"` | wide pairs next to the boundary: left out (`"narrow"`) or with arms shortened to the boundary (`"interpolate"`) |
 | `Monotone17` | `jacobian_floor` | 1e-12 | the Jacobian's factors are at least `jacobian_floor / (2 h^2)`; the papers take 1e-8 |
-| `Monotone17` | `spline_degree` | 3 | degree of the spline off the nodes, 1 to `min(5, n)` |
+| `Monotone17` | `spline_degree` | 3 | degree of the spline off the nodes, 1 to 5; degree `n` if `n` is smaller |
 | `Newton` | `max_iter` | 50 (`FDMonotone`: 200) | most steps |
 | `Newton` | `tol` | 1e-10 | largest residual, relative to `max(1, max \|f\|)` |
 

@@ -16,8 +16,9 @@ singular set and to 1 elsewhere.
 :class:`Hybrid` composes the two schemes and the rule into a
 :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.Newton` solves, from the root of the
-monotone scheme as the paper does (its Section 7.1); a rule of your own is a
-subclass that overrides :meth:`Hybrid.weights`.
+monotone scheme (the paper starts from a convexified Poisson step, its
+Section 7.1); a rule of your own is a subclass that overrides
+:meth:`Hybrid.weights`.
 """
 
 # No `from __future__ import annotations` here: jsonargparse reads the field
@@ -117,7 +118,7 @@ class Hybrid(Scheme):
     The residual and the Jacobian are the same averages of the two schemes'.
     The standard part has non-convex roots: ``Newton`` from its Poisson
     start reaches one on T2 from ``n = 63`` on, and from the root of
-    ``Monotone17`` (``start=``, as :class:`FDHybrid
+    ``Monotone17`` (``start=FDMonotone(...)``, as :class:`FDHybrid
     <maesolvers.classical.presets.FDHybrid>` does) the convex one
     (``benchmarks/hybrid.md``).
 
@@ -138,7 +139,7 @@ class Hybrid(Scheme):
         Degree of the tensor spline that evaluates the solution off the
         nodes, 1 to 5 and at most ``n``.
     epsilon
-        The threshold of the switching rule, positive, or None for the
+        The threshold of the switching rule, in ``(0, 1)``, or None for the
         paper's choice ``h``.
     band
         Nonnegative: the radius, in grid steps, of the neighbourhood of the
@@ -195,7 +196,14 @@ class Hybrid(Scheme):
         object.__setattr__(self, "jacobian_floor", monotone.jacobian_floor)
         object.__setattr__(self, "spline_degree", monotone.spline_degree)
         if self.epsilon is not None:
-            object.__setattr__(self, "epsilon", positive("epsilon", self.epsilon))
+            epsilon = positive("epsilon", self.epsilon)
+            if epsilon >= 1.0:
+                # f <= epsilon or f >= 1 / epsilon would hold for every f
+                raise ValueError(
+                    f"epsilon must be less than 1, got {epsilon}; with "
+                    "epsilon >= 1 every node is singular and Hybrid is Monotone17"
+                )
+            object.__setattr__(self, "epsilon", epsilon)
         object.__setattr__(self, "band", nonnegative("band", self.band))
 
     def supports(self, problem: Problem) -> bool:
@@ -213,7 +221,7 @@ class Hybrid(Scheme):
         """
         return self.monotone.supports(problem)
 
-    def weights(self, problem: Problem) -> np.ndarray:
+    def weights(self, problem: Problem, nodes: np.ndarray, h: float) -> np.ndarray:
         """Return the weight ``w`` of the standard scheme at the unknowns.
 
         The plug-in point for a switching rule of your own: override it in a
@@ -224,20 +232,21 @@ class Hybrid(Scheme):
         ----------
         problem
             A problem the scheme supports.
+        nodes
+            Shape ``((n - 1)^2, 2)``: the interior nodes in the order of the
+            unknowns, node ``(i, j)`` of the ``n`` by ``n`` cells over the box
+            at row ``(i - 1) (n - 1) + j - 1``, ``i`` along ``x``.
+        h
+            The grid step.
 
         Returns
         -------
         numpy.ndarray
-            Shape ``((n - 1)^2,)``, in ``[0, 1]``, node ``(i, j)`` of the
-            ``n`` by ``n`` cells over the box at ``(i - 1) (n - 1) + j - 1``.
+            Shape ``((n - 1)^2,)``, in ``[0, 1]``: ``w`` at ``nodes``.
         """
-        box, n = problem.domain.bbox, self.n
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)[1:-1]
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)[1:-1]
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
-        h = (box.hi[0] - box.lo[0]) / n
         epsilon = h if self.epsilon is None else self.epsilon
-        return hybrid_weights(problem.f(nodes), epsilon, self.band).ravel()
+        f = problem.f(nodes).reshape(self.n - 1, self.n - 1)
+        return hybrid_weights(f, epsilon, self.band).ravel()
 
     def discretize(self, problem: Problem) -> HybridGrid:
         """Build both schemes' grids and the weights.
@@ -269,7 +278,9 @@ class Hybrid(Scheme):
         monotone = self.monotone.discretize(problem)
         # Both schemes number the nodes and the unknowns alike on a box.
         assert np.array_equal(standard.interior, monotone.interior)
-        weight = np.asarray(self.weights(problem), dtype=float)
+        nodes = monotone.nodes[monotone.interior]
+        h = float(monotone.x[1] - monotone.x[0])
+        weight = np.asarray(self.weights(problem, nodes, h), dtype=float)
         unknowns = monotone.f.size
         if weight.shape != (unknowns,):
             raise ValueError(
@@ -370,12 +381,13 @@ class Hybrid(Scheme):
         Solution
             The standard scheme's :meth:`Standard9.solution`, with
             ``residual_max`` the max absolute value of :meth:`residual`, and
-            ``monotone_fraction``, the share of unknowns where ``w < 1``.
+            ``monotone_fraction``, the mean of ``1 - w`` over the unknowns
+            (the share of unknowns where ``w = 0`` for a rule of 0 and 1).
         """
         solution = self.standard.solution(grid.standard, v)
         info = {
             **solution.info,
             "residual_max": float(np.max(np.abs(self.residual(grid, v)))),
-            "monotone_fraction": float(np.mean(grid.weight < 1.0)),
+            "monotone_fraction": float(np.mean(1.0 - grid.weight)),
         }
         return dataclasses.replace(solution, info=info)

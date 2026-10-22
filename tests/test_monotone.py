@@ -331,6 +331,17 @@ def test_a_negative_or_infinite_f_is_an_error_naming_the_problem():
             FDMonotone(n=4).solve(bad)
 
 
+def test_a_coarse_grid_takes_a_spline_of_degree_n():
+    """A spline needs degree + 1 knots per axis; n = 2 gives three."""
+    scheme = Monotone17(n=2, spline_degree=5)
+    grid = scheme.discretize(QUADRATIC)
+    solution = scheme.solution(grid, _quadratic(grid.nodes[grid.interior]))
+    assert scheme.spline_degree == 5
+    point = np.array([[0.3, 0.2]])
+    assert solution.u(point) == pytest.approx(_quadratic(point), abs=1e-12)
+    assert FDMonotone(n=2).solve(QUADRATIC).info["converged"]
+
+
 def test_solution_carries_the_centred_hessian_and_the_residual():
     scheme = Monotone17(n=8, spline_degree=2)
     grid = scheme.discretize(QUADRATIC)
@@ -380,7 +391,7 @@ def test_supports_a_square_dirichlet_box_only():
             ValueError,
             "boundary must be 'narrow' or 'interpolate'",
         ),
-        (dict(n=4, spline_degree=5), ValueError, r"min\(5, n\) = 4"),
+        (dict(spline_degree=6), ValueError, "between 1 and 5, got 6"),
         (dict(jacobian_floor=0.0), ValueError, "jacobian_floor must be positive"),
     ],
 )
