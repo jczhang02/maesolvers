@@ -1,21 +1,22 @@
 # Glossary
 
 Terms maesolvers uses in one fixed way, in Chinese writing and in English writing.
-They follow the glossary of the research repository (jczhang02/monge-ampere-equations) where the two overlap.
+Rows marked (shared) are copies of entries in the glossary of the research repository (jczhang02/monge-ampere-equations, private), which owns them: change them there first and copy the change here in the same change.
+The other rows are maesolvers' own, and the research repository uses them when it writes about the library.
 Agents and skills use these forms and avoid the ones listed under "Not".
 
 ## Methods
 
 | Term (zh) | Term (en) | Meaning | Not |
 |---|---|---|---|
-| 经典方法 | classical method | A method for `det D^2 u = f` that uses no neural network: finite-difference schemes, finite elements, least-squares and augmented-Lagrangian methods. | 传统方法, 传统格式, 传统求解器 |
-| 神经方法 | neural method | A method that represents the solution by a neural network trained on the equation. | 深度学习方法, AI 方法 |
+| 经典方法 (shared) | classical method | A numerical method for `det D^2 u = f` that uses no neural network: finite-difference schemes, finite elements, least-squares and augmented-Lagrangian methods. | 传统方法, 传统格式, 传统求解器, 传统数值方法, 经典数值方法 |
+| 神经方法 (shared) | neural method | A method that represents the solution, or the map to it, with a neural network; the opposite class to 经典方法. A 求解器 (solver) is one concrete method, so "a neural solver" names one solver of this class. | 神经网络方法, 深度学习方法, AI 方法, 神经求解器 (for the whole class) |
 | 方法族 | method family | A group of methods that share their parts and dependencies: the finite-difference family, the neural family, later the finite-element family. | |
 | 差分格式 | scheme | One finite-difference discretisation of the equation, named by its stencil (standard 9-point, monotone 17-point, filtered, hybrid). Not used for finite elements. | 离散格式 (alone), format |
 | 迭代方法 | iteration | The algorithm that solves a scheme's discrete equations (Newton, the Poisson iteration, semi-smooth Newton). One scheme under two iterations can reach different discrete solutions. | solver (for this part alone) |
 | 求解器 | solver | A complete method that takes a problem and returns a result: a scheme with an iteration, or a network with a loss and a training loop. | 模型 (for a classical solver) |
 | 预设 | preset | A named solver for a common combination of parts, such as the standard 9-point scheme under the Poisson iteration. The comparison table lists presets. | |
-| 分支选择 | branch selection | Whether a solver reaches the convex solution or a non-convex one that also satisfies the equation. | |
+| 分支选择 (shared) | branch selection | Whether a solver reaches the convex solution (凸解) or a non-convex one that also satisfies `det D^2 u = f`, such as the concave solution (凹解) of the unit-disk example with `f = 1`. | |
 
 ## Problems
 
