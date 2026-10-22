@@ -225,7 +225,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
 - `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.
-- `docs/guide.md`: the user guide; `docs/methods/`: one page per method; `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
+- `docs/guide.md`: the user guide; `docs/methods/`: one page per method, or per scheme with its iterations (`standard9.md`); `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
 - `tests/`: the tests, among them the reproduction pins (`test_reproduction.py`) and the guide's code blocks (`test_guide.py`).
 
 ## Development
