@@ -219,12 +219,12 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ```sh
 uv sync --group dev
-just check   # ruff format and lint, pyright on src/, pytest without extras and with the cli extra
+just check   # ruff format and lint, pyright on src/, pytest without extras, then with cli and mlflow
 just fmt     # format and fix
 ```
 
-CI runs the same checks on Python 3.10 and 3.13, and a job without extras that imports the package and runs every classical test.
-The pytest markers `slow` and `neural` select the long tests and those that need the `neural` extra (`-m "not slow"`).
+CI runs the same checks on Python 3.10 and 3.13, and its job without extras also checks that the package imports with numpy and scipy alone.
+The pytest marker `neural` is reserved for the tests that need the `neural` extra, which come with the neural solvers; no test carries it yet.
 Tests check every catalogue problem against the point values of the shared test-set specification and against its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
 
 ## License

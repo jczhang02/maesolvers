@@ -52,7 +52,6 @@ packages = ["src/maesolvers"]
 testpaths = ["tests"]
 addopts = ["--strict-markers"]
 markers = [
-  "slow: takes more than a few seconds; deselect with -m 'not slow'",
   "neural: needs the neural extra (torch, lightning); deselect with -m 'not neural'",
 ]
 
