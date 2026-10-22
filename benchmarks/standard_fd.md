@@ -3,10 +3,11 @@
 Problems: T1 (smooth, `u = exp(|x|^2 / 2)`) and T2 (corner blow-up, `u = -sqrt(2 - |x|^2)`) on `(0, 1)^2`, Dirichlet data from the exact solution.
 Published numbers: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Standard"; the same values appear in Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 3, column "Standard F.D.".
 Both papers credit the column to the Gauss-Seidel and Poisson iterations of Benamou-Froese-Oberman (2010).
+Problem T7 (`f = 1`, `g = 1` on `[-1, 1]^2`, no exact solution) is compared with Benamou-Froese-Oberman, ESAIM: M2AN 44 (2010), Table 7, column "(M1), (M2)", in its own section below.
 Full transcription and caveats: `sources.md`.
 
 Ours: `FDPoisson` (the 2010 Poisson iteration, successive-iterate tolerance 1e-12) and `FDNewton` (damped Newton from the Poisson start, residual tolerance 1e-10 relative to `max f`), both on the same discretisation, float64, scipy sparse LU.
-Raw data: `fd_poisson_sequence.csv`, `fd_newton_sequence.csv`.
+Raw data: `fd_poisson_sequence.csv`, `fd_newton_sequence.csv`; for T7, `t7_bfo2010.csv`, written by `t7_bfo2010.py` on a100server.
 Error: max over all grid nodes of `|u_h - u|`.
 
 ## Finding 1: the grid convention is `h = 1 / N`
@@ -65,9 +66,51 @@ The discrete equation `u_xx u_yy - u_xy^2 = f` does not see the sign of the Hess
 Consequence for the library: the standard scheme is two methods, not one.
 Its fixed point (Poisson or Gauss-Seidel iteration) is what the literature's "standard F.D." column means; Newton on the same discretisation needs a convexity-selecting safeguard before it can be reported on singular problems.
 
+## T7, BFO 2010 Table 7
+
+The table prints `u_min`, the minimum of the discrete solution, at N = 21 to 141.
+Ours: `u_origin`, the value at the origin, at `n = N - 1` cells per side, where the origin is a node (Finding 3); it equals the nodal minimum in every run below.
+`FDPoisson` runs with `max_iter = 100000`, since the Poisson iteration needs about `n^2` iterations here (14978 at n = 140); `FDNewton` with its defaults.
+
+| N | n | Published | FDPoisson | FDNewton | FDNewton non-convex nodes | FDNewton min Hessian eigenvalue | Poisson iterations |
+|---|---|---|---|---|---|---|---|
+| 21 | 20 | 0.2892 | 0.2892 | 0.2892 | 0 | 0.10 | 438 |
+| 41 | 40 | 0.2734 | 0.2734 | 0.3119 | 5.3% | -3.7 | 1539 |
+| 61 | 60 | 0.2682 | 0.2682 | 0.3189 | 4.4% | -10.4 | 3225 |
+| 81 | 80 | 0.2655 | 0.2655 | 0.3134 | 4.6% | -11.3 | 5443 |
+| 101 | 100 | 0.2639 | 0.2639 | 0.3249 | 6.5% | -15.1 | 8159 |
+| 121 | 120 | 0.2629 | 0.2629 | 0.3206 | 5.6% | -12.8 | 11344 |
+| 141 | 140 | 0.2621 | 0.2621 | 0.3245 | 6.8% | -19.1 | 14978 |
+
+Level (ADR 0002), per solver:
+
+- `FDPoisson`: exact.
+  Every value rounds to the printed one at four decimals, and the discrete solution is convex at every node (smallest Hessian eigenvalue 0.015 at n = 140).
+  `tests/test_reproduction.py` pins N = 21, 41 and 61.
+- `FDNewton`: mismatch.
+  It agrees at N = 21 only; from N = 41 on it converges in the residual (8 to 15 iterations) to a non-convex discrete solution, non-convex at 4 to 7 percent of the nodes, whose value at the origin stays near 0.31 to 0.32 and does not approach the published values.
+  This is the behaviour of Finding 2 on T2, now on a problem whose singularity sits at the four corners.
+  `tests/test_fd_newton.py` keeps N = 21 and N = 41 as a regression check, not as a reproduction.
+
+## Finding 3: Table 7 counts nodes, not cells
+
+On `[-1, 1]^2` the 2010 paper's own rule `h = L / N` would give `n = N` cells, the convention that matched T1 and T2 (Finding 1).
+Table 7 does not follow it:
+
+| Convention | Cells per side at N = 21 | Origin a node | Our `u_origin` | Our nodal minimum |
+|---|---|---|---|---|
+| `h = 2 / (N - 1)` | 20 | yes | 0.2892 | 0.2892 |
+| `h = 2 / N` | 21 | no | 0.2877 | 0.2900 |
+
+Published: 0.2892.
+`h = 2 / (N - 1)` matches at every printed N above; `h = 2 / N` matches neither the value at the origin nor the nodal minimum.
+So in Table 7, N is the number of nodes per side, the boundary included, and the grid has `N^2` nodes.
+The same paper therefore uses two conventions, and neither is stated where the table is; only the comparison with a solver tells them apart.
+
 ## Not compared
 
 CPU times (2010 MATLAB hardware), the monotone and hybrid columns (schemes not implemented yet), and the Gauss-Seidel iteration counts (method not implemented).
+For T7: the 9-, 17- and 33-point wide-stencil columns of Table 7 (scheme not implemented yet) and the iteration counts and times of Table 8 (stopping rule `10^-14` on successive iterates against our `10^-12`, and 2010 hardware).
 
 ## Shared 201 x 201 grid
 

@@ -19,7 +19,7 @@ SIAM Table 2 adds: "Here M = N^2 is the total number of grid points."
 None of the 2011 papers defines h in terms of N.
 The odd N values (21, 41, ...; 31, 63, 127, 255) suggest N points per side including the boundary, so h = 1/(N-1), but no paper says so.
 A useful check: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, and it should tell h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
-One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (Section 1, Findings).
+One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (`standard_fd.md`, Finding 3).
 
 ## 1. Benamou, Froese, Oberman (2010)
 
@@ -76,26 +76,48 @@ Table 1 also gives the CPU time ratio (M1)/(M2) for (a) (Section 4.1 column): 6.
 | 121 | 31 445 | 113 | 120.1 | 15.0 |
 | 141 | 42 202 | 119 | 218.3 | 21.3 |
 
+### T7 (Section 5.3): Table 7, minimum value of u when f = 1 with constant boundary values 1 on an N x N grid
+
+| N | (M1), (M2) | 9-point stencil | 17-point stencil | 33-point stencil |
+|---|---|---|---|---|
+| 21 | 0.2892 | 0.3115 | 0.2815 | 0.2839 |
+| 41 | 0.2734 | 0.3090 | 0.2807 | 0.2732 |
+| 61 | 0.2682 | 0.3082 | 0.2803 | 0.2711 |
+| 81 | 0.2655 | 0.3078 | 0.2802 | 0.2704 |
+| 101 | 0.2639 | 0.3076 | 0.2800 | 0.2700 |
+| 121 | 0.2629 | 0.3075 | 0.2798 | 0.2697 |
+| 141 | 0.2621 | 0.3074 | 0.2796 | 0.2695 |
+
+### T7 (Section 5.3): Table 8, computation times
+
+| N | Iterations (M1) | Iterations (M2) | CPU time (s) (M1) | CPU time (s) (M2) |
+|---|---|---|---|---|
+| 21 | 1615 | 535 | 0.1 | 1.7 |
+| 41 | 6366 | 1917 | 0.6 | 33.6 |
+| 61 | 14 049 | 4070 | 2.8 | 254.0 |
+| 81 | 24 560 | 6944 | 8.1 | 1170.0 |
+| 101 | 37 824 | 10 503 | 19.9 | 3730.0 |
+| 121 | 53 778 | 14 711 | 41.2 | 6820.0 |
+| 141 | 72 377 | 19 571 | 99.7 | 8560.0 |
+
+Our comparison, and the node-count convention of Table 7: `standard_fd.md`, section "T7" and Finding 3.
+
 ### Other test solutions in this paper
 
 - Section 4.2: u = (2 sqrt(2)/3)(x^2+y^2)^(3/4) on [0,1]^2, f = 1/sqrt(x^2+y^2); max error in Table 3 (5.5 x 10^-4 at N = 21 to 1.5 x 10^-5 at N = 221), order 1.5.
 - Section 5.1: solution (a) with high-frequency sinusoidal noise added to f and to the boundary data (Table 5, times only).
 - Section 5.2: discontinuous f (1 outside a circle of radius 0.16 about (0.5,0.5), 0 inside), u = max(|x - (0.5,0.5)|^2 / 2, 0.08) (Table 6, times only).
-- Section 5.3: f = 1 with boundary value 1 on [-1,1]^2, no exact solution; Table 7 gives u_min, also for the 9-, 17- and 33-point wide-stencil schemes.
+- Section 5.3 (T7): f = 1 with boundary value 1 on [-1,1]^2, no exact solution; Tables 7 and 8 above; the 9-, 17- and 33-point columns of Table 7 are the monotone wide-stencil method of the paper's reference [21].
+- Section 6.1: the cone u = sqrt(x^2+y^2), f = 4/h^2 at the origin grid point; max error in Tables 10 and 13, order about 0.8.
+- Section 6.2: u = |x|, f = 0; the discrete error goes to zero (Table 12, times only).
 
-### Findings (maesolvers catalogue, T4 and T7)
+### Caveat on the printed solution (maesolvers catalogue, T4)
 
-- Table 7 (T7) counts nodes, not cells: `FDPoisson` matches the printed u_min 0.2892, 0.2734 and 0.2682 at N = 21, 41 and 61 with n = 20, 40 and 60 cells (run on a100server for the catalogue PR), and gives 0.28773 at n = 21, where the origin is not a node.
-  So N in that table counts nodes per side, h = 2/(N - 1), unlike the h = L/N that Section 3.3 states and unlike the h = 1/N of the FO 2011 tables (ADR 0001).
-  `tests/test_reproduction.py` pins n = 20 for `FDNewton` and `FDPoisson`.
-- `FDNewton` also gives 0.2892 at n = 20, but at n = 40 and 140 it reaches a non-convex root (5 to 7 percent of the nodes non-convex), the behaviour of Finding 2 in `standard_fd.md` on T2.
 - Section 5.2 (T4): the printed u = max(|x - x0|^2 / 2, 0.08) does not solve the printed problem.
   Its gradient jumps from 0 to the radial vector of length 0.4 on the circle r = 0.4, so its Monge-Ampere measure has a singular part of mass 0.16 pi on that circle, and the printed f (integral 1 - 0.16 pi on the unit square) omits it.
   A correct solver of the printed f with the trace of the printed u as Dirichlet data converges to a different function, with no known closed form, so the printed u is no reference for an error.
   The catalogue's T4 keeps the printed f and replaces u with the C^1 radial Alexandrov solution of that f, 0.08 on the disk and 0.08 + (r s - 0.16 ln((r + s)/0.4))/2 with s = sqrt(r^2 - 0.16) beyond, and takes its Dirichlet data from it; so T4's boundary data differ from the paper's.
   `tests/test_catalogue.py` checks that the area of grad u(Omega) equals the integral of f, which fails for the printed u (area 1 against 1 - 0.16 pi).
-- Section 6.1: the cone u = sqrt(x^2+y^2), f = 4/h^2 at the origin grid point; max error in Tables 10 and 13, order about 0.8.
-- Section 6.2: u = |x|, f = 0; the discrete error goes to zero (Table 12, times only).
 
 ## 2. Froese, Oberman, SIAM J. Numer. Anal. (2011)
 

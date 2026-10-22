@@ -129,10 +129,16 @@ A method counts as reproduced when it matches the source paper's own table, on t
 | T1 | 361 | 0.05e-5 | | 5.276e-7 |
 | T2 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
 | T2 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
+| T7 | 21 | 0.2892 | 0.2892 | 0.2892 |
+| T7 | 141 | 0.2621 | 0.2621 | 0.3245 |
 
-Two things came out of this first comparison.
-The papers' grid convention, which none of them states, is `h = 1/N`.
+For T1 and T2 the values are max errors at the nodes (Froese-Oberman 2011, Table 3), with `N` cells per side.
+For T7 they are `u_min`, the value at the origin (Benamou-Froese-Oberman 2010, Table 7), with `N` nodes per side, so `n = N - 1` cells.
+
+Three things came out of this first comparison.
+The papers' grid convention, which none of them states, is `h = 1/N`, except in the 2010 Table 7, where `N` counts nodes.
 Newton on the standard scheme converges in the residual on T2 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
+On T7 Newton does the same from `N = 41` on, while the Poisson iteration matches the 2010 table at every printed `N`.
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
