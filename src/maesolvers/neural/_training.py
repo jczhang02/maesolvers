@@ -177,13 +177,14 @@ class _Forward(lightning.Callback):
 
 @contextmanager
 def _quiet() -> Iterator[None]:
-    """Silence Lightning's per-fit hardware report and data-loader advice."""
+    """Silence Lightning's per-fit hardware report and advice about the environment."""
     levels = {name: logging.getLogger(name).level for name in _LOGGERS}
     for name in _LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
     try:
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*does not have many workers.*")
+            for advice in ("does not have many workers", "`srun` command is available"):
+                warnings.filterwarnings("ignore", message=f".*{advice}.*")
             yield
     finally:
         for name, level in levels.items():
