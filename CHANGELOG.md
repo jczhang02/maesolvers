@@ -12,6 +12,17 @@ Every change to the public interface is listed here; 0.x may break the interface
   Below zero each pair's product continues with the slope `kappa = sqrt(max(f, mean f, 1))`, so a root has no negative second difference in a pair that enters the minimum, and Newton's stopping rule cannot accept a non-convex iterate that is not a root; `boundary` chooses between leaving the wide pairs out next to the boundary (`"narrow"`, which matches the published tables) and shortening their arms to the boundary (`"interpolate"`, which the papers describe).
   The pure kernels `stencil_pairs`, `directional_difference`, `pair_values` and `pair_jacobian_coefficients` are in `maesolvers.classical.monotone`, with `MonotoneGrid`, the context `Monotone17.discretize` returns, whose fields may change with the scheme.
 - The preset `FDMonotone(n, stencil, boundary, jacobian_floor, spline_degree, max_iter=200, tol=1e-10)`, `Newton` on `Monotone17`, registered in `SOLVERS`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides.
+- `Standard9` discretises 2D Dirichlet problems on a `Disk`, an `Ellipse` and the `CutQuarterDisk` of T6, with Shortley-Weller stencils next to the boundary, so `FDNewton` and `FDPoisson` solve T8 and T6 (issue #1); its `domains` (and the presets') are `(Box, Disk, Ellipse, CutQuarterDisk)`.
+  On these domains `n` counts cells per side of the grid over the bounding box, `Result.nodes` lists the nodes with unknowns and then the boundary points, and the solution off the nodes is the Clough-Tocher interpolant (`spline_degree` applies to a box only), extrapolated to first order past the hull of the nodes so that it stays second order at corners off the grid.
+- `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes`: the pure function behind it, returning a `ShortleyWellerOperators` named tuple (`nodes`, `interior`, `dxx`, `dyy`, `dxy`, `min_step`): the nodes, the mask of the nodes with unknowns, the operators `D_xx`, `D_yy`, `D_xy` and the smallest step fraction at each node.
+- `Standard9` results (and so `FDNewton` and `FDPoisson` results) carry `info["min_step"]`, the smallest step fraction of a stencil (1 on a box), and `info["interpolant"]`, `"spline(k)"` or `"clough_tocher"`, the interpolant behind `Result.u` and `max_grid`.
+
+### Changed
+
+- `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
+- `Standard9`'s `UnsupportedProblemError` message lists the four domains.
+- `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
+- The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale`, `interpolate` and `interpolant` are new.
 
 ## 0.0.2 (2026-10-22)
 
