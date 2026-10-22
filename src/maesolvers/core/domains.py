@@ -210,3 +210,39 @@ class Disk:
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open disk."""
         return self._level(x) < 1.0
+
+
+@dataclass(frozen=True)
+class CutQuarterDisk:
+    """The quarter of the unit disk in the first quadrant, cut by a line.
+
+    The convex set ``x > 0, y > 0, x^2 + y^2 < 1, y > x - 1/2`` of
+    Nystrom-Vestberg 2023, Example 4.6: two straight sides on the axes, a
+    third on the line ``y = x - 1/2`` from ``(1/2, 0)`` to the circle at
+    ``((1 + sqrt 7)/4, (sqrt 7 - 1)/4)``, and an arc of the unit circle from
+    there to ``(0, 1)``. It has no parameters.
+    """
+
+    @property
+    def dim(self) -> int:
+        """Space dimension, always 2."""
+        return 2
+
+    @property
+    def bbox(self) -> Box:
+        """The box ``[0, (1 + sqrt 7)/4] x [0, 1]``."""
+        return Box((0.0, 0.0), ((1.0 + np.sqrt(7.0)) / 4.0, 1.0))
+
+    def _margins(self, x: np.ndarray) -> np.ndarray:
+        """Shape ``(..., 4)``: each defining inequality as ``margin > 0``."""
+        x = _points(x, 2)
+        a, b = x[..., 0], x[..., 1]
+        return np.stack([a, b, 1.0 - a**2 - b**2, b - a + 0.5], axis=-1)
+
+    def contains(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the closed domain."""
+        return np.all(self._margins(x) >= 0.0, axis=-1)
+
+    def interior(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the open domain."""
+        return np.all(self._margins(x) > 0.0, axis=-1)

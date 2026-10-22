@@ -6,7 +6,15 @@ Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
 
 from maesolvers.core.boundary import BoundaryCondition, Dirichlet, Transport
 from maesolvers.core.callbacks import Callback
-from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field, HessianField
+from maesolvers.core.domains import (
+    Box,
+    CutQuarterDisk,
+    Disk,
+    Domain,
+    Ellipse,
+    Field,
+    HessianField,
+)
 from maesolvers.core.problem import Observable, Problem
 from maesolvers.core.result import Result
 from maesolvers.core.solver import (
@@ -21,6 +29,7 @@ __all__ = [
     "BoundaryCondition",
     "Box",
     "Callback",
+    "CutQuarterDisk",
     "Dirichlet",
     "Disk",
     "Domain",

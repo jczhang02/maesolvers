@@ -10,6 +10,7 @@ for grid methods, the nodes, values and discrete Hessian), and
 from maesolvers.core import (
     Box,
     Callback,
+    CutQuarterDisk,
     Dirichlet,
     Disk,
     Ellipse,
@@ -34,6 +35,7 @@ __all__ = [
     "P5",
     "Box",
     "Callback",
+    "CutQuarterDisk",
     "Dirichlet",
     "Disk",
     "Ellipse",
