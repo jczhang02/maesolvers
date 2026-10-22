@@ -2,7 +2,7 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## Unreleased (0.0.2)
+## 0.0.2 (2026-10-22)
 
 ### Added
 
