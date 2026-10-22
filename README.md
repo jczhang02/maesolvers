@@ -167,7 +167,7 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 | `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box`; `Disk`, `Ellipse`, `CutQuarterDisk` through Shortley-Weller stencils | Dirichlet | none; on T2 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | the same | Dirichlet | selects the convex branch in practice |
 | `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
-| `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by L-BFGS on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
+| `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by dense BFGS (SciPy's) on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
 
 Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
 A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
@@ -178,7 +178,7 @@ A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `s
 A neural solver is a network, a loss, a sampler and an optimizer (ADR 0004) on one training loop, a Lightning `Trainer` in float64 (ADR 0008): `PenaltyMLP()` is `NeuralSolver(network=HardDirichlet(network=MLP()), loss=PenaltyLoss(), sampler=UniformSampler(), optimizer=LBFGS(), max_steps=5000)`.
 A new part subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural` as a frozen dataclass; `docs/guide.md` writes one of each.
 The `seed` fixes the collocation points and the initial network, and `evaluate` measures the trained network on the shared evaluation grid.
-`DirichletICNN()` swaps the network for `ICNN()`, convex in its input by construction, and the loss for `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)`.
+`DirichletICNN()` swaps the network for `ICNN()`, convex in its input by construction, the loss for `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)` and the optimizer for `BFGS()`, with `max_steps=10_000`.
 [`docs/methods/penalty_mlp.md`](docs/methods/penalty_mlp.md) and [`docs/methods/icnn.md`](docs/methods/icnn.md) describe the two methods.
 
 ## Reproduction
