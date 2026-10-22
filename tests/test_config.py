@@ -210,6 +210,8 @@ def test_the_guards_see_every_exported_solver_and_scheme():
         "UniformSampler",
         "LBFGS",
         "Adam",
+        "ICNN",
+        "BFGS",
     }
 
 
@@ -265,8 +267,10 @@ def test_every_numeric_scheme_parameter_is_checked_against_its_type(
 
 @pytest.mark.parametrize(("slot", "part"), NEURAL_PART_CLASSES)
 def test_every_numeric_neural_part_parameter_is_checked_against_its_type(slot, part):
-    names = _numeric_parameters(getattr(maesolvers, part))
-    assert names
+    cls = getattr(maesolvers, part)
+    names = _numeric_parameters(cls)
+    # A part with fields has numeric ones here; BFGS has no fields at all.
+    assert names or not [f for f in dataclasses.fields(cls) if f.init]
     for name in names:
         config = _solver(getattr(maesolvers, part), part, **{name: "many"})
         with pytest.raises(ValueError, match=f'key "{name}"'):

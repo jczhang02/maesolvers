@@ -55,6 +55,7 @@ from maesolvers.core import (
     UnsupportedProblemError,
 )
 from maesolvers.neural import (
+    BFGS,
     ICNN,
     LBFGS,
     MLP,
@@ -69,6 +70,7 @@ from maesolvers.neural import (
 from maesolvers.registry import SOLVERS
 
 __all__ = [
+    "BFGS",
     "CATALOGUE",
     "ICNN",
     "LBFGS",

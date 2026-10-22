@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from maesolvers import (
+    BFGS,
     CATALOGUE,
     ICNN,
     LBFGS,
@@ -121,7 +122,7 @@ def test_the_icnn_preset_is_the_paper_composition():
         convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
     )
     assert preset.sampler == UniformSampler(interior_points=3000, boundary_points=400)
-    assert preset.optimizer == LBFGS()
+    assert preset.optimizer == BFGS()
     assert (preset.max_steps, preset.tol) == (10_000, 1e-5)
 
 

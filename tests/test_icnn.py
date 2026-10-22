@@ -11,7 +11,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
-from maesolvers import ICNN, T1, T6, T9, DirichletICNN, PenaltyLoss  # noqa: E402
+from maesolvers import BFGS, ICNN, T1, T6, T9, DirichletICNN, PenaltyLoss  # noqa: E402
 from maesolvers.metrics import evaluate  # noqa: E402
 from maesolvers.neural import Batch, UniformSampler  # noqa: E402
 from maesolvers.neural import functional as F  # noqa: E402
@@ -158,3 +158,60 @@ def test_the_solver_passes_f_at_the_boundary_points():
     np.testing.assert_array_equal(context.f_boundary, T6.f(boundary))
     batch = solver._batch(context)
     assert batch.f_boundary.shape == (24,) and batch.f_boundary.dtype == torch.float64
+
+
+def _rosenbrock(x):
+    return (1 - x[0]) ** 2 + 100 * (x[1] - x[0] ** 2) ** 2
+
+
+def test_bfgs_minimises_the_rosenbrock_function():
+    x = torch.nn.Parameter(torch.tensor([-1.2, 1.0], dtype=torch.float64))
+    optimizer = BFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = _rosenbrock(x)
+        loss.backward()
+        return loss
+
+    for _ in range(100):
+        optimizer.step(closure)
+    torch.testing.assert_close(x.detach(), torch.ones(2, dtype=torch.float64))
+
+
+def test_bfgs_keeps_the_secant_condition_and_a_symmetric_approximation():
+    x = torch.nn.Parameter(torch.tensor([0.3, -0.5, 0.8], dtype=torch.float64))
+    a = torch.tensor([[3.0, 1.0, 0.0], [1.0, 2.0, 0.5], [0.0, 0.5, 1.0]])
+    a = a.to(torch.float64)
+    optimizer = BFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = 0.5 * x @ a @ x + torch.sin(x).sum()
+        loss.backward()
+        return loss
+
+    for _ in range(2):
+        optimizer.step(closure)
+    state = optimizer.state[x]
+    previous_x, previous_g = state["x"].clone(), state["g"].clone()
+    optimizer.step(closure)  # updates H with the pair of the last step
+    h = state["h"]
+    s, y = state["x"] - previous_x, state["g"] - previous_g
+    torch.testing.assert_close(h @ y, s)
+    torch.testing.assert_close(h, h.T)
+    assert (torch.linalg.eigvalsh(h) > 0).all()
+
+
+def test_bfgs_does_nothing_at_a_stationary_point():
+    x = torch.nn.Parameter(torch.zeros(2, dtype=torch.float64))
+    optimizer = BFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = (x**2).sum()
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    assert torch.equal(x.detach(), torch.zeros(2, dtype=torch.float64))

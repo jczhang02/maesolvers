@@ -7,11 +7,16 @@ Imported only inside methods that run during a solve, so that
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 
 import numpy as np
 import torch
+from torch.nn.utils import parameters_to_vector, vector_to_parameters
+
+# torch's strong Wolfe line search, private to torch.optim.lbfgs: the line search
+# of torch.optim.LBFGS, so both quasi-Newton parts search alike.
+from torch.optim.lbfgs import _strong_wolfe
 
 from maesolvers.neural import functional
 
@@ -173,6 +178,95 @@ class InputConvex(torch.nn.Module):
             if layer < len(later) - 1:
                 z = torch.nn.functional.softplus(z)
         return z.squeeze(-1)
+
+
+class DenseBFGS(torch.optim.Optimizer):
+    """BFGS with a dense inverse Hessian approximation: one iteration per ``step``.
+
+    The iteration of SciPy's ``minimize(method="BFGS")``. The approximation
+    ``H`` starts as the identity; after each iteration, with ``s`` the
+    change of the parameters and ``y`` that of the gradient,
+    ``H <- (I - r s y') H (I - r y s') + r s s'``, ``r = 1 / y's``, skipped
+    when ``y's <= 1e-10``, which keeps ``H`` positive definite. The step
+    along ``d = -H g`` comes from torch's strong Wolfe line search (the one
+    ``torch.optim.LBFGS`` uses), started, as SciPy starts its own, from
+    ``min(1, 2.02 (f - f_prev) / g'd)``: the step that would repeat the last
+    decrease of the loss, with ``f_prev = f + |g| / 2`` on the first
+    iteration. ``H`` takes ``n^2`` numbers for ``n`` parameters.
+
+    Parameters
+    ----------
+    params
+        The parameters, in one group.
+    """
+
+    def __init__(self, params: Iterable[torch.nn.Parameter]) -> None:
+        super().__init__(params, {})
+        if len(self.param_groups) != 1:
+            raise ValueError("DenseBFGS takes one parameter group")
+
+    @staticmethod
+    def _flat_grad(params: list[torch.Tensor]) -> torch.Tensor:
+        return torch.cat(
+            [
+                torch.zeros_like(p).view(-1) if p.grad is None else p.grad.view(-1)
+                for p in params
+            ]
+        )
+
+    @torch.no_grad()
+    def step(self, closure: Callable[[], torch.Tensor]) -> torch.Tensor:  # type: ignore[override]
+        """Take one BFGS iteration.
+
+        Parameters
+        ----------
+        closure
+            Zeroes the gradients, evaluates the loss, back-propagates it and
+            returns it.
+
+        Returns
+        -------
+        torch.Tensor
+            The loss at the parameters the step starts from.
+        """
+        evaluate = torch.enable_grad()(closure)
+        params: list[torch.Tensor] = self.param_groups[0]["params"]
+        state = self.state[params[0]]
+        loss = evaluate()
+        f, g = float(loss), self._flat_grad(params)
+        if not g.any():  # a stationary point: no direction to search
+            return loss
+        x = parameters_to_vector(params).clone()
+        if "h" not in state:
+            state["h"] = torch.eye(len(x), dtype=x.dtype, device=x.device)
+            state["f"] = f + float(g.norm()) / 2
+        else:
+            s, y = x - state["x"], g - state["g"]
+            ys = float(y.dot(s))
+            if ys > 1e-10:
+                h, r = state["h"], 1.0 / ys
+                hy = h @ y
+                h += (r * r * float(y.dot(hy)) + r) * torch.outer(s, s)
+                h -= r * (torch.outer(hy, s) + torch.outer(s, hy))
+        d = -(state["h"] @ g)
+        gtd = g.dot(d)
+        t = min(1.0, 2.02 * (f - state["f"]) / float(gtd))
+        if t <= 0.0:  # the loss rose in the last step: no scale to repeat
+            t = 1.0
+        state["x"], state["g"], state["f"] = x, g, f
+
+        def directional(
+            start: torch.Tensor, step: float, direction: torch.Tensor
+        ) -> tuple[float, torch.Tensor]:
+            vector_to_parameters(start + step * direction, params)
+            value = float(evaluate())
+            gradient = self._flat_grad(params)
+            vector_to_parameters(start, params)
+            return value, gradient
+
+        _, _, t, _ = _strong_wolfe(directional, x, t, d, f, g, gtd)
+        vector_to_parameters(x + t * d, params)
+        return loss
 
 
 class Ansatz(torch.nn.Module):

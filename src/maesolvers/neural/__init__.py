@@ -17,7 +17,7 @@ extra without them.
 
 from maesolvers.neural.losses import Batch, Loss, PenaltyLoss
 from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, Network
-from maesolvers.neural.optimizers import LBFGS, Adam, Optimizer
+from maesolvers.neural.optimizers import BFGS, LBFGS, Adam, Optimizer
 from maesolvers.neural.presets import DirichletICNN, PenaltyMLP
 from maesolvers.neural.samplers import (
     Collocation,
@@ -28,6 +28,7 @@ from maesolvers.neural.samplers import (
 from maesolvers.neural.solver import NeuralSolver
 
 __all__ = [
+    "BFGS",
     "ICNN",
     "LBFGS",
     "MLP",

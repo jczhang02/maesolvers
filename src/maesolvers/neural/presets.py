@@ -19,7 +19,7 @@ from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk
 from maesolvers.neural.losses import Loss, PenaltyLoss
 from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, Network
-from maesolvers.neural.optimizers import LBFGS, Optimizer
+from maesolvers.neural.optimizers import BFGS, LBFGS, Optimizer
 from maesolvers.neural.samplers import Sampler, UniformSampler
 from maesolvers.neural.solver import NeuralSolver
 
@@ -129,13 +129,13 @@ class DirichletICNN(NeuralSolver):
       interior and the boundary points plus ``C`` times the mean squared
       boundary misfit, eq. (3.8) as Example 4.2 uses it;
     - ``sampler=UniformSampler(interior_points=M, boundary_points=K)``;
-    - ``optimizer=LBFGS()``.
+    - ``optimizer=BFGS()``: dense BFGS, as the paper's SciPy BFGS.
 
     The defaults are the paper's (5 x 10 softplus, 563 parameters in 2D,
     ``C = 100``, 3000 and 400 points), except for what it does not give: the
     step budget ``max_steps`` is the "at most 10,000 iterations" of its
-    Example 4.6, and the L-BFGS memory is the part's default
-    (``docs/methods/icnn.md``, Differences from the paper). Nothing in the
+    Example 4.6, and ``init_std`` is 1 (``docs/methods/icnn.md``,
+    Differences from the paper). Nothing in the
     composition depends on the dimension, so the preset takes a Dirichlet
     problem in any dimension on a domain that samples its boundary
     (:class:`~maesolvers.core.domains.BoundarySampling`). The training runs
@@ -194,7 +194,7 @@ class DirichletICNN(NeuralSolver):
         object.__setattr__(self, "network", network)
         object.__setattr__(self, "loss", loss)
         object.__setattr__(self, "sampler", sampler)
-        object.__setattr__(self, "optimizer", LBFGS())
+        object.__setattr__(self, "optimizer", BFGS())
         object.__setattr__(self, "width", network.width)
         object.__setattr__(self, "depth", network.depth)
         object.__setattr__(self, "init_std", network.init_std)
