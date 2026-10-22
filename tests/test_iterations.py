@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from maesolvers import (
-    P1,
-    P4,
-    P5,
     SOLVERS,
+    T1,
+    T2,
+    T8,
     FDNewton,
     FDPoisson,
     Newton,
@@ -55,7 +55,7 @@ class PoissonOnly(Scheme):
 @pytest.mark.parametrize(
     ("preset", "iteration"), [(FDNewton, Newton), (FDPoisson, PoissonIteration)]
 )
-@pytest.mark.parametrize("problem", [P4, P5])
+@pytest.mark.parametrize("problem", [T1, T2])
 def test_a_preset_is_its_composition(preset, iteration, problem):
     composed = iteration(scheme=Standard9(n=16, spline_degree=2), tol=1e-9)
     ours = preset(n=16, spline_degree=2, tol=1e-9)
@@ -98,9 +98,9 @@ def test_composed_hparams_nest_the_scheme():
 
 def test_the_scheme_decides_what_is_supported():
     solver = Newton(scheme=Standard9(n=8))
-    assert solver.supports(P4) and not solver.supports(P1)
+    assert solver.supports(T1) and not solver.supports(T8)
     with pytest.raises(UnsupportedProblemError, match="Disk"):
-        solver.solve(P1)
+        solver.solve(T8)
 
 
 def test_an_iteration_needs_a_scheme_with_its_methods():
@@ -108,8 +108,8 @@ def test_an_iteration_needs_a_scheme_with_its_methods():
         TypeError,
         match="Newton needs a scheme with residual, jacobian, which PoissonOnly",
     ):
-        Newton(scheme=PoissonOnly()).solve(P4)
-    result = PoissonIteration(scheme=PoissonOnly()).solve(P4)
+        Newton(scheme=PoissonOnly()).solve(T1)
+    result = PoissonIteration(scheme=PoissonOnly()).solve(T1)
     assert result.info["converged"]
 
 
@@ -166,9 +166,9 @@ def test_a_new_iteration_writes_three_hooks():
             return measure <= self.tol
 
     solver = Jacobi(scheme=Standard9(n=16), max_iter=500)
-    assert solver.supports(P4) and not solver.supports(P1)
-    ours = solver.solve(P4)
-    reference = PoissonIteration(scheme=Standard9(n=16)).solve(P4)
+    assert solver.supports(T1) and not solver.supports(T8)
+    ours = solver.solve(T1)
+    reference = PoissonIteration(scheme=Standard9(n=16)).solve(T1)
     assert ours.info["converged"]
     np.testing.assert_allclose(ours.values, reference.values, rtol=1e-8)
 
@@ -183,11 +183,11 @@ def test_iterations_validate_tol_and_max_iter(iteration):
         iteration()
 
 
-def test_newton_and_poisson_reach_different_roots_on_p5():
+def test_newton_and_poisson_reach_different_roots_on_t2():
     """Finding 2: same scheme, two iterations, two discrete solutions."""
     scheme = Standard9(n=32)
-    newton = evaluate(Newton(scheme=scheme).solve(P5))
-    poisson = evaluate(PoissonIteration(scheme=scheme).solve(P5))
+    newton = evaluate(Newton(scheme=scheme).solve(T2))
+    poisson = evaluate(PoissonIteration(scheme=scheme).solve(T2))
     assert poisson["nonconvex_fraction"] == 0.0 < newton["nonconvex_fraction"]
 
 
@@ -204,7 +204,7 @@ def test_registered_solvers_declare_their_support_on_the_class(solver):
         Standard9.boundaries,
         Standard9.dims,
     )
-    for problem in (P1, P4):
+    for problem in (T8, T1):
         assert solver().supports(problem) == Standard9().supports(problem)
 
 

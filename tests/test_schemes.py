@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
-from maesolvers import P1, P3, P4, Box, Dirichlet, Problem, UnsupportedProblemError
+from maesolvers import T1, T8, T12, Box, Dirichlet, Problem, UnsupportedProblemError
 from maesolvers.classical import Standard9
 from maesolvers.classical.schemes import (
     difference_operators,
@@ -81,7 +81,7 @@ def test_the_exact_quadratic_has_zero_residual():
 
 def test_jacobian_matches_finite_differences_of_the_residual():
     scheme = Standard9(n=5)
-    grid = scheme.discretize(P4)
+    grid = scheme.discretize(T1)
     v = scheme.solve_laplace(grid, np.full(16, 2.0))
     jac = scheme.jacobian(grid, v).toarray()
     eps = 1e-6
@@ -105,8 +105,8 @@ def test_solve_laplace_keeps_the_dirichlet_data():
 
 def test_rhs_is_f_at_the_unknowns():
     scheme = Standard9(n=4)
-    grid = scheme.discretize(P4)
-    np.testing.assert_array_equal(scheme.rhs(grid), P4.f(grid.nodes[grid.interior]))
+    grid = scheme.discretize(T1)
+    np.testing.assert_array_equal(scheme.rhs(grid), T1.f(grid.nodes[grid.interior]))
 
 
 def test_solution_fills_the_boundary_and_leaves_its_hessian_undefined():
@@ -128,14 +128,14 @@ def test_solution_fills_the_boundary_and_leaves_its_hessian_undefined():
 
 def test_supports_a_2d_dirichlet_box_only():
     scheme = Standard9()
-    assert scheme.supports(P4)
-    assert not scheme.supports(P1) and not scheme.supports(P3)
+    assert scheme.supports(T1)
+    assert not scheme.supports(T8) and not scheme.supports(T12)
     cube = Problem(
         "C", Box((0,) * 3, (1,) * 3), _constant(1.0), Dirichlet(_constant(0))
     )
     assert not scheme.supports(cube)
-    with pytest.raises(UnsupportedProblemError, match="P1"):
-        scheme.discretize(P1)
+    with pytest.raises(UnsupportedProblemError, match="T8"):
+        scheme.discretize(T8)
 
 
 @pytest.mark.parametrize(

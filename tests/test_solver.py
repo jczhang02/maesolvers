@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 from maesolvers import (
-    P1,
-    P3,
-    P4,
+    T1,
+    T8,
+    T12,
     Box,
     Callback,
     Dirichlet,
@@ -77,14 +77,14 @@ class Halving(IterativeSolver[float, float]):
 
 def test_iterative_loop_stops_when_converged():
     recorder = Recorder()
-    result = Halving().solve(P4, callbacks=[recorder])
+    result = Halving().solve(T1, callbacks=[recorder])
     assert result.info["converged"] and result.info["iterations"] == 4
     assert result.info["history"] == (0.5, 0.25, 0.125, 0.0625)
     assert result.info["final"] == 0.0625 and result.info["unknowns"] == 1
     assert result.info["time"] >= 0.0
-    assert result.problem is P4
+    assert result.problem is T1
     assert recorder.events == [
-        ("start", "P4"),
+        ("start", "T1"),
         ("step", 1, {"size": 0.5}),
         ("step", 2, {"size": 0.25}),
         ("step", 3, {"size": 0.125}),
@@ -94,12 +94,12 @@ def test_iterative_loop_stops_when_converged():
 
 
 def test_iterative_loop_stops_at_max_iter_unconverged():
-    result = Halving(max_iter=2).solve(P4)
+    result = Halving(max_iter=2).solve(T1)
     assert not result.info["converged"] and result.info["iterations"] == 2
 
 
 def test_iterative_loop_stops_unconverged_when_a_step_stalls():
-    result = Halving(floor=0.2).solve(P4)
+    result = Halving(floor=0.2).solve(T1)
     assert not result.info["converged"]
     assert result.info["history"] == (0.5, 0.25)
 
@@ -136,7 +136,7 @@ def test_hparams_record_the_class_and_every_field():
 
 
 def test_result_carries_the_hparams():
-    assert Halving(tol=0.3).solve(P4).hparams["init_args"] == {
+    assert Halving(tol=0.3).solve(T1).hparams["init_args"] == {
         "max_iter": 100,
         "tol": 0.3,
         "floor": 0.0,
@@ -146,7 +146,7 @@ def test_result_carries_the_hparams():
 @pytest.mark.parametrize("solver", [FDNewton(n=16, tol=1e-8), FDPoisson(max_iter=7)])
 def test_hparams_rebuild_the_solver_and_serialise(solver):
     assert type(solver)(**solver.hparams["init_args"]) == solver
-    result = Halving().solve(P4)
+    result = Halving().solve(T1)
     json.dumps(solver.hparams), json.dumps(result.hparams), json.dumps(result.info)
 
 
@@ -188,9 +188,9 @@ def test_hparams_nest_containers_of_parts():
 
 
 def test_supports_checks_domain_boundary_and_dimension():
-    assert Halving().supports(P1) and Halving().supports(P4)
-    assert not Halving().supports(P3)
-    assert FDNewton().supports(P4) and not FDNewton().supports(P1)
+    assert Halving().supports(T8) and Halving().supports(T1)
+    assert not Halving().supports(T12)
+    assert FDNewton().supports(T1) and not FDNewton().supports(T8)
     cube = Problem("C", Box((0,) * 3, (1,) * 3), _zero, Dirichlet(_zero))
     assert Halving().supports(cube) and not FDPoisson().supports(cube)
 
@@ -219,15 +219,15 @@ def test_supports_may_ask_the_parts():
         def finalize(self, problem, context, state):
             return Solution(u=_zero)
 
-    assert Composite().solve(P1).info["converged"]
-    with pytest.raises(UnsupportedProblemError, match="P4, a 2D Box"):
-        Composite().solve(P4)
+    assert Composite().solve(T8).info["converged"]
+    with pytest.raises(UnsupportedProblemError, match="T1, a 2D Box"):
+        Composite().solve(T1)
 
 
 def test_unsupported_problem_is_rejected_before_any_hook():
     recorder = Recorder()
     with pytest.raises(UnsupportedProblemError, match="Transport"):
-        Halving().solve(P3, callbacks=[recorder])
+        Halving().solve(T12, callbacks=[recorder])
     assert recorder.events == []
 
 
@@ -244,7 +244,7 @@ def test_a_solver_must_declare_what_it_supports():
             return Solution(u=_zero)
 
     with pytest.raises(TypeError, match="declare"):
-        Undeclared().solve(P4)
+        Undeclared().solve(T1)
 
 
 def test_a_minimal_solver_plugs_in():
@@ -262,7 +262,7 @@ def test_a_minimal_solver_plugs_in():
         def finalize(self, problem, context, state):
             return Solution(u=problem.exact)
 
-    result = Exact().solve(P4)
+    result = Exact().solve(T1)
     assert result.info["converged"] and "unknowns" not in result.info
     assert result.hparams["init_args"] == {}
 
@@ -282,7 +282,7 @@ def test_a_solver_that_is_not_a_dataclass_fails_before_setup():
             raise AssertionError
 
     with pytest.raises(TypeError, match="dataclass"):
-        Plain().solve(P4)
+        Plain().solve(T1)
 
 
 def test_a_subclass_needs_its_own_dataclass_decorator():
@@ -325,7 +325,7 @@ def test_solution_info_may_not_override_run_fields():
             return Solution(u=_zero, info={"time": 0.0})
 
     with pytest.raises(ValueError, match="time"):
-        Clashing().solve(P4)
+        Clashing().solve(T1)
 
 
 @pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
@@ -361,7 +361,7 @@ def test_grid_solvers_store_plain_numbers(solver):
 @pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
 def test_grid_solvers_report_nodes_and_their_hessian(solver):
     recorder = Recorder()
-    result = solver(n=8).solve(P4, callbacks=[recorder])
+    result = solver(n=8).solve(T1, callbacks=[recorder])
     assert result.nodes.shape == (81, 2) and result.values.shape == (81,)
     assert result.node_hessian.shape == (81, 2, 2)
     assert np.sum(np.isfinite(result.node_hessian[:, 0, 0])) == 49
@@ -374,7 +374,7 @@ def test_grid_solvers_report_nodes_and_their_hessian(solver):
 
 
 def test_result_arrays_are_read_only():
-    result = FDNewton(n=8).solve(P4)
+    result = FDNewton(n=8).solve(T1)
     for array in (result.nodes, result.values, result.node_hessian):
         with pytest.raises(ValueError, match="read-only"):
             array[0] = 99.0

@@ -7,6 +7,24 @@ for grid methods, the nodes, values and discrete Hessian), and
 :func:`maesolvers.metrics.evaluate`, which measures any result the same way.
 """
 
+from maesolvers.catalogue import (
+    CATALOGUE,
+    SHARED_TEST_SET,
+    T1,
+    T2,
+    T3,
+    T4,
+    T5,
+    T6,
+    T7,
+    T8,
+    T9,
+    T10,
+    T12,
+    T16,
+    T20,
+    T22,
+)
 from maesolvers.classical import (
     FDNewton,
     FDPoisson,
@@ -19,6 +37,7 @@ from maesolvers.classical import (
 from maesolvers.core import (
     Box,
     Callback,
+    CutQuarterDisk,
     Dirichlet,
     Disk,
     Ellipse,
@@ -31,19 +50,29 @@ from maesolvers.core import (
     Transport,
     UnsupportedProblemError,
 )
-from maesolvers.problems import CATALOGUE, P1, P2, P3, P4, P5
 from maesolvers.registry import SOLVERS
 
 __all__ = [
     "CATALOGUE",
-    "P1",
-    "P2",
-    "P3",
-    "P4",
-    "P5",
+    "SHARED_TEST_SET",
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "T12",
+    "T16",
+    "T20",
+    "T22",
     "SOLVERS",
     "Box",
     "Callback",
+    "CutQuarterDisk",
     "Dirichlet",
     "Disk",
     "Ellipse",

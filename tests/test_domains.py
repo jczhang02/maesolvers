@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from maesolvers.core import Box, Disk, Domain, Ellipse
+from maesolvers.core import Box, CutQuarterDisk, Disk, Domain, Ellipse
 
 
 @pytest.mark.parametrize(
@@ -13,6 +13,7 @@ from maesolvers.core import Box, Disk, Domain, Ellipse
         Box((0,) * 3, (1,) * 3),
         Disk((0, 0), 1),
         Ellipse((0, 0), (2, 1)),
+        CutQuarterDisk(),
     ],
 )
 def test_every_domain_satisfies_the_protocol(domain):
@@ -87,6 +88,37 @@ def test_ellipse_membership_and_bbox():
     assert ellipse.contains(np.array([5.5, 0.0])) and not ellipse.interior(
         np.array([5.5, 0.0])
     )
+
+
+def test_cut_quarter_disk_bbox_touches_the_domain_on_every_side():
+    domain = CutQuarterDisk()
+    root7 = np.sqrt(7.0)
+    assert domain.dim == 2
+    assert domain.bbox == Box((0, 0), ((1 + root7) / 4, 1))
+    # (1/2, 0), where the cut meets the x axis, and (0, 1) lie on the
+    # boundary; the corner where the cut meets the circle, which fixes the
+    # right side of the bbox, does too up to rounding.
+    edge = np.array([[0.5, 0.0], [0.0, 1.0]])
+    assert np.all(domain.contains(edge)) and not np.any(domain.interior(edge))
+    corner = np.array([(1 + root7) / 4, (root7 - 1) / 4])
+    assert domain.interior(corner - [1e-9, 0.0])
+    assert not domain.contains(corner + [1e-9, 0.0])
+
+
+@pytest.mark.parametrize(
+    ("point", "inside"),
+    [
+        ((0.3, 0.3), True),
+        ((0.8, 0.2), False),  # below the cut y = x - 1/2
+        ((0.7, 0.75), False),  # outside the unit circle
+        ((-0.1, 0.5), False),
+        ((0.3, -0.1), False),
+    ],
+)
+def test_cut_quarter_disk_membership(point, inside):
+    domain = CutQuarterDisk()
+    assert domain.contains(np.array(point)) == inside
+    assert domain.interior(np.array(point)) == inside
 
 
 @pytest.mark.parametrize(

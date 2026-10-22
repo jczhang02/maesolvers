@@ -40,7 +40,8 @@ class Problem:
     observables
         Named numbers computed from a solution, reported by
         :func:`maesolvers.metrics.evaluate`; mainly for problems without an
-        exact solution.
+        exact solution. Each name is an ASCII identifier, such as
+        ``u_origin``, so that it is also a valid metric name for MLflow.
     note
         What the problem tests, in one or two sentences.
     """
@@ -79,6 +80,11 @@ class Problem:
         if self.exact is not None and not callable(self.exact):
             raise TypeError("Problem.exact must be callable or None")
         for key, observable in self.observables.items():
+            if not (isinstance(key, str) and key.isascii() and key.isidentifier()):
+                raise ValueError(
+                    f"observable name {key!r} must be an ASCII identifier, "
+                    "such as 'u_origin'"
+                )
             if not callable(observable):
                 raise TypeError(f"observable {key!r} must be callable")
         object.__setattr__(

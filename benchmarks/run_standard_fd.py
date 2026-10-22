@@ -1,6 +1,6 @@
 """Regenerate fd_poisson_sequence.csv and fd_newton_sequence.csv.
 
-Runs FDPoisson and FDNewton on P4 and P5 over the grid sizes of
+Runs FDPoisson and FDNewton on T1 and T2 over the grid sizes of
 Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, and writes the CSVs
 next to this file; standard_fd.md and plot_standard_fd.py read them.
 FDNewton also runs with h = 1/(N - 1), the convention ADR 0001 rejects.
@@ -17,17 +17,17 @@ import csv
 from collections.abc import Iterator
 from pathlib import Path
 
-from maesolvers import P4, P5, FDNewton, FDPoisson, Problem, Result, Solver, tracking
+from maesolvers import T1, T2, FDNewton, FDPoisson, Problem, Result, Solver, tracking
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
 SEQUENCE = (31, 45, 63, 89, 127, 181, 255, 361)
-POISSON_P4_UP_TO = 127
-"""The Poisson receipt for P4 stops here, as it did when it was first recorded."""
+POISSON_T1_UP_TO = 127
+"""The Poisson receipt for T1 stops here, as it did when it was first recorded."""
 
 PUBLISHED = {
-    "P4": (7.14e-5, 3.39e-5, 1.73e-5, 0.87e-5, 0.43e-5, 0.21e-5, 0.11e-5, 0.05e-5),
-    "P5": (17.15e-3, 14.59e-3, 12.53e-3, 10.67e-3, 9.00e-3, 7.59e-3, 6.42e-3, 5.41e-3),
+    "T1": (7.14e-5, 3.39e-5, 1.73e-5, 0.87e-5, 0.43e-5, 0.21e-5, 0.11e-5, 0.05e-5),
+    "T2": (17.15e-3, 14.59e-3, 12.53e-3, 10.67e-3, 9.00e-3, 7.59e-3, 6.42e-3, 5.41e-3),
 }
 """Froese-Oberman 2011, Table 3, column "Standard", in the order of SEQUENCE."""
 
@@ -49,9 +49,9 @@ def solve(
 
 def poisson_rows(log: bool) -> Iterator[dict[str, object]]:
     """The rows of fd_poisson_sequence.csv."""
-    for problem in (P5, P4):
+    for problem in (T2, T1):
         for n in SEQUENCE:
-            if problem is P4 and n > POISSON_P4_UP_TO:
+            if problem is T1 and n > POISSON_T1_UP_TO:
                 continue
             result, m = solve(FDPoisson(n=n), problem, f"N={n}", log)
             print(f"FDPoisson {problem.name} N={n}: max {m['max']:.4g}", flush=True)
@@ -71,7 +71,7 @@ def poisson_rows(log: bool) -> Iterator[dict[str, object]]:
 
 def newton_rows(log: bool) -> Iterator[dict[str, object]]:
     """The rows of fd_newton_sequence.csv, both grid conventions."""
-    for problem in (P4, P5):
+    for problem in (T1, T2):
         for n in SEQUENCE:
             for convention, cells in (("1/N", n), ("1/(N-1)", n - 1)):
                 name = f"N={n} h={convention}"

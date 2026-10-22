@@ -5,10 +5,10 @@ Open one run per configuration with :func:`run` and pass an
 every step's metrics and the final :func:`~maesolvers.metrics.evaluate`
 into that run::
 
-    from maesolvers import P4, FDPoisson, tracking
+    from maesolvers import T1, FDPoisson, tracking
 
-    with tracking.run("maesolvers-fdpoisson-P4"):
-        FDPoisson(n=64).solve(P4, callbacks=[tracking.MLflowLogger()])
+    with tracking.run("maesolvers-fdpoisson-T1"):
+        FDPoisson(n=64).solve(T1, callbacks=[tracking.MLflowLogger()])
 
 Both tag the run with the commit and branch of the git checkout that holds
 the current working directory, and ``git.dirty``, so a result from

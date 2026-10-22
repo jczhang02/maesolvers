@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from maesolvers import P4, P5, FDNewton, Newton, Standard9, tracking
+from maesolvers import T1, T2, FDNewton, Newton, Standard9, tracking
 
 _ISOLATED = (
     *("-c", "user.name=t", "-c", "user.email=t@t"),
@@ -112,7 +112,7 @@ class FakeMLflow(types.ModuleType):
 def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
     fake = FakeMLflow().install(monkeypatch)
     logger = tracking.MLflowLogger()
-    result = FDNewton(n=8).solve(P4, callbacks=[logger])
+    result = FDNewton(n=8).solve(T1, callbacks=[logger])
     tags, params, batch, final = fake.calls
     assert tags == ("tags", ["git.branch", "git.dirty", "mlflow.source.git.commit"])
     assert params == (
@@ -123,7 +123,7 @@ def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
             "tol": 1e-10,
             "n": 8,
             "spline_degree": 3,
-            "problem": "P4",
+            "problem": "T1",
         },
     )
     history = result.info["history"]
@@ -143,12 +143,12 @@ def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
 def test_logger_sends_nothing_between_start_and_end(monkeypatch):
     fake = FakeMLflow().install(monkeypatch)
     solver, logger = FDNewton(n=8), tracking.MLflowLogger()
-    logger.on_solve_start(solver, P4)
+    logger.on_solve_start(solver, T1)
     logged = list(fake.calls)
     for step in (1, 2, 3):
         logger.on_step_end(solver, step, {"residual": 1.0 / step})
     assert fake.calls == logged
-    logger.on_solve_end(solver, solver.solve(P4))
+    logger.on_solve_end(solver, solver.solve(T1))
     batches = [call for call in fake.calls if call[0] == "batch"]
     assert batches == [
         (
@@ -162,17 +162,17 @@ def test_logger_sends_nothing_between_start_and_end(monkeypatch):
 def test_logger_needs_an_active_run(monkeypatch):
     FakeMLflow(active=False).install(monkeypatch)
     with pytest.raises(RuntimeError, match="tracking.run"):
-        FDNewton(n=8).solve(P4, callbacks=[tracking.MLflowLogger()])
+        FDNewton(n=8).solve(T1, callbacks=[tracking.MLflowLogger()])
 
 
 def test_run_sets_the_experiment_tags_and_params(monkeypatch):
     fake = FakeMLflow().install(monkeypatch)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:/nowhere")
-    with tracking.run("maesolvers-x-P4", params={"seed": 0}, run_name="r") as active:
+    with tracking.run("maesolvers-x-T1", params={"seed": 0}, run_name="r") as active:
         assert active == "run"
     assert fake.calls == [
         ("uri", "file:/nowhere"),
-        ("experiment", "maesolvers-x-P4"),
+        ("experiment", "maesolvers-x-T1"),
         ("start", {"run_name": "r"}),
         ("tags", ["git.branch", "git.dirty", "mlflow.source.git.commit"]),
         ("params", {"seed": 0}),
@@ -183,10 +183,10 @@ def test_run_sets_the_experiment_tags_and_params(monkeypatch):
 def test_logger_against_a_real_mlflow_store(tmp_path, monkeypatch):
     mlflow = pytest.importorskip("mlflow")
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/mlflow.db")
-    with tracking.run("maesolvers-fdnewton-P5") as active:
-        FDNewton(n=8).solve(P5, callbacks=[tracking.MLflowLogger()])
+    with tracking.run("maesolvers-fdnewton-T2") as active:
+        FDNewton(n=8).solve(T2, callbacks=[tracking.MLflowLogger()])
     data = mlflow.get_run(active.info.run_id).data
-    assert data.params["n"] == "8" and data.params["problem"] == "P5"
+    assert data.params["n"] == "8" and data.params["problem"] == "T2"
     assert data.metrics["converged"] == 1.0 and "max" in data.metrics
     assert "git.dirty" in data.tags
     history = mlflow.MlflowClient().get_metric_history(active.info.run_id, "residual")
