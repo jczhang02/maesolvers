@@ -300,9 +300,10 @@ def summarize(
     also gives ``inf``.
 
     A run that stops unconverged (``info["converged"]`` False) with a finite
-    error is a normal seed: it fails only if its error is not below
-    ``threshold``. Whether ADR 0007's "divergence" should also count such a
-    run as failed is open until the neural solvers (issues #12, #14).
+    error is a normal seed, never counted in ``failed``: it enters the
+    quantiles at its error, and ``threshold`` decides whether it counts in
+    ``success_rate``. Whether ADR 0007's "divergence" should also count such
+    a run as failed is open until the neural solvers (issues #12, #14).
 
     Parameters
     ----------
