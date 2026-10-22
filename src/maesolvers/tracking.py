@@ -138,7 +138,7 @@ def flatten(config: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def _active_run_id() -> str:
+def _require_active_run() -> str:
     """Return the id of the active MLflow run, or raise RuntimeError without one."""
     import mlflow
 
@@ -184,7 +184,7 @@ class MLflowLogger(Callback):
         """Tag the run and log the hyperparameters and the problem."""
         import mlflow
 
-        _active_run_id()
+        _require_active_run()
         self._steps = []
         mlflow.set_tags(git_tags())
         mlflow.log_params({**flatten(solver.hparams), "problem": problem.name})
@@ -203,9 +203,11 @@ class MLflowLogger(Callback):
         import mlflow
         from mlflow.entities import Metric
 
+        # Every call names the run: the fluent API would open a new run without one.
+        run_id = _require_active_run()
         if self._steps:
             mlflow.MlflowClient().log_batch(
-                _active_run_id(), metrics=[Metric(*step) for step in self._steps]
+                run_id, metrics=[Metric(*step) for step in self._steps]
             )
             self._steps = []
         self.evaluation = evaluate(result)
@@ -215,4 +217,4 @@ class MLflowLogger(Callback):
             if isinstance(value, numbers.Real) and not isinstance(value, bool)
         }
         metrics["converged"] = float(bool(result.info.get("converged", False)))
-        mlflow.log_metrics(metrics)
+        mlflow.log_metrics(metrics, run_id=run_id)
