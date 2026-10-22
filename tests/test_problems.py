@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from maesolvers import CATALOGUE
+from maesolvers import CATALOGUE, Dirichlet
 
 
 def _interior_points(problem, rng, count=200, margin=0.05):
@@ -42,16 +42,16 @@ def test_exact_solution_satisfies_equation(name):
 @pytest.mark.parametrize("name", sorted(CATALOGUE))
 def test_dirichlet_data_is_the_trace(name):
     problem = CATALOGUE[name]
-    if problem.boundary != "dirichlet":
+    if not isinstance(problem.boundary, Dirichlet):
         pytest.skip("transport problem")
     b = problem.domain.boundary_points(64)
-    assert np.allclose(problem.g(b), problem.exact(b))
+    assert np.allclose(problem.boundary.g(b), problem.exact(b))
 
 
 def test_p3_gradient_maps_disk_onto_ellipse():
     problem = CATALOGUE["P3"]
     b = problem.domain.boundary_points(360)
     grad = np.stack([2 * b[:, 0] + 3.5, 0.5 * b[:, 1]], axis=-1)
-    c, (a1, a2) = problem.target.center, problem.target.semi_axes
+    c, (a1, a2) = problem.boundary.target.center, problem.boundary.target.semi_axes
     on_boundary = ((grad[:, 0] - c[0]) / a1) ** 2 + ((grad[:, 1] - c[1]) / a2) ** 2
     assert np.allclose(on_boundary, 1.0)
