@@ -162,7 +162,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
         On construction, or at the latest in :meth:`solve`, if the class
         itself is not decorated as a frozen dataclass (an inherited
         decoration does not count: its new fields would miss from
-        :attr:`hparams`).
+        :attr:`hparams`), or if one of its fields can be passed by position.
     """
 
     domains: ClassVar[tuple[type, ...]]
@@ -177,9 +177,17 @@ class Solver(ABC, Generic[ContextT, StateT]):
     def _check_definition(cls) -> None:
         """Raise TypeError if the class misses a declaration its base needs."""
         params = cls.__dict__.get("__dataclass_params__")
-        if params is None or not params.frozen:
+        if params is None or not params.frozen or not is_dataclass(cls):
             raise TypeError(
-                f"{cls.__name__} must be decorated with @dataclass(frozen=True)"
+                f"{cls.__name__} must be decorated with "
+                "@dataclass(frozen=True, kw_only=True)"
+            )
+        positional = [f.name for f in fields(cls) if f.init and not f.kw_only]
+        if positional:
+            raise TypeError(
+                f"{cls.__name__} takes keyword arguments only, but "
+                f"{', '.join(positional)} can be passed by position; "
+                "decorate it with @dataclass(frozen=True, kw_only=True)"
             )
 
     def supports(self, problem: Problem) -> bool:

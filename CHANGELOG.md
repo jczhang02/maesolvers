@@ -15,7 +15,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Result.interior` and `Solution.interior`: an optional boolean mask of the method's interior nodes, where `evaluate` reads `node_hessian`; without it `evaluate` falls back to `problem.domain.interior(nodes)`, which may count nodes on a curved boundary as interior.
   `FDNewton` and `FDPoisson` set it.
 - `Solver` base class with the fixed lifecycle `check -> setup -> run -> finalize`, the class variables `domains`, `boundaries` and `dims`, the instance method `supports(problem)` (a composed solver may override it) and the `hparams` property; `Solution` and `Trace` are what its hooks return, both exported at the top level (ADR 0003).
-  A subclass must carry its own `@dataclass(frozen=True)` decorator, else construction or `solve` raises `TypeError`.
+  A subclass must carry its own `@dataclass(frozen=True, kw_only=True)` decorator, else construction or `solve` raises `TypeError`; a field that can be passed by position raises it too, so every solver takes keyword arguments only.
 - `IterativeSolver` with the hooks `initial_guess(problem, context)`, `step(problem, context, iterate)` and `converged(problem, context, measure)`, the required class variable `measure`, and the shared loop over `max_iter`.
 - `Callback` with the hooks `on_solve_start`, `on_step_end` and `on_solve_end`, passed as `solve(problem, callbacks=[...])`.
 - `UnsupportedProblemError`, raised by `solve` for a problem outside the solver's declared support.

@@ -326,6 +326,23 @@ def test_a_solver_must_be_frozen():
         Mutable()
 
 
+def test_a_solver_takes_keyword_arguments_only():
+    """A positional field would break the keyword-only constructor (ADR 0005)."""
+
+    @dataclass(frozen=True)
+    class Positional(Halving):
+        damping: float = 0.5
+
+    with pytest.raises(TypeError, match=r"damping.*kw_only=True"):
+        Positional()
+
+    @dataclass(frozen=True)
+    class Fieldless(Halving):
+        pass
+
+    assert Fieldless(tol=0.5).tol == 0.5
+
+
 def test_solution_info_may_not_override_run_fields():
     @dataclass(frozen=True, kw_only=True)
     class Clashing(Halving):

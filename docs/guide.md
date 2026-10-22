@@ -253,7 +253,7 @@ class MyPoisson(IterativeSolver):
 What each part does:
 
 - `@dataclass(frozen=True, kw_only=True)` on the class itself: the fields are the hyperparameters that `Result.hparams` records, and a solver is immutable, so a solve keeps its working data in the context, never on the solver.
-  An inherited decorator does not count; without its own, construction raises `TypeError`.
+  An inherited decorator does not count; without its own, or with a field that can be passed by position, construction raises `TypeError`.
 - `domains`, `boundaries` and `dims` declare the supported problems; `solve` raises `UnsupportedProblemError` for any other.
 - `measure` names what `step` returns; callbacks receive it as `{"update": ...}` and `Result.info["history"]` holds it for every step.
 - `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction.
