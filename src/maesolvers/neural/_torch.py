@@ -258,7 +258,7 @@ class DenseBFGS(torch.optim.Optimizer):
         def at(point: np.ndarray) -> tuple[float, np.ndarray]:
             key = point.tobytes()
             if key not in cache:
-                vector_to_parameters(torch.as_tensor(point).to(start), params)
+                vector_to_parameters(torch.tensor(point).to(start), params)
                 value = float(evaluate())
                 cache[key] = (value, self._flat_grad(params).cpu().numpy())
             return cache[key]
@@ -277,7 +277,7 @@ class DenseBFGS(torch.optim.Optimizer):
             )[0]
         except _LineSearchError:
             t = 0.0
-        vector_to_parameters(torch.as_tensor(x + t * d).to(start), params)
+        vector_to_parameters(torch.tensor(x + t * d).to(start), params)
         return loss
 
 

@@ -339,3 +339,22 @@ def test_a_bad_value_raises_what_the_constructor_raises(init_args, error, messag
 def test_a_missing_file_is_a_file_not_found_error(tmp_path):
     with pytest.raises(FileNotFoundError, match=re.escape("nothing.yaml")):
         from_config(tmp_path / "nothing.yaml")
+
+
+def test_a_composed_icnn_with_a_part_without_fields_round_trips():
+    from maesolvers import BFGS, ICNN, PenaltyLoss, UniformSampler
+
+    composed = NeuralSolver(
+        network=ICNN(),
+        loss=PenaltyLoss(
+            convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
+        ),
+        sampler=UniformSampler(),
+        optimizer=BFGS(),
+        max_steps=3,
+    )
+    assert composed.hparams["init_args"]["optimizer"] == {
+        "class_path": "maesolvers.BFGS",
+        "init_args": {},
+    }
+    assert from_config(composed.hparams) == composed

@@ -90,7 +90,7 @@ A test checks that `BFGS` reproduces SciPy's iterates on the Rosenbrock function
 ## Finding 2: no seed meets the paper's stopping test
 
 The paper's T1 run stopped after 2287 iterations on SciPy's test, a gradient of norm at most 1e-5.
-None of our seeds meets even the looser test of the preset (largest gradient component at most 1e-5) within 10000 steps, on T1 or on T6; every T1 seed was still lowering its loss at step 10000 (MLflow: the loss at step 2287 is 3.3e-6 to 7.6e-5, at step 10000 9.1e-8 to 4.2e-6).
+None of our seeds meets the test of the preset, the one SciPy applies by default (largest gradient component at most 1e-5), within 10000 steps, on T1 or on T6; every T1 seed was still lowering its loss at step 10000 (MLflow: the loss at step 2287 is 3.3e-6 to 7.6e-5, at step 10000 9.1e-8 to 4.2e-6).
 The equation term of eq. (3.3) is a sum over the 3400 points, not a mean, so its gradient is large next to its value; a mean would divide that gradient by 3400, and whether the paper's code used one is not known.
 We keep the sum, as the paper prints it; with it, the paper's 2287 iterations are not reproduced, and the budget, not the test, ends our runs.
 
