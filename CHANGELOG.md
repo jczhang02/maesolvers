@@ -19,6 +19,11 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `UnsupportedProblemError`, raised by `solve` for a problem outside the solver's declared support.
 - `maesolvers.metrics.summarize(results, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate of an `evaluate` field over seeds, a seed without a result (`None`) or with a NaN or infinite error counted as `+inf` (ADR 0007).
 - `maesolvers.metrics.shared_grid(domain, size=None)` takes a domain and picks 201, 51 or 21 points per axis by dimension.
+- `maesolvers.classical`: solvers composed of a scheme and an iteration (ADR 0004).
+  The scheme `Standard9(n, spline_degree)` discretises a problem (`discretize`) and evaluates the discrete equations on its `Grid` (`rhs`, `second_derivatives`, `residual`, `jacobian`, `solve_laplace`, `solution`); the difference operators are the pure functions `difference_operators`, `monge_ampere` and `monge_ampere_jacobian` in `maesolvers.classical.schemes`.
+  The iterations `Newton(scheme, max_iter=50, tol=1e-10)` and `PoissonIteration(scheme, max_iter=10_000, tol=1e-12)` take any scheme that provides the methods of the protocols `NewtonScheme` and `PoissonScheme`, checked in `check` with a `TypeError` that names what is missing; the scheme decides `supports`.
+  `Newton`, `PoissonIteration` and `Standard9` are exported at the top level.
+- `maesolvers.SOLVERS` (`maesolvers.registry`): the presets by name, read-only.
 
 ### Changed
 
@@ -31,6 +36,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   Convexity is taken at the interior nodes (`Result.interior`, else the nodes inside the domain) with the node Hessian, or on the shared grid with the callable Hessian, and a non-finite Hessian at any of these points gives NaN `nonconvex_fraction` and `eigmin`.
 - `FDNewton` and `FDPoisson` take keyword arguments only, validate them on construction (`TypeError` for a float `n` or a string `tol`, numpy scalars stored as plain numbers), and raise `UnsupportedProblemError` instead of `TypeError` or `ValueError` for an unsupported problem.
 - `FDNewton` reports a start that already meets `tol` as converged after one step instead of stalling.
+- `FDNewton` and `FDPoisson` are presets: `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))` and `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, with the same defaults, call style and numbers as before; their `hparams` stay flat and their `class_path` is now `maesolvers.classical.presets.FDNewton` (`.FDPoisson`).
 - `Result.info` holds `time`, `iterations`, `converged`, `history`, `unknowns`, `h` and `residual_max` for both finite-difference solvers.
 
 ### Removed
@@ -38,4 +44,5 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `evaluate` no longer reports `rel_l2_nodes`, `rel_l2_grid`, `residual_rms`, `residual_max` and `eigmin_min`; `max_nodes` is now `max`.
 - `maesolvers.metrics.solution_errors`, `residual` and `convexity`; `evaluate` is the one entry point.
 - `boundary_points(n)` of `Box`, `Disk` and `Ellipse`: nothing in the library used it, and its `n` meant points per side for a box but points in total for a disk.
+- The module `maesolvers.solvers` and its submodules `fd_newton`, `fd_poisson` and `_grid`; import the solvers from `maesolvers` or `maesolvers.classical`.
 - The bare `Solver` protocol of `maesolvers.solvers.base`, and `Result.info["solver"]`, `["residual_history"]`, `["update_history"]` and `["stalled"]`.

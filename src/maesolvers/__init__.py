@@ -7,6 +7,13 @@ for grid methods, the nodes, values and discrete Hessian), and
 :func:`maesolvers.metrics.evaluate`, which measures any result the same way.
 """
 
+from maesolvers.classical import (
+    FDNewton,
+    FDPoisson,
+    Newton,
+    PoissonIteration,
+    Standard9,
+)
 from maesolvers.core import (
     Box,
     Callback,
@@ -23,7 +30,7 @@ from maesolvers.core import (
     UnsupportedProblemError,
 )
 from maesolvers.problems import CATALOGUE, P1, P2, P3, P4, P5
-from maesolvers.solvers import FDNewton, FDPoisson
+from maesolvers.registry import SOLVERS
 
 __all__ = [
     "CATALOGUE",
@@ -32,6 +39,7 @@ __all__ = [
     "P3",
     "P4",
     "P5",
+    "SOLVERS",
     "Box",
     "Callback",
     "Dirichlet",
@@ -40,10 +48,13 @@ __all__ = [
     "FDNewton",
     "FDPoisson",
     "IterativeSolver",
+    "Newton",
+    "PoissonIteration",
     "Problem",
     "Result",
     "Solution",
     "Solver",
+    "Standard9",
     "Trace",
     "Transport",
     "UnsupportedProblemError",

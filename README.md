@@ -104,6 +104,10 @@ The catalogue is provisional: the research repository has not fixed its test pro
 | `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
 
+Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
+An iteration takes any scheme that provides the methods it calls (the protocols `NewtonScheme` and `PoissonScheme` in `maesolvers.classical`), so a new scheme runs under both iterations without a new solver class.
+`maesolvers.SOLVERS` lists the presets by name.
+
 ## Reproduction
 
 A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
