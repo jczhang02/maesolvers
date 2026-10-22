@@ -68,6 +68,9 @@ In a first version their weights were of order `1e15 / h^2`, and their discrete 
 A node closer than `1e-6` steps to the boundary now joins the boundary and takes the data at itself, which moves the problem by at most `1e-6 h |grad u|`; the smallest step fraction in this file is `5.5e-5` (T6, `n = 256`).
 A node outside the closed domain by rounding, such as `(0.6, 0.8)` on the unit circle at `n = 10`, came back as a crossing at a step fraction near 1 from each of its neighbours in the open domain: repeated boundary points, which Qhull drops as coplanar, leaving NaN in the Clough-Tocher gradients at their rows.
 A crossing closer than `1e-6` steps to an outside neighbour now makes that neighbour a boundary node, so it appears once.
+In this receipt the ellipse's top vertex `(0.5, 0.8)` is such a node at every `n`; it had appeared three times, so the ellipse rows lose 2 `boundary_points`.
+Their `rms_err_nodes` rises by up to 0.3 percent (`n = 16`), because the two copies with zero error left the mean; iterations are unchanged, and the other values (max errors, residuals, `eigmin`) change only at the level of rounding.
+Every other row of both CSVs is bit-identical apart from `time_s`; the ellipse rows of the trace differ only in `max_err_nodes`, by 7e-16.
 `test_a_node_on_the_circle_joins_the_boundary`, `test_a_node_outside_the_circle_by_rounding_joins_the_boundary_once` and `test_boundary_points_are_distinct_and_the_interpolant_has_gradients` pin this.
 
 ## Finding 2: equations scaled by their smallest step
