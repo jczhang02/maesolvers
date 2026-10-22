@@ -4,7 +4,7 @@ Problems: T1 (smooth, `u = exp(|x|^2 / 2)`), T2 (corner blow-up, `u = -sqrt(2 - 
 Published numbers: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Hybrid" (JCP below), checked against the page image; `sources.md` transcribes the whole table.
 
 Ours: `FDHybrid(n=N)`, the preset `Newton(scheme=Hybrid(n=N), start=Monotone17(n=N), max_iter=200)` (ADR 0004): the 17-point monotone stencil, `boundary="narrow"` unless a column says otherwise, the paper's switching rule with `epsilon = h` and `band = 1` (`docs/methods/hybrid.md`), residual tolerance `1e-10` relative to `max(1, max f)`, float64, scipy sparse LU.
-Every run converged.
+Every run of `hybrid.csv` converged.
 Error: max over all grid nodes of `|u_h - u|`, `h = 1/N` (ADR 0001) unless a column says otherwise.
 T21 is not in the catalogue; `run_hybrid.py` builds it per grid with `cone(n)` of `run_monotone17.py` (`f = 4/h^2` at the nodes within `h/2` of `x0`), with `n = N - 1` so that `x0` is a node.
 Raw data: `hybrid.csv`, written on a100server by `run_hybrid.py` at commit 9f6df9d (`just remote-bg hybrid env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python benchmarks/run_hybrid.py --processes 8`), and `hybrid_checks.csv` by `run_hybrid.py --checks --processes 12` at commit ad53e5b (session `maesolvers-hybrid-checks3`); the commits between change only the checks.

@@ -46,6 +46,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Changed
 
+- `Newton` has the new field `start` (see Added), so the configuration and `hparams` of a bare `Newton` carry `"start": None`, and `tracking.flatten` logs it; the presets' `hparams` are unchanged.
 - `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
