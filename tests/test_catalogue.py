@@ -10,9 +10,9 @@ Four independent checks:
   smooth; and the Dirichlet data against ``u`` on the boundary;
 - values worked out by hand at special points of the catalogue-only problems;
 - the gradient of ``u`` maps the domain onto a set whose area is the integral
-  of ``f``: onto the target for the transport problems, and for the Dirichlet
-  problems with a kink or a singular point, so that a singular part of the
-  Monge-Ampere measure that ``f`` omits fails.
+  of ``f``: onto the target for the transport problems, and for T1 and the
+  Dirichlet problems with a kink or a singular point, so that a singular part
+  of the Monge-Ampere measure that ``f`` omits fails.
 
 The last section runs every included solver on every catalogue problem.
 """
