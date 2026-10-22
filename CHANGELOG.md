@@ -33,6 +33,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   The iterations are `Newton(scheme, max_iter=50, tol=1e-10)` and `PoissonIteration(scheme, max_iter=10_000, tol=1e-12)`.
   `Newton`, `PoissonIteration`, `Scheme`, `SchemeIteration` and `Standard9` are exported at the top level.
 - `maesolvers.SOLVERS` (`maesolvers.registry`): the presets by name, read-only.
+- `maesolvers.core.integer(name, value, minimum)` and `maesolvers.core.positive(name, value)`: the parameter checks the shipped solvers use, for the `__post_init__` of a solver of your own; they return a plain `int` or `float` and raise `TypeError` or `ValueError` with a message that names the parameter.
 - `maesolvers.tracking.MLflowLogger`, a callback that logs a solve into the active MLflow run: git tags, the flattened `hparams` and the problem name as parameters at the start; every step's metrics at its step, the numeric fields of `evaluate` and `converged` at the end, after the timed part of the solve; `MLflowLogger.evaluation` keeps that `evaluate`.
   It raises `RuntimeError` when no run is active at the start or at the end of the solve.
   `tracking.flatten(config)` gives the dotted parameter names (`scheme.n`), and `tracking.git_tags()` the git state.
