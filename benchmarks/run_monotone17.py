@@ -7,7 +7,7 @@ boundary treatments, and on the cone T21, which the catalogue lacks and this
 script builds for each grid. Then it runs Newton from the papers' start for
 1 to 8 steps on the coarse grids (monotone17.md, Finding 2). Every solve is
 one MLflow run in maesolvers-monotone17-<problem> unless --no-mlflow is
-given. The solves run in --processes worker processes (default 16), so set
+given. The solves run in --processes worker processes (default 12), so set
 one thread each. Run it on a100server from the repository root::
 
     just remote-bg monotone17 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-from collections.abc import Iterator
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -238,10 +237,15 @@ def write(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    """Parse the command line, run every solve in parallel, write both CSVs."""
+    """Parse the command line, run the solves, write both CSVs.
+
+    The sequences run in parallel; the iterates, many short runs, run one
+    after another, since a burst of short runs from many processes made the
+    shared MLflow server's SQLite store fail an insert.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
-    parser.add_argument("--processes", type=int, default=16, help="worker processes")
+    parser.add_argument("--processes", type=int, default=12, help="worker processes")
     args = parser.parse_args()
     log = not args.no_mlflow
     main_tasks = [
@@ -256,9 +260,8 @@ def main() -> None:
     # The slowest tasks first, so the pool stays busy to the end.
     main_tasks.sort(key=lambda task: -task[1])
     with Pool(args.processes) as pool:
-        main_rows: Iterator[list[dict[str, Any]]] = pool.imap(sequence, main_tasks)
-        iterate_rows = pool.map(iterates, iterate_tasks)
-        rows = [row for chunk in main_rows for row in chunk]
+        rows = [row for chunk in pool.imap(sequence, main_tasks) for row in chunk]
+    iterate_rows = [iterates(task) for task in iterate_tasks]
     # Write only after every solve, so no run sees a dirty checkout.
     order = {name: i for i, name in enumerate(("T1", "T2", "T20", "T21"))}
     rows.sort(
