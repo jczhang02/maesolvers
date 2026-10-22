@@ -84,8 +84,8 @@ maesolvers solve --solver.help Newton  # the parameters of a solver
 
 A `class_path` is the name of a class maesolvers ships or the dotted import path of any class, a solver of your own included, and a misspelt key is an error.
 An argument after `--config` overrides the file.
-`maesolvers solve` prints `evaluate` as a table, and `--output` writes the metrics, `Result.info` and the config that reruns the result.
-That config is `{"solver": result.hparams, "problem": result.problem.name}`, so any result reruns through `from_config`.
+`maesolvers solve` prints `evaluate` as a table, and `--output` writes the metrics, `Result.info` and, under `run`, the config that reruns the result through `from_config`.
+That config is `{"solver": result.hparams, "problem": result.problem.name}`, so any result reruns; on the command line, `--print_config` writes a file that `--config` reads back.
 
 A new method subclasses `Solver` (or `IterativeSolver`) and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
 The subclass carries its own `@dataclass(frozen=True, kw_only=True)` decorator (an inherited one does not count, and construction fails without it), declares `domains` and `boundaries` (and `measure` for an `IterativeSolver`), and every hook after `setup` takes the problem and the context first.

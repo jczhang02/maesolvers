@@ -53,8 +53,8 @@ def test_solve_writes_the_rerun_config_metrics_and_info(tmp_path):
         tmp_path, "--solver", "FDNewton", "--solver.n", "8", "--problem", "T1"
     )
     result = FDNewton(n=8).solve(T1)
-    assert record["config"] == {"solver": result.hparams, "problem": "T1"}
-    assert from_config(record["config"]) == (FDNewton(n=8), T1)
+    assert record["run"] == {"solver": result.hparams, "problem": "T1"}
+    assert from_config(record["run"]) == (FDNewton(n=8), T1)
     assert record["metrics"].keys() == evaluate(result).keys()
     assert record["metrics"]["max"] == pytest.approx(evaluate(result)["max"])
     assert record["info"]["converged"] is True
@@ -85,7 +85,7 @@ def test_keywords_dict_yaml_and_command_line_build_the_same_solver(tmp_path):
         "--problem",
         "T1",
     ]
-    from_cli, _ = from_config(_solve(tmp_path, *args)["config"])
+    from_cli, _ = from_config(_solve(tmp_path, *args)["run"])
     assert from_config(as_dict)[0] == expected
     assert from_yaml == Newton(scheme=Standard9(n=8))
     assert from_cli == expected
@@ -95,14 +95,14 @@ def test_an_override_after_the_config_file_wins(tmp_path):
     path = tmp_path / "run.yaml"
     path.write_text(COMPOSED_YAML)
     record = _solve(tmp_path, "--config", str(path), "--solver.scheme.n", "8")
-    assert from_config(record["config"]) == (Newton(scheme=Standard9(n=8)), T1)
+    assert from_config(record["run"]) == (Newton(scheme=Standard9(n=8)), T1)
 
 
 def test_the_problem_is_set_on_the_command_line(tmp_path):
     path = tmp_path / "run.yaml"
     path.write_text(COMPOSED_YAML)
     record = _solve(tmp_path, "--config", str(path), "--problem", "T20")
-    assert record["config"]["problem"] == "T20"
+    assert record["run"]["problem"] == "T20"
 
 
 @pytest.mark.parametrize(
@@ -130,6 +130,26 @@ def test_a_bad_argument_exits_with_status_2_and_names_it(capsys, args, message):
         main(["solve", *args])
     assert exit_info.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_the_output_record_is_not_a_config_file(tmp_path, capsys):
+    record = tmp_path / "out.json"
+    _solve(tmp_path, "--solver", "FDNewton", "--solver.n", "8", "--problem", "T1")
+    with pytest.raises(SystemExit) as exit_info:
+        main(["solve", "--config", str(record)])
+    assert exit_info.value.code == 2
+    assert "run.solver" in capsys.readouterr().err
+
+
+def test_a_printed_config_reruns(tmp_path, capsys):
+    path = tmp_path / "run.yaml"
+    path.write_text(COMPOSED_YAML)
+    with pytest.raises(SystemExit):
+        main(["solve", "--config", str(path), "--solver.tol", "1e-9", "--print_config"])
+    printed = tmp_path / "printed.yaml"
+    printed.write_text(capsys.readouterr().out)
+    record = _solve(tmp_path, "--config", str(printed))
+    assert from_config(record["run"])[0] == Newton(scheme=Standard9(n=16), tol=1e-9)
 
 
 def test_python_dash_m_runs_the_command():

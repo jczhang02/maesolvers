@@ -8,12 +8,12 @@ and prints :func:`maesolvers.metrics.evaluate` as a table::
     maesolvers solve --solver FDNewton --solver.n 64 --problem T1 --output t1.json
 
 Arguments apply in order, so an override after ``--config`` changes the
-file's value. ``--output`` writes the run as JSON: ``config``, the
-configuration that reruns it (``{"solver": Result.hparams, "problem": id}``),
-``metrics``, the fields of ``evaluate``, and ``info``, ``Result.info``.
-``maesolvers solve --help`` lists the options, ``--solver.help FDNewton`` a
-solver's parameters, and ``--print_config`` prints the full configuration
-without solving.
+file's value. ``--output`` writes the run as JSON: ``run``, the
+configuration that reruns it (``{"solver": Result.hparams, "problem": id}``,
+for :func:`maesolvers.from_config`), ``metrics``, the fields of ``evaluate``,
+and ``info``, ``Result.info``. ``maesolvers solve --help`` lists the options,
+``--solver.help FDNewton`` a solver's parameters, and ``--print_config``
+prints the full configuration without solving, as a file ``--config`` reads.
 
 Needs the ``cli`` extra (jsonargparse); ``python -m maesolvers`` runs the same
 command.
@@ -51,7 +51,7 @@ def _parser() -> ArgumentParser:
     solve.add_argument(
         "--output",
         type=str | None,
-        help="Write the config, the metrics and Result.info as JSON to this path.",
+        help="Write the run config, the metrics and Result.info as JSON to this path.",
     )
     parser = jsonargparse.ArgumentParser(
         prog="maesolvers",
@@ -111,7 +111,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(_table(result, metrics))
     if run.output is not None:
         record = {
-            "config": {"solver": result.hparams, "problem": result.problem.name},
+            "run": {"solver": result.hparams, "problem": result.problem.name},
             "metrics": metrics,
             "info": result.info,
         }

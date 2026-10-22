@@ -38,7 +38,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.from_config(config)`: builds a solver and picks a catalogue problem from a mapping or a YAML or JSON file with the keys `solver` (a `class_path` with its `init_args`, nested parts in the same form) and `problem` (a T id), and returns `(solver, problem)` (ADR 0005).
   A `class_path` is a class name maesolvers ships or the dotted path of any `Solver` subclass; `{"solver": result.hparams, "problem": result.problem.name}` rebuilds the solver of a result.
   A missing or unknown key, a wrong type or an unknown problem raises `ValueError` naming the key, a value a constructor rejects raises what the constructor raises, and a missing file raises `FileNotFoundError`.
-- The `maesolvers` console script (also `python -m maesolvers`) with the subcommand `solve`: `--config FILE`, `--solver` and dotted overrides such as `--solver.scheme.n 128`, `--problem ID`, and `--output FILE`, which writes `config`, `metrics` and `info` as JSON; it prints `evaluate` as a table, and exits with status 2 for a wrong argument or an unsupported problem.
+- The `maesolvers` console script (also `python -m maesolvers`) with the subcommand `solve`: `--config FILE`, `--solver` and dotted overrides such as `--solver.scheme.n 128`, `--problem ID`, and `--output FILE`, which writes `run` (the config for `from_config`), `metrics` and `info` as JSON; it prints `evaluate` as a table, and exits with status 2 for a wrong argument or an unsupported problem.
 - The `cli` extra (jsonargparse >= 4.49), imported only by `from_config` and `maesolvers.cli`; `import maesolvers` imports no extra.
 
 ### Changed
