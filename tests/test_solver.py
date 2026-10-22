@@ -104,6 +104,39 @@ def test_iterative_loop_stops_unconverged_when_a_step_stalls():
     assert result.info["history"] == (0.5, 0.25)
 
 
+def test_run_from_steps_from_the_iterate_it_is_given():
+    trace = Halving().run_from(T1, 1.0, (), 0.4)
+    assert trace.history == (0.2, 0.1, 0.05) and trace.state == 0.05
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Reporting(Halving):
+    """Reports through Trace.info what only its run knows."""
+
+    entries: tuple[tuple[str, int], ...] = (("halvings", 4),)
+
+    def run(self, problem, context, callbacks):
+        trace = super().run(problem, context, callbacks)
+        return dataclasses.replace(trace, info=dict(self.entries))
+
+
+def test_trace_info_reaches_the_result_info():
+    assert _Reporting().solve(T1).info["halvings"] == 4
+    assert Halving().run(T1, 1.0, ()).info == {}
+
+
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        ("iterations", r"Trace\.info must not set \['iterations'\]"),
+        ("final", r"Trace\.info and Solution\.info both set \['final'\]"),
+    ],
+)
+def test_trace_info_must_not_overwrite_another_entry(key, message):
+    with pytest.raises(ValueError, match=message):
+        _Reporting(entries=((key, 0),)).solve(T1)
+
+
 def test_max_iter_must_be_positive():
     with pytest.raises(ValueError, match="max_iter"):
         Halving(max_iter=0)
