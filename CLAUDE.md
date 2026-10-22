@@ -11,7 +11,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   mlflow lives in the `experiments` dependency group, used only by `maesolvers.tracking`.
 - Public classes and functions carry type annotations and numpy-style docstrings.
 - `uv sync --group dev` installs the dev tools.
-  `just check` runs what CI runs (`ruff format --check`, `ruff check`, `pytest`); CI repeats it on Python 3.10 and 3.13.
+  `just check` runs what CI runs (its recipe in `justfile` lists the steps); CI repeats it on Python 3.10 and 3.13.
   Run it before you commit.
 - `pyproject.toml` sets the line rules: the formatter wraps at 88 columns, E501 fails a line over 100.
 - Markdown: one sentence per line, no fixed width, so a diff shows only the sentences that changed.
@@ -26,7 +26,6 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   - parameters from constructor signatures through jsonargparse (0005);
   - `Problem`, `Result` and `evaluate` frozen at 0.1 (0007);
   - the neural training protocol (0008).
-  Until the 0.0.2 refactor lands, the code still has the 0.0.x shape (bare `Solver` protocol, `P1` to `P5`).
 - Problems carry the T ids of the shared test-set specification (`docs/test-set.md` in `jczhang02/monge-ampere-equations`); an id once used is never reused, so tables from different methods line up.
 
 ## Reproduction
@@ -63,7 +62,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 
 ## Documentation
 
-- No docs site: `README.md`, `docs/guide.md` (solve a problem, pass parameters, plug in your own solver), and one `docs/methods/<method>.md` per method (the mathematics, the source paper, the parameters, the known limits, a link to its `benchmarks/<method>.md`).
+- No docs site: `README.md`, `docs/guide.md` (solve a problem, pass parameters, plug in your own solver), and one `docs/methods/<name>.md` per method, or per scheme with its iterations as `standard9.md` (the mathematics, the source paper, the parameters, the known limits, a link to the `benchmarks/` file that holds its reproduction).
 - Every change to the public interface gets a line in `CHANGELOG.md`; 0.x may break the interface, but never silently.
 
 ## Agent skills
