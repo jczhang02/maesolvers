@@ -179,6 +179,32 @@ def test_bfgs_minimises_the_rosenbrock_function():
     torch.testing.assert_close(x.detach(), torch.ones(2, dtype=torch.float64))
 
 
+def test_bfgs_takes_the_iterates_of_scipys_bfgs():
+    scipy_optimize = pytest.importorskip("scipy.optimize")
+    start = np.array([-1.2, 1.0])
+    steps = 15
+    reference = scipy_optimize.minimize(
+        lambda v: float(_rosenbrock(torch.as_tensor(v))),
+        start,
+        jac=lambda v: scipy_optimize.rosen_der(v),
+        method="BFGS",
+        options={"maxiter": steps, "gtol": 0.0},
+    )
+    x = torch.nn.Parameter(torch.tensor(start, dtype=torch.float64))
+    optimizer = BFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = _rosenbrock(x)
+        loss.backward()
+        return loss
+
+    for _ in range(steps):
+        optimizer.step(closure)
+    assert reference.nit == steps
+    np.testing.assert_allclose(x.detach().numpy(), reference.x, rtol=1e-9)
+
+
 def test_bfgs_keeps_the_secant_condition_and_a_symmetric_approximation():
     x = torch.nn.Parameter(torch.tensor([0.3, -0.5, 0.8], dtype=torch.float64))
     a = torch.tensor([[3.0, 1.0, 0.0], [1.0, 2.0, 0.5], [0.0, 0.5, 1.0]])
@@ -194,13 +220,13 @@ def test_bfgs_keeps_the_secant_condition_and_a_symmetric_approximation():
     for _ in range(2):
         optimizer.step(closure)
     state = optimizer.state[x]
-    previous_x, previous_g = state["x"].clone(), state["g"].clone()
+    previous_x, previous_g = state["x"].copy(), state["g"].copy()
     optimizer.step(closure)  # updates H with the pair of the last step
     h = state["h"]
     s, y = state["x"] - previous_x, state["g"] - previous_g
-    torch.testing.assert_close(h @ y, s)
-    torch.testing.assert_close(h, h.T)
-    assert (torch.linalg.eigvalsh(h) > 0).all()
+    np.testing.assert_allclose(h @ y, s, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(h, h.T, rtol=0, atol=1e-12)
+    assert (np.linalg.eigvalsh(h) > 0).all()
 
 
 def test_bfgs_does_nothing_at_a_stationary_point():

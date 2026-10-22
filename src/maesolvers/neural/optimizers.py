@@ -116,12 +116,13 @@ class LBFGS(Optimizer):
 class BFGS(Optimizer):
     """BFGS with a dense inverse Hessian approximation, one iteration per step.
 
-    The method of SciPy's ``minimize(method="BFGS")``, with which
-    Nystrom-Vestberg 2023 trained: the approximation starts as the identity
-    and gets the BFGS update after every iteration, and the step comes from
-    a strong Wolfe line search (the one :class:`LBFGS` uses) started where
-    SciPy starts its own, at the step that would repeat the last decrease
-    of the loss. Unlike :class:`LBFGS` it keeps every curvature pair, in
+    The iteration of SciPy's ``minimize(method="BFGS")``, with which
+    Nystrom-Vestberg 2023 trained, line search included, so that it takes
+    SciPy's iterates up to rounding: the approximation starts as the
+    identity and gets the BFGS update after every iteration, and the step
+    comes from SciPy's strong Wolfe line search. When the line search fails
+    (SciPy's "precision loss"), the step changes nothing, and the training
+    stops as ``"stalled"``. Unlike :class:`LBFGS` it keeps every curvature pair, in
     ``n^2`` numbers for ``n`` parameters, so it suits small networks; on
     the input convex network of the paper (563 parameters) it trains much
     further in the same number of steps (``benchmarks/icnn.md``, Finding 1).

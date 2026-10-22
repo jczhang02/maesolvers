@@ -12,11 +12,11 @@ from contextlib import contextmanager
 
 import numpy as np
 import torch
+from scipy.optimize._optimize import (  # SciPy BFGS's own line search, private
+    _line_search_wolfe12,
+    _LineSearchError,
+)
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
-
-# torch's strong Wolfe line search, private to torch.optim.lbfgs: the line search
-# of torch.optim.LBFGS, so both quasi-Newton parts search alike.
-from torch.optim.lbfgs import _strong_wolfe
 
 from maesolvers.neural import functional
 
@@ -183,16 +183,18 @@ class InputConvex(torch.nn.Module):
 class DenseBFGS(torch.optim.Optimizer):
     """BFGS with a dense inverse Hessian approximation: one iteration per ``step``.
 
-    The iteration of SciPy's ``minimize(method="BFGS")``. The approximation
-    ``H`` starts as the identity; after each iteration, with ``s`` the
-    change of the parameters and ``y`` that of the gradient,
-    ``H <- (I - r s y') H (I - r y s') + r s s'``, ``r = 1 / y's``, skipped
-    when ``y's <= 1e-10``, which keeps ``H`` positive definite. The step
-    along ``d = -H g`` comes from torch's strong Wolfe line search (the one
-    ``torch.optim.LBFGS`` uses), started, as SciPy starts its own, from
-    ``min(1, 2.02 (f - f_prev) / g'd)``: the step that would repeat the last
+    One iteration of SciPy's ``minimize(method="BFGS")``, with its line
+    search. The approximation ``H`` starts as the identity; after each
+    iteration, with ``s`` the change of the parameters and ``y`` that of the
+    gradient, ``H <- (I - r s y') H (I - r y s') + r s s'``, ``r = 1 / y's``,
+    skipped when ``y's <= 1e-10``, which keeps ``H`` positive definite. The
+    step along ``d = -H g`` comes from SciPy's strong Wolfe line search
+    (MINPACK's, with SciPy's second search as a fallback), started at
+    ``min(1, 2.02 (f - f_prev) / g'd)``, the step that would repeat the last
     decrease of the loss, with ``f_prev = f + |g| / 2`` on the first
-    iteration. ``H`` takes ``n^2`` numbers for ``n`` parameters.
+    iteration. When both searches fail, as when SciPy stops on a "precision
+    loss", the step leaves the parameters as they are. ``H`` takes ``n^2``
+    numbers for ``n`` parameters.
 
     Parameters
     ----------
@@ -233,39 +235,50 @@ class DenseBFGS(torch.optim.Optimizer):
         params: list[torch.Tensor] = self.param_groups[0]["params"]
         state = self.state[params[0]]
         loss = evaluate()
-        f, g = float(loss), self._flat_grad(params)
+        f, g = float(loss), self._flat_grad(params).cpu().numpy()
         if not g.any():  # a stationary point: no direction to search
             return loss
-        x = parameters_to_vector(params).clone()
+        start = parameters_to_vector(params).clone()
+        x = start.cpu().numpy()
         if "h" not in state:
-            state["h"] = torch.eye(len(x), dtype=x.dtype, device=x.device)
-            state["f"] = f + float(g.norm()) / 2
+            state["h"] = np.eye(len(x))
+            state["f"] = f + float(np.linalg.norm(g)) / 2
         else:
             s, y = x - state["x"], g - state["g"]
-            ys = float(y.dot(s))
+            ys = float(y @ s)
             if ys > 1e-10:
                 h, r = state["h"], 1.0 / ys
                 hy = h @ y
-                h += (r * r * float(y.dot(hy)) + r) * torch.outer(s, s)
-                h -= r * (torch.outer(hy, s) + torch.outer(s, hy))
+                h += (r * r * float(y @ hy) + r) * np.outer(s, s)
+                h -= r * (np.outer(hy, s) + np.outer(s, hy))
         d = -(state["h"] @ g)
-        gtd = g.dot(d)
-        t = min(1.0, 2.02 * (f - state["f"]) / float(gtd))
-        if t <= 0.0:  # the loss rose in the last step: no scale to repeat
-            t = 1.0
+        previous = state["f"]
         state["x"], state["g"], state["f"] = x, g, f
+        cache: dict[bytes, tuple[float, np.ndarray]] = {}
 
-        def directional(
-            start: torch.Tensor, step: float, direction: torch.Tensor
-        ) -> tuple[float, torch.Tensor]:
-            vector_to_parameters(start + step * direction, params)
-            value = float(evaluate())
-            gradient = self._flat_grad(params)
-            vector_to_parameters(start, params)
-            return value, gradient
+        def at(point: np.ndarray) -> tuple[float, np.ndarray]:
+            key = point.tobytes()
+            if key not in cache:
+                vector_to_parameters(torch.as_tensor(point).to(start), params)
+                value = float(evaluate())
+                cache[key] = (value, self._flat_grad(params).cpu().numpy())
+            return cache[key]
 
-        _, _, t, _ = _strong_wolfe(directional, x, t, d, f, g, gtd)
-        vector_to_parameters(x + t * d, params)
+        try:
+            t = _line_search_wolfe12(
+                lambda p: at(p)[0],
+                lambda p: at(p)[1],
+                x,
+                d,
+                g,
+                f,
+                previous,
+                amin=1e-100,
+                amax=1e100,
+            )[0]
+        except _LineSearchError:
+            t = 0.0
+        vector_to_parameters(torch.as_tensor(x + t * d).to(start), params)
         return loss
 
 
