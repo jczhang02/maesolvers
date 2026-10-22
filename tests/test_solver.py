@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from typing import ClassVar
 
 import numpy as np
@@ -337,10 +337,34 @@ def test_a_solver_takes_keyword_arguments_only():
         Positional()
 
     @dataclass(frozen=True)
+    class PositionalInitVar(Halving):
+        extra: InitVar[int] = 0
+
+        def __post_init__(self, extra):
+            super().__post_init__()
+
+    with pytest.raises(TypeError, match=r"extra can be passed by position"):
+        PositionalInitVar()
+
+    @dataclass(frozen=True)
     class Fieldless(Halving):
         pass
 
     assert Fieldless(tol=0.5).tol == 0.5
+
+
+def test_every_constructor_parameter_of_a_solver_is_a_field():
+    """An InitVar would miss from hparams, so the config could not rebuild it."""
+
+    @dataclass(frozen=True, kw_only=True)
+    class Unrecorded(Halving):
+        extra: InitVar[int] = 0
+
+        def __post_init__(self, extra):
+            super().__post_init__()
+
+    with pytest.raises(TypeError, match=r"Unrecorded takes extra, which the config"):
+        Unrecorded()
 
 
 def test_solution_info_may_not_override_run_fields():

@@ -142,9 +142,17 @@ def test_the_scheme_must_be_a_frozen_dataclass_scheme_instance():
         TypeError, match=re.escape("PoissonIteration.scheme must subclass Scheme")
     ):
         PoissonIteration(scheme=object())
+
+    @dataclasses.dataclass(frozen=True)
+    class Positional(Plain):
+        k: int = 1
+
     for bad in (Plain(), Mutable(), Undecorated()):
-        with pytest.raises(TypeError, match=f"frozen dataclass.*{type(bad).__name__}"):
+        message = f"Newton.scheme: {type(bad).__name__} must carry its own @dataclass"
+        with pytest.raises(TypeError, match=re.escape(message)):
             Newton(scheme=bad)
+    with pytest.raises(TypeError, match=r"Positional takes keyword arguments only"):
+        Newton(scheme=Positional())
     assert Newton(scheme=Frozen()).scheme == Frozen()
 
 

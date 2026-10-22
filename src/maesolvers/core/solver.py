@@ -14,6 +14,7 @@ the solver.
 
 from __future__ import annotations
 
+import inspect
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -127,6 +128,53 @@ def _config(obj: object) -> Any:
     return obj
 
 
+def _check_part_definition(cls: type, label: str) -> None:
+    """Raise TypeError unless a solver or part class can be rebuilt from its fields.
+
+    Parameters
+    ----------
+    cls
+        A solver or part class (ADR 0004).
+    label
+        How the error messages name the class.
+
+    Raises
+    ------
+    TypeError
+        If ``cls`` does not carry its own ``@dataclass(frozen=True)``
+        decorator (an inherited one does not count: new fields would miss
+        from the configuration), if a constructor parameter can be passed by
+        position, or if a constructor parameter is not a field (an
+        ``InitVar``), which the configuration of :func:`_config` would miss
+        (ADR 0005).
+    """
+    params = cls.__dict__.get("__dataclass_params__")
+    if params is None or not params.frozen or not is_dataclass(cls):
+        raise TypeError(
+            f"{label} must carry its own @dataclass(frozen=True) decorator "
+            "(kw_only=True recommended)"
+        )
+    parameters = inspect.signature(cls).parameters.values()
+    positional = [
+        p.name
+        for p in parameters
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
+    ]
+    if positional:
+        raise TypeError(
+            f"{label} takes keyword arguments only, but "
+            f"{', '.join(positional)} can be passed by position; "
+            "decorate it with @dataclass(frozen=True, kw_only=True)"
+        )
+    recorded = {f.name for f in fields(cls) if f.init}
+    unrecorded = [p.name for p in parameters if p.name not in recorded]
+    if unrecorded:
+        raise TypeError(
+            f"{label} takes {', '.join(unrecorded)}, which the configuration "
+            "cannot record; make every constructor parameter a field"
+        )
+
+
 def _class_path(cls: type) -> str:
     """``maesolvers.<Name>`` for a class the package exports, else its module path."""
     # Looked up at call time: the package imports this module.
@@ -140,7 +188,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
     """Base class of every solver.
 
     A subclass is decorated with ``@dataclass(frozen=True, kw_only=True)``;
-    its fields are its hyperparameters. It declares the problems it supports
+    its fields are its hyperparameters. A subclass without new fields may
+    omit ``kw_only=True``, but not the decorator. It declares the problems it supports
     in the class variables ``domains``, ``boundaries`` and, if it is limited
     in dimension, ``dims``, and implements :meth:`setup`, :meth:`run` and
     :meth:`finalize`. A solver composed of parts (ADR 0004) may instead
@@ -162,7 +211,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
         On construction, or at the latest in :meth:`solve`, if the class
         itself is not decorated as a frozen dataclass (an inherited
         decoration does not count: its new fields would miss from
-        :attr:`hparams`), or if one of its fields can be passed by position.
+        :attr:`hparams`), if a constructor parameter can be passed by
+        position, or if one is not a field (an ``InitVar``).
     """
 
     domains: ClassVar[tuple[type, ...]]
@@ -176,19 +226,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
     @classmethod
     def _check_definition(cls) -> None:
         """Raise TypeError if the class misses a declaration its base needs."""
-        params = cls.__dict__.get("__dataclass_params__")
-        if params is None or not params.frozen or not is_dataclass(cls):
-            raise TypeError(
-                f"{cls.__name__} must be decorated with "
-                "@dataclass(frozen=True, kw_only=True)"
-            )
-        positional = [f.name for f in fields(cls) if f.init and not f.kw_only]
-        if positional:
-            raise TypeError(
-                f"{cls.__name__} takes keyword arguments only, but "
-                f"{', '.join(positional)} can be passed by position; "
-                "decorate it with @dataclass(frozen=True, kw_only=True)"
-            )
+        _check_part_definition(cls, cls.__name__)
 
     def supports(self, problem: Problem) -> bool:
         """Whether the solver handles the problem's domain, boundary and dimension.

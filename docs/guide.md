@@ -253,7 +253,8 @@ class MyPoisson(IterativeSolver):
 What each part does:
 
 - `@dataclass(frozen=True, kw_only=True)` on the class itself: the fields are the hyperparameters that `Result.hparams` records, and a solver is immutable, so a solve keeps its working data in the context, never on the solver.
-  An inherited decorator does not count; without its own, or with a field that can be passed by position, construction raises `TypeError`.
+  An inherited decorator does not count; without its own, or with a constructor parameter that can be passed by position or is not a field (an `InitVar`), construction raises `TypeError`.
+  A subclass that adds no field may omit `kw_only=True`, but not the decorator.
 - `domains`, `boundaries` and `dims` declare the supported problems; `solve` raises `UnsupportedProblemError` for any other.
 - `measure` names what `step` returns; callbacks receive it as `{"update": ...}` and `Result.info["history"]` holds it for every step.
 - `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction.
@@ -332,5 +333,5 @@ A new iteration that calls other scheme methods lists them in its own `requires`
 
 ### A new scheme
 
-A scheme subclasses `Scheme`, is a frozen dataclass whose fields are its parameters, and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
+A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, so its fields are its parameters (an iteration checks this as the base class checks a solver), and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
 `Standard9` in `maesolvers/classical/schemes.py` is the model to follow; `docs/methods/standard9.md` describes its mathematics.
