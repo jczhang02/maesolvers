@@ -39,12 +39,14 @@ The consistency error is `O(h^2 + dtheta)`: for a fixed stencil the error stops 
 ### Below zero
 
 The bare scheme is flat wherever a second difference is negative: `(D_nu nu u)^+ = 0` there, whatever its value.
-Where `f = 0` this makes every grid function with a negative second difference a root (on T20, two Newton starts reach roots whose errors differ by a factor 2), and where `f > 0` it leaves Newton without a direction out of a non-convex iterate (from the Poisson start on T2 the line search stalls at once).
+Where `f = 0` this makes every grid function with a negative second difference a root (on T20 two Newton starts reached roots whose errors differ by a factor 2, `benchmarks/monotone17.md`, Finding 5), and where `f > 0` it leaves Newton without a direction out of a non-convex iterate (from the Poisson start on T2 the line search stalls at once).
 `Monotone17` therefore continues each pair's value below zero with a positive slope `kappa`:
 
 ```text
-F_pair(a, b) = a^+ b^+ + kappa (min(a, 0) + min(b, 0)),     kappa = max(sqrt(f), sqrt(mean f)).
+F_pair(a, b) = a^+ b^+ + kappa (min(a, 0) + min(b, 0)),     kappa = max(sqrt(f), sqrt(mean f), epsilon),
 ```
+
+with `epsilon` the Jacobian floor of the next section.
 
 This leaves the value of every discretely convex grid function unchanged, keeps the scheme monotone, and makes a pair's value negative whenever it sees a negative second difference.
 So the roots of `min F_pair = f` are exactly the discretely convex roots of Froese and Oberman's `MA_M[u] = f`, whatever `kappa` (a test checks this).
@@ -81,8 +83,8 @@ The start changes the number of steps, not the solution.
 
 ## Source papers
 
-- B. D. Froese, A. M. Oberman, "Convergent finite difference solvers for viscosity solutions of the elliptic Monge-Ampere equation in dimensions two and higher", SIAM J. Numer. Anal. 49 (2011) 1692-1714, doi 10.1137/100803092: the scheme (Sections 3.3 to 3.5), Newton with the floored Jacobian (Section 5), and Table 3, the 9-, 17- and 33-point columns, reproduced on T1, T2, T20 and the cone T21.
-- B. D. Froese, A. M. Oberman, "Fast finite difference solvers for singular solutions of the elliptic Monge-Ampere equation", J. Comput. Phys. 230 (2011) 818-834, doi 10.1016/j.jcp.2010.10.020: the same scheme with the 17-point stencil (Section 4), and Table 3, column "Monotone", reproduced on the same four problems.
+- B. D. Froese, A. M. Oberman, "Convergent finite difference solvers for viscosity solutions of the elliptic Monge-Ampere equation in dimensions two and higher", SIAM J. Numer. Anal. 49 (2011) 1692-1714, doi 10.1137/100803092: the scheme (Sections 3.3 to 3.5), Newton with the floored Jacobian (Section 5), and Table 3, the 9-, 17- and 33-point columns, compared on T1, T2, T20 and the cone T21.
+- B. D. Froese, A. M. Oberman, "Fast finite difference solvers for singular solutions of the elliptic Monge-Ampere equation", J. Comput. Phys. 230 (2011) 818-834, doi 10.1016/j.jcp.2010.10.020: the same scheme with the 17-point stencil (Section 4), and Table 3, column "Monotone", compared on the same four problems.
 - A. M. Oberman, "Wide stencil finite difference schemes for the elliptic Monge-Ampere equation and functions of the eigenvalues of the Hessian", Discrete Contin. Dyn. Syst. Ser. B 10 (2008) 221-238, doi 10.3934/dcdsb.2008.10.221: the stencils (Table 1) and the boundary treatment `"interpolate"` (Section 3.1).
   Its own scheme, the product of the smallest and largest directional second difference, is a different discretisation; maesolvers does not ship it.
 

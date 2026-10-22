@@ -129,7 +129,7 @@ Level: mismatch (Finding 4).
 
 ## Finding 1: the tables match the narrow stencil, not the boundary treatment the papers describe
 
-Both papers say that where a wide stencil leaves the domain they "use interpolation at the boundary to construct a (lower accuracy) stencil" (SINUM p. 1700, JCP p. 823, after Oberman 2008, Section 3.1); the task that asked for this reproduction says the papers narrow the stencil next to the boundary instead.
+Both papers say that where a wide stencil leaves the domain they "use interpolation at the boundary to construct a (lower accuracy) stencil" (SINUM p. 1700, JCP p. 823, after Oberman 2008, Section 3.1); issue #9 says the papers narrow the stencil next to the boundary instead.
 We ran both: `boundary="interpolate"` shortens the arm to the boundary and takes the Dirichlet data there, `boundary="narrow"` leaves the wide pairs out where their arms do not end at a node.
 On T1, where the 17- and 33-point columns differ most between the two, `"narrow"` agrees with the JCP column to four digits from `N = 181` on (44.65, 44.22, 44.00) and `"interpolate"` does not (44.50, 44.15, 43.97); with 33 points at `N = 63`, `"narrow"` gives `2.92e-4` and `"interpolate"` `2.54e-4` against the published `3.1e-4`.
 So the published numbers come from the narrow stencil, whatever the text says, and `"narrow"` is the default.
