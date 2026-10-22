@@ -1,6 +1,6 @@
 # Standard 9-point finite differences: published versus ours
 
-Problems: P4 (smooth, `u = exp(|x|^2 / 2)`) and P5 (corner blow-up, `u = -sqrt(2 - |x|^2)`) on `(0, 1)^2`, Dirichlet data from the exact solution.
+Problems: T1 (smooth, `u = exp(|x|^2 / 2)`) and T2 (corner blow-up, `u = -sqrt(2 - |x|^2)`) on `(0, 1)^2`, Dirichlet data from the exact solution.
 Published numbers: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Standard"; the same values appear in Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 3, column "Standard F.D.".
 Both papers credit the column to the Gauss-Seidel and Poisson iterations of Benamou-Froese-Oberman (2010).
 Full transcription and caveats: `sources.md`.
@@ -12,7 +12,7 @@ Error: max over all grid nodes of `|u_h - u|`.
 ## Finding 1: the grid convention is `h = 1 / N`
 
 The 2011 papers say only "an N x N grid".
-Three conventions were tried on P4 at N = 31 against the published 7.14e-5:
+Three conventions were tried on T1 at N = 31 against the published 7.14e-5:
 
 | Convention | Cells per side | Our max error |
 |---|---|---|
@@ -23,7 +23,7 @@ Three conventions were tried on P4 at N = 31 against the published 7.14e-5:
 `h = 1 / N` matches to four digits, and keeps matching at every N below.
 So the papers' N is the number of cells per side (the 2010 paper's "h = L / N"), and the grid has `(N + 1)^2` nodes.
 
-## P4, smooth example
+## T1, smooth example
 
 | N | Published | FDPoisson | FDNewton | Poisson iterations | Newton iterations |
 |---|---|---|---|---|---|
@@ -40,7 +40,7 @@ Reproduced: every value agrees with the published one to the digits printed, ord
 Both solvers reach the same discrete solution, as the 2010 paper states for its two iterations.
 Newton needs 4 iterations at every N; the papers never tabulate Newton on the standard scheme, so there is nothing to compare that against.
 
-## P5, example with blow-up
+## T2, example with blow-up
 
 | N | Published | FDPoisson | FDNewton | FDNewton min Hessian eigenvalue |
 |---|---|---|---|---|
@@ -55,7 +55,7 @@ Newton needs 4 iterations at every N; the papers never tabulate Newton on the st
 
 Reproduced with the Poisson iteration: every value agrees to the digits printed, order about `h^0.5`, and the discrete solution is convex at every node (smallest Hessian eigenvalue 0.71 at every N).
 
-## Finding 2: Newton on the standard scheme picks a non-convex root on P5
+## Finding 2: Newton on the standard scheme picks a non-convex root on T2
 
 `FDNewton` converges in the residual at every N (8 to 23 iterations), but to a different root of the discrete equations: non-convex at 0.3 to 1.2 percent of the nodes, all near the corner `(1, 1)`, with a smallest Hessian eigenvalue that grows without bound as N grows.
 Its max error stays near 2e-2 and does not decrease with N.
@@ -72,10 +72,10 @@ CPU times (2010 MATLAB hardware), the monotone and hybrid columns (schemes not i
 ## Shared 201 x 201 grid
 
 The protocol asks for the error on the shared grid as well (cubic tensor spline off the nodes).
-P4 agrees with the node error, as it should for a smooth solution.
-P5 is larger on the shared grid at coarse N: the spline overshoots near the corner where the gradient blows up, so for P5 the node error is the number to compare with the literature and the shared-grid error measures the interpolant as much as the scheme.
+T1 agrees with the node error, as it should for a smooth solution.
+T2 is larger on the shared grid at coarse N: the spline overshoots near the corner where the gradient blows up, so for T2 the node error is the number to compare with the literature and the shared-grid error measures the interpolant as much as the scheme.
 
-| N | P4 nodes | P4 shared grid | P5 nodes | P5 shared grid |
+| N | T1 nodes | T1 shared grid | T2 nodes | T2 shared grid |
 |---|---|---|---|---|
 | 31 | 7.144e-05 | 7.144e-05 | 1.715e-02 | 4.474e-02 |
 | 63 | 1.731e-05 | 1.732e-05 | 1.253e-02 | 2.609e-02 |

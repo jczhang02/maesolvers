@@ -18,7 +18,7 @@
 ## Features
 
 - **One interface**: a `Problem` (domain, right-hand side, a `Dirichlet` or `Transport` boundary condition, exact solution when known), a `Solver` whose `solve(problem) -> Result` runs one fixed lifecycle, and a `Result` that carries the solution as a callable plus, for grid methods, the nodes, values and discrete Hessian.
-- **One catalogue**: test problems `P1` to `P5`, provisional until the research programme fixes its test set, with numbers that are never reused so that tables from different methods line up.
+- **One catalogue**: `CATALOGUE` holds every test problem under the T id of the research programme's literature survey, the shared test set among them; an id is never reused, so tables from different methods line up.
 - **Shared metrics**: `evaluate(result)` reports the max and RMS errors at the method's nodes (or on the shared grid for methods without nodes), the same errors on the shared grid, convexity statistics, cost and the problem's observables, the same way for every method; `summarize` aggregates seeds and counts failed ones.
 - **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
 - **Light dependencies**: numpy and scipy only; torch arrives with the `neural` extra and the neural solvers.
@@ -35,10 +35,10 @@ pip install git+https://github.com/jczhang02/maesolvers   # or with pip
 Solve a catalogue problem and evaluate the result with the shared protocol.
 
 ```python
-from maesolvers import P4, FDNewton
+from maesolvers import T1, FDNewton
 from maesolvers.metrics import evaluate
 
-result = FDNewton(n=64).solve(P4)
+result = FDNewton(n=64).solve(T1)
 print(evaluate(result))
 ```
 
@@ -86,22 +86,36 @@ class MySolver(IterativeSolver):
 
 ## Test problems
 
-All five are two-dimensional.
-The catalogue is provisional: the research repository has not fixed its test problems yet, and the numbering will be aligned with it when it does.
+`maesolvers.catalogue` defines every problem, `CATALOGUE` maps each T id to it, and each is also importable by name (`from maesolvers import T1`).
+The ids are those of the research programme's literature survey; the P1 to P5 of 0.0.x are retired (P4 is T1, P5 is T2, P1 is T8 with `g = 0`, P3 is T12).
+`SHARED_TEST_SET` lists the rows of the comparison table: T1, T2, T20, T8, T12, T9, T10.
+Every Dirichlet problem with an exact solution takes its boundary data from it; `x0 = (0.5, 0.5)`.
 
-| Name | Domain | `f` | Boundary | Exact solution | Tests |
+| Id | Domain | `f` | Boundary | Exact solution | Tests |
 |---|---|---|---|---|---|
-| P1 | unit disk | 1 | Dirichlet, `g = 1/2` | `|x|^2 / 2` | branch selection: the concave `1 - |x|^2 / 2` also solves the equation |
-| P2 | `(-1, 1)^2` | `(1 + |x|^2)^-2` | Dirichlet | `sqrt(1 + |x|^2)` | smooth, non-quadratic |
-| P3 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition (Caboussat-Peruso 2025) |
-| P4 | `(0, 1)^2` | `(1 + |x|^2) exp(|x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | smooth, the standard finite-difference example |
-| P5 | `(0, 1)^2` | `2 (2 - |x|^2)^-2` | Dirichlet | `-sqrt(2 - |x|^2)` | gradient blow-up at the corner `(1, 1)` |
+| T1 | `(0, 1)^2` | `(1 + |x|^2) exp(|x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | smooth, the standard finite-difference example |
+| T2 | `(0, 1)^2` | `2 (2 - |x|^2)^-2` | Dirichlet | `-sqrt(2 - |x|^2)` | gradient blow-up at the corner `(1, 1)` |
+| T3 | `(0, 1)^2` | `|x|^-1` | Dirichlet | `(2 sqrt 2 / 3) |x|^(3/2)` | `f` blows up at `(0, 0)` but is integrable |
+| T4 | `(0, 1)^2` | 1 for `|x - x0| > 0.4`, else 0 | Dirichlet | `max(|x - x0|^2 / 2, 0.08)` | discontinuous `f`; this `u` is not C^1 (see its note) |
+| T5 | `(0, 1.5)^2` | 4 for `|x| > 1`, else 0 | Dirichlet | 0 for `r <= 1`, `r sqrt(r^2 - 1) - ln(r + sqrt(r^2 - 1))` beyond | discontinuous `f`, C^1 Alexandrov solution |
+| T6 | quarter of the unit disk cut by `y > x - 1/2` (`CutQuarterDisk`) | from `u` | Dirichlet | `0.7 exp((x - 1/2)^2 / 2 + y^2) + x^2 - 1/2` | asymmetric domain |
+| T7 | `[-1, 1]^2` | 1 | Dirichlet, `g = 1` | none; observable `u(0,0)` | no classical solution at the corners |
+| T8 | unit disk | 1 | Dirichlet, `g = 0` | `(|x|^2 - 1) / 2` | branch selection: the concave `(1 - |x|^2) / 2` also solves the equation |
+| T9 | `(0, 1)^3` | `(1 + |x|^2) exp(3 |x|^2 / 2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 3D |
+| T10 | `(0, 1)^4` | `(1 + |x|^2) exp(2 |x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 4D |
+| T12 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition, linear map |
+| T16 | `(-1/2, 1/2)^2` | from `q(z)` (Benamou-Froese-Oberman 2014) | transport onto the same square | `|x|^2 / 2 + 4 q(x1) q(x2)` | transport with an oscillating density |
+| T20 | `(0, 1)^2` | `(1 - 0.2 / |x - x0|)^+` | Dirichlet | `((|x - x0| - 0.2)^+)^2 / 2` | C^1 solution, `f = 0` on a disk |
+| T22 | `(0, 1)^3` | `3 (3 - |x|^2)^(-5/2)` | Dirichlet | `-sqrt(3 - |x|^2)` | T2 in 3D |
+
+Each problem's `note` names its source paper.
+T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Problem.f` is a function and cannot hold a measure.
 
 ## Solvers
 
 | Solver | Method | Domains | Boundary | Convexity |
 |---|---|---|---|---|
-| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
+| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on T2 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
 
 ## Reproduction
@@ -111,14 +125,14 @@ A method counts as reproduced when it matches the source paper's own table, on t
 
 | Problem | N | Published | FDPoisson | FDNewton |
 |---|---|---|---|---|
-| P4 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
-| P4 | 361 | 0.05e-5 | | 5.276e-7 |
-| P5 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
-| P5 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
+| T1 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
+| T1 | 361 | 0.05e-5 | | 5.276e-7 |
+| T2 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
+| T2 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
 
 Two things came out of this first comparison.
 The papers' grid convention, which none of them states, is `h = 1/N`.
-Newton on the standard scheme converges in the residual on P5 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
+Newton on the standard scheme converges in the residual on T2 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
@@ -151,7 +165,7 @@ uv run pytest
 uv run ruff format . && uv run ruff check .
 ```
 
-Tests check that every catalogue problem's exact solution satisfies its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
+Tests check every catalogue problem against the point values of the shared test-set specification and against its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
 
 ## License
 
