@@ -18,6 +18,7 @@ from maesolvers import (
     FDNewton,
     FDPoisson,
     Newton,
+    PenaltyMLP,
     PoissonIteration,
     Scheme,
     SchemeIteration,
@@ -208,13 +209,17 @@ def test_newton_and_poisson_reach_different_roots_on_t2():
 
 
 def test_the_registry_lists_the_presets_read_only():
-    assert dict(SOLVERS) == {"FDNewton": FDNewton, "FDPoisson": FDPoisson}
+    assert dict(SOLVERS) == {
+        "FDNewton": FDNewton,
+        "FDPoisson": FDPoisson,
+        "PenaltyMLP": PenaltyMLP,
+    }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
-@pytest.mark.parametrize("solver", list(SOLVERS.values()))
-def test_registered_solvers_declare_their_support_on_the_class(solver):
+@pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
+def test_classical_presets_declare_the_support_of_their_scheme(solver):
     assert (solver.domains, solver.boundaries, solver.dims) == (
         Standard9.domains,
         Standard9.boundaries,

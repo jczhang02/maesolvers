@@ -13,6 +13,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 - `uv sync --group dev` installs the dev tools.
   `just check` runs what CI runs (its recipe in `justfile` lists the steps); CI repeats it on Python 3.10 and 3.13.
   Run it before you commit.
+  The neural tests run on CPU through the `neural-cpu` dependency group; do not `uv sync --extra neural` on a machine without a GPU (it downloads the CUDA build of torch).
 - `pyproject.toml` sets the line rules: the formatter wraps at 88 columns, E501 fails a line over 100.
 - Markdown: one sentence per line, no fixed width, so a diff shows only the sentences that changed.
 - `just` lists the common commands (`justfile`).
@@ -26,7 +27,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   - parameters from constructor signatures through jsonargparse (0005);
   - `Problem`, `Result` and `evaluate` frozen at 0.1 (0007);
   - the neural training protocol (0008).
-  Known deviations, each with its issue: composed solvers (`Newton`, `PoissonIteration`) answer `supports(problem)` on the instance, not through class variables (ADR 0003, #23; do not add class-level `domains` to them); the `neural` extra lacks `lightning>=2` and CI has no CPU neural job (ADR 0006, #12).
+  Known deviation, with its issue: composed solvers (`Newton`, `PoissonIteration`, `NeuralSolver`) answer `supports(problem)` on the instance, through their parts, not through class variables (ADR 0003, #23; do not add class-level `domains` to them).
 - Problems carry the T ids of the shared test-set specification (`docs/test-set.md` in `jczhang02/monge-ampere-equations`); an id once used is never reused, so tables from different methods line up.
 
 ## Reproduction

@@ -92,3 +92,41 @@ def positive(name: str, value: object) -> float:
     if not 0.0 < out < float("inf"):
         raise ValueError(f"{name} must be positive and finite, got {out}")
     return out
+
+
+def nonnegative(name: str, value: object) -> float:
+    """Check a nonnegative, finite real parameter and return it as a plain ``float``.
+
+    Parameters
+    ----------
+    name : str
+        The parameter's name, used in the error messages.
+    value : object
+        The value given; a Python or numpy real number.
+
+    Returns
+    -------
+    float
+        ``value`` as a plain ``float``.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is a bool or is not a real number:
+        ``"<name> must be a real number, got <value>"``.
+    ValueError
+        If ``value`` is negative, infinite or NaN:
+        ``"<name> must be nonnegative and finite, got <value>"``.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a frozen dataclass, for a weight that 0 turns off:
+
+    >>> object.__setattr__(self, "weight", nonnegative("weight", self.weight))  # doctest: +SKIP
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be a real number, got {value!r}")
+    out = float(value)
+    if not 0.0 <= out < float("inf"):
+        raise ValueError(f"{name} must be nonnegative and finite, got {out}")
+    return out

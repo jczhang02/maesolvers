@@ -10,6 +10,25 @@ Every change to the public interface is listed here; 0.x may break the interface
   On these domains `n` counts cells per side of the grid over the bounding box, `Result.nodes` lists the nodes with unknowns and then the boundary points, and the solution off the nodes is the Clough-Tocher interpolant (`spline_degree` applies to a box only), extrapolated to first order past the hull of the nodes so that it stays second order at corners off the grid.
 - `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes`: the pure function behind it, returning a `ShortleyWellerOperators` named tuple (`nodes`, `interior`, `dxx`, `dyy`, `dxy`, `min_step`): the nodes, the mask of the nodes with unknowns, the operators `D_xx`, `D_yy`, `D_xy` and the smallest step fraction at each node.
 - `Standard9` results (and so `FDNewton` and `FDPoisson` results) carry `info["min_step"]`, the smallest step fraction of a stencil (1 on a box), and `info["interpolant"]`, `"spline(k)"` or `"clough_tocher"`, the interpolant behind `Result.u` and `max_grid`.
+- `maesolvers.neural`, the neural solvers (ADR 0004, 0008), behind the `neural` extra (torch, lightning >= 2): the package and every part import with numpy alone, so `import maesolvers` still loads no extra, and a solve without torch or lightning raises `ImportError` naming the extra.
+  `NeuralSolver(network, loss, sampler, optimizer, max_steps=1000, tol=1e-5, seed=0, accelerator="cpu")` trains on a Lightning `Trainer` in float64, full batch, one optimizer step per training step; it stops converged when the largest component of the loss gradient is at most `tol`, and otherwise after `max_steps`, on a step that changes nothing (not counted as a step), or on a non-finite loss.
+  A trainable parameter the loss does not reach (the output bias of a plain `MLP` under `PenaltyLoss`) has a zero gradient.
+  `seed` fixes the collocation points and the initial network (torch's CPU generator, restored afterwards; the CUDA generators are not touched); `collocation(problem)` returns the points.
+  The training runs on the CPU unless `accelerator` is `"gpu"` or `"auto"`, so the seed fixes the result on a machine with a given thread count.
+  `Result.u` and `Result.hessian` (autograd) take numpy points of shape `(..., d)`; `Result.info` adds `stop`, `loss_terms`, `collocation` (`interior_points`, `boundary_points` and a SHA-256 fingerprint), `device`, `threads` (torch's CPU threads) and, for a network whose module carries a `report`, `network`; `history` holds the loss at the start of each step.
+  The solve's callbacks get `on_step_end` with the loss terms after every step, so `MLflowLogger` logs a training curve.
+  A neural solver supports a problem when its network, loss and sampler do (as for the composed classical solvers, #23).
+- The neural parts, frozen dataclasses with the bases `Network` (`build(problem, collocation)` returns a torch module, which may carry a `report` mapping that the solver records as `Result.info["network"]`), `Loss` (`__call__(u, batch)` returns the loss terms, `"loss"` the total), `Sampler` (`sample(problem, rng)` returns a `Collocation`) and `Optimizer` (`build(parameters)`), in `maesolvers.neural`; `supports(problem)` is True by default on `Network` and `Sampler`, and on `Loss` True exactly for a `Dirichlet` problem:
+  `MLP(width=10, depth=5, activation="sigmoid")`; `HardDirichlet(network, lift_width=20, distance_width=40, distance_points=300, fit_steps=10_000, fit_tol=1e-5)`, the ansatz `u = G + D N`, whose report gives, per fit of `G` and `D`, the iterations, the final largest gradient component, whether it converged, the mean squared error and the largest misfit, and the largest `|G - g|` and `|D|` at the boundary points; `PenaltyLoss(convexity_weight=1e4, boundary_weight=0.0)`, which raises `ValueError` with `boundary_weight > 0` on a batch without boundary points; `UniformSampler(interior_points=3000, boundary_points=400)`; `LBFGS(lr=1.0, history_size=100)` and `Adam(lr=1e-3)`.
+  `Batch` (the collocation points and the data there, as tensors; `g`, the Dirichlet data, is None for another boundary condition), `Collocation` (read-only points, with `fingerprint()`) and `sample_interior(domain, n, rng)` are exported from `maesolvers.neural`; `maesolvers.neural.functional` holds the torch kernels `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty` and `mean_squared_misfit` (which raises `ValueError` on empty tensors).
+  `NeuralSolver`, the parts and the preset are exported at the top level.
+- `PenaltyMLP`, the penalty MLP of Nystrom-Vestberg 2023 as a preset with its parts' defaults (`width=10, depth=5, convexity_weight=1e4, interior_points=3000, boundary_points=400, fit_steps=10_000, fit_tol=1e-5, max_steps=5000`), in `SOLVERS`; 2D Dirichlet problems on `Box`, `Disk` and `CutQuarterDisk`.
+- `BoundarySampling` (`sample_boundary(n, rng)`) and `BoundaryDistance` (`boundary_distance(x)`) in `maesolvers.core`: capabilities beside the closed `Domain` protocol, implemented by `Box` (any dimension), `Disk` and `CutQuarterDisk`.
+- `maesolvers.core.nonnegative(name, value)`, the parameter check for a weight that 0 turns off.
+- `maesolvers.core.check_part(owner, part, base)`, the check that a part passed to a solver or to another part is an instance of a well-defined subclass of its base (it was private to the classical iterations), for parts of your own that take parts.
+- `maesolvers.metrics.summarize_errors(errors, threshold)`: `summarize` for errors measured elsewhere, such as in worker processes, with the same failed-seed rule.
+  `summarize` now states the rule for a run that stops at its step budget: a normal seed, not a failed one.
+- The `neural-cpu` dependency group: the neural extra with torch from the PyTorch CPU index, used by CI and `just check`.
 
 ### Changed
 
@@ -17,6 +36,9 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
 - The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale`, `interpolate` and `interpolant` are new.
+- The `neural` extra is torch and lightning >= 2 (it was torch alone).
+- CI's `test` job installs the `neural-cpu` group and runs the neural tests on CPU; it fails if a CUDA wheel is installed.
+- The development Python is 3.12 (`.python-version`): torch 2.7.1 has no wheel for 3.14.
 
 ## 0.0.2 (2026-10-22)
 
