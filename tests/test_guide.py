@@ -3,9 +3,10 @@
 A block whose first line is ``# <file name>`` is written to that file in a
 scratch directory, which is the working directory and on the import path; any
 other ``python`` block runs, in order, in one namespace; every line of an
-``sh`` block runs through :func:`maesolvers.cli.main`. Without jsonargparse
-(the ``cli`` extra) the blocks that need it are skipped and the rest still
-run, the worked solver among them.
+``sh`` block runs through :func:`maesolvers.cli.main`. A block in any other
+language, or in none, fails the test. Without jsonargparse (the ``cli``
+extra) the ``sh`` blocks are skipped and a Python block stops at the line
+that needs it; every other block still runs, the worked solver's among them.
 """
 
 import importlib.util
@@ -14,8 +15,10 @@ import shlex
 import sys
 from pathlib import Path
 
+import pytest
+
 GUIDE = Path(__file__).parents[1] / "docs" / "guide.md"
-FENCE = re.compile(r"^```(\w+)\n(.*?)^```$", re.M | re.S)
+FENCE = re.compile(r"^```(\w*)\n(.*?)^```$", re.M | re.S)
 FILE_NAME = re.compile(r"# ([\w.-]+\.(?:py|yaml|json))\n")
 COMMAND = re.compile(r"^(?:python -m )?maesolvers (.*)$")
 
@@ -28,9 +31,13 @@ def _blocks():
         yield match.group(1), match.group(2), line
 
 
-def _run_python(code, line, namespace):
+def _run_python(code, line, namespace, has_cli):
     padded = "\n" * (line - 1) + code  # tracebacks point at the guide's lines
-    exec(compile(padded, str(GUIDE), "exec"), namespace)
+    try:
+        exec(compile(padded, str(GUIDE), "exec"), namespace)
+    except ImportError as error:  # maesolvers names the missing extra
+        if has_cli or "jsonargparse" not in str(error):
+            raise
 
 
 def _run_commands(code):
@@ -50,15 +57,23 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
     try:
         for language, code, line in _blocks():
             file_name = FILE_NAME.match(code)
-            needs_cli = language == "sh" or "from_config" in code
             if file_name:
                 (tmp_path / file_name.group(1)).write_text(code)
-            elif needs_cli and not has_cli:
-                continue
+                importlib.invalidate_caches()  # a failed import may have listed tmp_path
             elif language == "sh":
-                _run_commands(code)
+                if has_cli:
+                    _run_commands(code)
             elif language == "python":
-                _run_python(code, line, namespace)
+                _run_python(code, line, namespace, has_cli)
+            else:
+                pytest.fail(
+                    f"guide line {line}: a {language or 'bare'} block cannot run"
+                )
+        assert {"MyPoisson", "RelaxedPoisson"} <= set(namespace)
+        # The worked solver checks its parameters as the shipped solvers do.
+        with pytest.raises(TypeError, match="n must be an integer"):
+            namespace["MyPoisson"](n=1.5)
+        with pytest.raises(ValueError, match="tol must be positive"):
+            namespace["MyPoisson"](tol=0.0)
     finally:
         sys.modules.pop("my_methods", None)  # the guide's module, not another test's
-    assert {"MyPoisson", "RelaxedPoisson"} <= set(namespace)

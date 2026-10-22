@@ -23,14 +23,15 @@ assert CATALOGUE["T1"] is T1
 print(T1.domain, type(T1.boundary).__name__, T1.note)
 
 result = FDPoisson(n=64).solve(T1)
-print(evaluate(result)["max"])  # 1.68e-05, the max error at the nodes
+error = evaluate(result)["max"]  # the max error at the nodes
+assert f"{error:.2e}" == "1.68e-05"
 ```
 
 A result carries what the solver computed and how the solve went.
 
 ```python
 print(result.u([[0.5, 0.5], [0.25, 0.75]]))  # the solution anywhere in the domain
-print(result.nodes.shape, result.values.shape)  # (4225, 2) (4225,)
+assert result.nodes.shape == (65 * 65, 2) and result.values.shape == (65 * 65,)
 print(result.info["iterations"], result.info["converged"], result.info["time"])
 print(result.hparams)  # the configuration that rebuilds the solver
 ```
@@ -189,9 +190,13 @@ class MyPoisson(IterativeSolver):
     max_iter: int = 1000
 
     def __post_init__(self):
-        super().__post_init__()
+        super().__post_init__()  # checks the class, and that max_iter is an integer >= 1
+        if isinstance(self.n, bool) or not isinstance(self.n, int):
+            raise TypeError(f"n must be an integer, got {self.n!r}")
         if self.n < 2:
             raise ValueError(f"n must be at least 2, got {self.n}")
+        if not self.tol > 0:
+            raise ValueError(f"tol must be positive, got {self.tol}")
 
     def setup(self, problem):
         (x0, y0), (x1, y1) = problem.domain.lo, problem.domain.hi
@@ -254,7 +259,7 @@ What each part does:
   An inherited decorator does not count; without its own, construction raises `TypeError`.
 - `domains`, `boundaries` and `dims` declare the supported problems; `solve` raises `UnsupportedProblemError` for any other.
 - `measure` names what `step` returns; callbacks receive it as `{"update": ...}` and `Result.info["history"]` holds it for every step.
-- `__post_init__` checks the parameters, after `super().__post_init__()`.
+- `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction, as it does for the solvers maesolvers ships.
 - `setup` builds what the solve needs once; every later hook takes the problem and this context first.
 - `step` returns the next iterate and its measure, or None when it can make no progress; it must not change the iterate it was given.
 - `finalize` turns the final iterate into a `Solution`, the method's part of the result.
@@ -294,6 +299,8 @@ This one under-relaxes the Poisson iteration.
 
 ```python
 from dataclasses import dataclass
+
+import numpy as np
 
 from maesolvers import PoissonIteration
 
