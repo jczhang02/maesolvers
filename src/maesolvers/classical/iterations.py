@@ -30,16 +30,8 @@ from maesolvers.core._params import positive
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import IterativeSolver, Solution, check_part
 
-_BACKTRACKS = 20
-"""Step lengths the line search tries, 1 down to ``2^-19``, before it gives up.
-
-The shipped presets take at most 11 halvings on the catalogue problems at
-n <= 64 (and the receipts under ``benchmarks/`` do not change). With
-40, a direction that does not decrease the residual (an approximate
-Jacobian, as in the filtered scheme) was taken at ``t`` near ``2^-33``, where
-the sufficient decrease ``1e-4 t`` is below rounding: every step was
-accepted and changed nothing, until ``max_iter``.
-"""
+_BACKTRACKS = 40
+"""Halvings of the Newton step before the line search gives up."""
 
 _SUFFICIENT_DECREASE = 1e-4
 """Armijo constant: a step of length ``t`` must cut the max residual by ``1e-4 t``."""
@@ -273,9 +265,7 @@ class Newton(SchemeIteration):
         tuple or None
             The next unknowns and their max residual. An iterate that already
             meets the stopping criterion (a warm start) is returned unchanged.
-            None when no step length down to ``2^-19`` decreases the max
-            residual sufficiently: at the rounding level, or along a direction
-            that is not one of descent.
+            None when no step length decreases the residual (rounding level).
         """
         r = self._scheme.residual(context, iterate)
         norm = float(np.max(np.abs(r)))
