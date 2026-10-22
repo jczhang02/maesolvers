@@ -186,8 +186,8 @@ class DenseBFGS(torch.optim.Optimizer):
     One iteration of SciPy's ``minimize(method="BFGS")``, with its line
     search. The approximation ``H`` starts as the identity; after each
     iteration, with ``s`` the change of the parameters and ``y`` that of the
-    gradient, ``H <- (I - r s y') H (I - r y s') + r s s'``, ``r = 1 / y's``,
-    skipped when ``y's <= 1e-10``, which keeps ``H`` positive definite. The
+    gradient, ``H <- (I - r s y') H (I - r y s') + r s s'``, ``r = 1 / y's``
+    (1000 if ``y's = 0``), never skipped, as in SciPy. The
     step along ``d = -H g`` comes from SciPy's strong Wolfe line search
     (MINPACK's, with SciPy's second search as a fallback), started at
     ``min(1, 2.02 (f - f_prev) / g'd)``, the step that would repeat the last
@@ -243,14 +243,13 @@ class DenseBFGS(torch.optim.Optimizer):
         if "h" not in state:
             state["h"] = np.eye(len(x))
             state["f"] = f + float(np.linalg.norm(g)) / 2
-        else:
+        else:  # SciPy's update, in SciPy's order of operations
             s, y = x - state["x"], g - state["g"]
             ys = float(y @ s)
-            if ys > 1e-10:
-                h, r = state["h"], 1.0 / ys
-                hy = h @ y
-                h += (r * r * float(y @ hy) + r) * np.outer(s, s)
-                h -= r * (np.outer(hy, s) + np.outer(s, hy))
+            r = 1000.0 if ys == 0.0 else 1.0 / ys
+            left = np.eye(len(x)) - r * np.outer(s, y)
+            right = np.eye(len(x)) - r * np.outer(y, s)
+            state["h"] = left @ (state["h"] @ right) + r * np.outer(s, s)
         d = -(state["h"] @ g)
         previous = state["f"]
         state["x"], state["g"], state["f"] = x, g, f

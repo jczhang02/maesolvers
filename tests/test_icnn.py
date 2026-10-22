@@ -182,7 +182,7 @@ def test_bfgs_minimises_the_rosenbrock_function():
 def test_bfgs_takes_the_iterates_of_scipys_bfgs():
     scipy_optimize = pytest.importorskip("scipy.optimize")
     start = np.array([-1.2, 1.0])
-    steps = 15
+    steps = 25
     reference = scipy_optimize.minimize(
         lambda v: float(_rosenbrock(torch.as_tensor(v))),
         start,
