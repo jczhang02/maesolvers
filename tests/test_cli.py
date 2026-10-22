@@ -54,7 +54,7 @@ def test_solve_writes_the_rerun_config_metrics_and_info(tmp_path):
     )
     result = FDNewton(n=8).solve(T1)
     assert record["run"] == {"solver": result.hparams, "problem": "T1"}
-    assert from_config(record["run"]) == (FDNewton(n=8), T1)
+    assert from_config(record["run"]["solver"]) == FDNewton(n=8)
     assert record["metrics"].keys() == evaluate(result).keys()
     assert record["metrics"]["max"] == pytest.approx(evaluate(result)["max"])
     assert record["info"]["converged"] is True
@@ -64,38 +64,40 @@ def test_solve_writes_the_rerun_config_metrics_and_info(tmp_path):
 def test_keywords_dict_yaml_and_command_line_build_the_same_solver(tmp_path):
     expected = Newton(scheme=Standard9(n=8), tol=1e-9)
     as_dict = {
-        "solver": {
-            "class_path": "Newton",
-            "init_args": {
-                "tol": 1e-9,
-                "scheme": {"class_path": "Standard9", "init_args": {"n": 8}},
-            },
+        "class_path": "Newton",
+        "init_args": {
+            "tol": 1e-9,
+            "scheme": {"class_path": "Standard9", "init_args": {"n": 8}},
         },
-        "problem": "T1",
     }
-    path = tmp_path / "run.yaml"
-    path.write_text(COMPOSED_YAML.replace("n: 16", "n: 8") + "")
-    from_yaml, _ = from_config(path)
+    path = tmp_path / "solver.yaml"
+    path.write_text(
+        textwrap.dedent(
+            """\
+            class_path: Newton
+            init_args:
+              tol: 1e-9
+              scheme:
+                class_path: Standard9
+                init_args:
+                  n: 8
+            """
+        )
+    )
     args = ["--solver", "Newton", "--solver.tol", "1e-9"]
-    args += [
-        "--solver.scheme",
-        "Standard9",
-        "--solver.scheme.n",
-        "8",
-        "--problem",
-        "T1",
-    ]
-    from_cli, _ = from_config(_solve(tmp_path, *args)["run"])
-    assert from_config(as_dict)[0] == expected
-    assert from_yaml == Newton(scheme=Standard9(n=8))
-    assert from_cli == expected
+    args += ["--solver.scheme", "Standard9", "--solver.scheme.n", "8"]
+    from_cli = _solve(tmp_path, *args, "--problem", "T1")["run"]["solver"]
+    assert from_config(as_dict) == expected
+    assert from_config(path) == expected
+    assert from_config(from_cli) == expected
 
 
 def test_an_override_after_the_config_file_wins(tmp_path):
     path = tmp_path / "run.yaml"
     path.write_text(COMPOSED_YAML)
     record = _solve(tmp_path, "--config", str(path), "--solver.scheme.n", "8")
-    assert from_config(record["run"]) == (Newton(scheme=Standard9(n=8)), T1)
+    assert from_config(record["run"]["solver"]) == Newton(scheme=Standard9(n=8))
+    assert record["run"]["problem"] == "T1"
 
 
 def test_the_problem_is_set_on_the_command_line(tmp_path):
@@ -116,6 +118,10 @@ def test_the_problem_is_set_on_the_command_line(tmp_path):
         (["--solver", "FDNewton", "--problem", "T99"], "T99"),
         (["--solver", "FDNewton"], "problem"),
         (["--solver", "FDNewton", "--problem", "T12"], "FDNewton does not support T12"),
+        (
+            ["--solver", "FDNewton", "--problem", "T1", "--output", "/no/dir/out.json"],
+            "output",
+        ),
     ],
     ids=[
         "misspelt key",
@@ -123,6 +129,7 @@ def test_the_problem_is_set_on_the_command_line(tmp_path):
         "unknown problem",
         "no problem",
         "unsupported",
+        "output dir missing",
     ],
 )
 def test_a_bad_argument_exits_with_status_2_and_names_it(capsys, args, message):
@@ -149,7 +156,20 @@ def test_a_printed_config_reruns(tmp_path, capsys):
     printed = tmp_path / "printed.yaml"
     printed.write_text(capsys.readouterr().out)
     record = _solve(tmp_path, "--config", str(printed))
-    assert from_config(record["run"])[0] == Newton(scheme=Standard9(n=16), tol=1e-9)
+    assert from_config(record["run"]["solver"]) == Newton(
+        scheme=Standard9(n=16), tol=1e-9
+    )
+
+
+def test_the_run_of_a_record_is_a_config_file(tmp_path):
+    record = _solve(
+        tmp_path, "--solver", "FDNewton", "--solver.n", "8", "--problem", "T2"
+    )
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(record["run"]))
+    rerun = _solve(tmp_path, "--config", str(path))
+    assert rerun["run"] == record["run"]
+    assert rerun["metrics"] | {"time": 0} == record["metrics"] | {"time": 0}
 
 
 def test_python_dash_m_runs_the_command():
@@ -161,3 +181,93 @@ def test_python_dash_m_runs_the_command():
         check=True,
     ).stdout
     assert out.startswith("FDNewton on T1: converged")
+
+
+def _strict(text):
+    """``json.loads`` that rejects NaN and Infinity, which strict JSON lacks."""
+
+    def reject(token):
+        raise ValueError(f"not strict JSON: {token}")
+
+    return json.loads(text, parse_constant=reject)
+
+
+def test_a_run_that_does_not_converge_is_reported_and_recorded(tmp_path, capsys):
+    args = ["--solver", "FDNewton", "--solver.n", "8", "--solver.max_iter", "1"]
+    output = tmp_path / "out.json"
+    main(["solve", *args, "--problem", "T1", "--output", str(output)])
+    assert capsys.readouterr().out.startswith(
+        "FDNewton on T1: did not converge after 1 iterations"
+    )
+    record = _strict(output.read_text())
+    assert record["info"]["converged"] is False
+    assert record["info"]["iterations"] == 1
+
+
+@pytest.fixture
+def numpy_solver(tmp_path, monkeypatch):
+    """A solver of the user's own whose records hold numpy values and NaN."""
+    (tmp_path / "numpy_solver.py").write_text(
+        textwrap.dedent(
+            """\
+            from dataclasses import dataclass
+            from typing import ClassVar
+
+            import numpy as np
+
+            from maesolvers import Box, Dirichlet, Solution, Solver
+            from maesolvers.core import Trace
+
+
+            def _zero(x):
+                return np.zeros(np.shape(x)[:-1])
+
+
+            @dataclass(frozen=True, kw_only=True)
+            class NumpyRecord(Solver):
+                domains: ClassVar[tuple[type, ...]] = (Box,)
+                boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
+
+                def setup(self, problem):
+                    return None
+
+                def run(self, problem, context, callbacks):
+                    return Trace(
+                        state=None,
+                        iterations=np.int64(1),
+                        converged=np.bool_(True),
+                        history=(np.float64(np.inf),),
+                    )
+
+                def finalize(self, problem, context, state):
+                    info = {"weights": np.arange(3), "eigmin": np.float32(np.nan)}
+                    return Solution(u=_zero, unknowns=np.int64(3), info=info)
+            """
+        )
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    yield
+    sys.modules.pop("numpy_solver", None)
+
+
+def test_numpy_values_and_non_finite_floats_are_written_as_strict_json(
+    numpy_solver, tmp_path
+):
+    output = tmp_path / "out.json"
+    main(
+        [
+            "solve",
+            "--solver",
+            "numpy_solver.NumpyRecord",
+            "--problem",
+            "T1",
+            "--output",
+            str(output),
+        ]
+    )
+    info = _strict(output.read_text())["info"]
+    assert info["iterations"] == 1
+    assert info["converged"] is True
+    assert info["history"] == [None]
+    assert info["weights"] == [0, 1, 2]
+    assert info["eigmin"] is None

@@ -57,7 +57,26 @@ unknowns: 3969
 ```
 
 The same solver comes from keyword arguments, from a dict or YAML file, or from the command line (ADR 0005); the last two need the `cli` extra (`pip install "maesolvers[cli] @ git+https://github.com/jczhang02/maesolvers"`).
-A config names the solver by its `class_path` with its `init_args`, nested parts in the same form, and the problem by its T id.
+A solver configuration names the solver by its `class_path` with its `init_args`, nested parts in the same form; it is the form `Result.hparams` records.
+
+```yaml
+# newton.yaml
+class_path: Newton
+init_args:
+  scheme:
+    class_path: Standard9
+    init_args: {n: 64}
+```
+
+```python
+from maesolvers import T2, from_config
+
+solver = from_config("newton.yaml")  # Newton(scheme=Standard9(n=64))
+result = solver.solve(T2)
+rerun = from_config(result.hparams).solve(result.problem)  # any result reruns
+```
+
+On the command line, a configuration file holds the solver under `solver` and the problem's T id under `problem`.
 
 ```yaml
 # exp.yaml
@@ -70,12 +89,6 @@ solver:
 problem: T2
 ```
 
-```python
-from maesolvers import from_config
-
-solver, problem = from_config("exp.yaml")  # Newton(scheme=Standard9(n=64)), T2
-```
-
 ```sh
 maesolvers solve --config exp.yaml --solver.scheme.n 128 --problem T1 --output t1.json
 maesolvers solve --solver FDNewton --solver.n 64 --problem T1
@@ -83,9 +96,8 @@ maesolvers solve --solver.help Newton  # the parameters of a solver
 ```
 
 A `class_path` is the name of a class maesolvers ships or the dotted import path of any class, a solver of your own included, and a misspelt key is an error.
-An argument after `--config` overrides the file.
-`maesolvers solve` prints `evaluate` as a table, and `--output` writes the metrics, `Result.info` and, under `run`, the config that reruns the result through `from_config`.
-That config is `{"solver": result.hparams, "problem": result.problem.name}`, so any result reruns; on the command line, `--print_config` writes a file that `--config` reads back.
+An argument after `--config` overrides the file, and `--print_config` writes a file that `--config` reads back.
+`maesolvers solve` prints `evaluate` as a table, and `--output` writes the metrics, `Result.info` and, under `run`, a `--config` file that reruns the result, as strict JSON (NaN and infinity as `null`).
 
 A new method subclasses `Solver` (or `IterativeSolver`) and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
 The subclass carries its own `@dataclass(frozen=True, kw_only=True)` decorator (an inherited one does not count, and construction fails without it), declares `domains` and `boundaries` (and `measure` for an `IterativeSolver`), and every hook after `setup` takes the problem and the context first.

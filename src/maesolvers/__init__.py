@@ -5,7 +5,7 @@ condition, exact solution when known), a :class:`Solver` whose
 ``solve(problem)`` returns a :class:`Result` (the solution as a callable plus,
 for grid methods, the nodes, values and discrete Hessian), and
 :func:`maesolvers.metrics.evaluate`, which measures any result the same way.
-:func:`from_config` builds a solver and picks a problem from a configuration
+:func:`from_config` builds a solver from its configuration
 (it needs the ``cli`` extra).
 """
 

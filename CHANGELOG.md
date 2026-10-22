@@ -35,10 +35,13 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.tracking.MLflowLogger`, a callback that logs a solve into the active MLflow run: git tags, the flattened `hparams` and the problem name as parameters at the start; every step's metrics at its step, the numeric fields of `evaluate` and `converged` at the end, after the timed part of the solve; `MLflowLogger.evaluation` keeps that `evaluate`.
   It raises `RuntimeError` without an active run.
   `tracking.flatten(config)` gives the dotted parameter names (`scheme.n`), and `tracking.git_tags()` the git state.
-- `maesolvers.from_config(config)`: builds a solver and picks a catalogue problem from a mapping or a YAML or JSON file with the keys `solver` (a `class_path` with its `init_args`, nested parts in the same form) and `problem` (a T id), and returns `(solver, problem)` (ADR 0005).
-  A `class_path` is a class name maesolvers ships or the dotted path of any `Solver` subclass; `{"solver": result.hparams, "problem": result.problem.name}` rebuilds the solver of a result.
-  A missing or unknown key, a wrong type or an unknown problem raises `ValueError` naming the key, a value a constructor rejects raises what the constructor raises, and a missing file raises `FileNotFoundError`.
-- The `maesolvers` console script (also `python -m maesolvers`) with the subcommand `solve`: `--config FILE`, `--solver` and dotted overrides such as `--solver.scheme.n 128`, `--problem ID`, and `--output FILE`, which writes `run` (the config for `from_config`), `metrics` and `info` as JSON; it prints `evaluate` as a table, and exits with status 2 for a wrong argument or an unsupported problem.
+- `maesolvers.from_config(config) -> Solver`: builds a solver from its configuration, a mapping or a YAML or JSON file with `class_path` and `init_args`, nested parts in the same form (ADR 0005).
+  This is the form `Result.hparams` records, so `from_config(result.hparams).solve(result.problem)` reruns a result; an `init_args` with no value means the defaults.
+  A `class_path` is a class name maesolvers ships or the dotted path of any `Solver` subclass.
+  A missing or unknown key or a wrong type raises `ValueError` naming the key, a value a constructor rejects raises what the constructor raises, and a missing file raises `FileNotFoundError`.
+- The `maesolvers` console script (also `python -m maesolvers`) with the subcommand `solve`: `--config FILE` (keys `solver`, `problem`, `output`), `--solver` and dotted overrides such as `--solver.scheme.n 128`, `--problem ID`, and `--output FILE`.
+  It prints `evaluate` as a table; `--output` writes `run` (a `--config` file that reruns the result), `metrics` and `info` as strict JSON, with numpy values as numbers and lists and NaN and infinity as `null`.
+  It exits with status 2 for a wrong argument, an `--output` path that cannot be created, a value a constructor rejects or an unsupported problem, before any solve.
 - The `cli` extra (jsonargparse >= 4.49), imported only by `from_config` and `maesolvers.cli`; `import maesolvers` imports no extra.
 
 ### Changed
