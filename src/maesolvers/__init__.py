@@ -10,7 +10,7 @@ a result with the shared protocol.
 from maesolvers.domains import Box, Disk, Ellipse
 from maesolvers.problems import CATALOGUE, P1, P2, P3, P4, P5, Problem
 from maesolvers.result import Result
-from maesolvers.solvers import FDNewton
+from maesolvers.solvers import FDNewton, FDPoisson
 
 __all__ = [
     "Box",
@@ -25,4 +25,5 @@ __all__ = [
     "Problem",
     "Result",
     "FDNewton",
+    "FDPoisson",
 ]

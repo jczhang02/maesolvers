@@ -38,14 +38,17 @@ All five are two-dimensional.
 
 | Solver | Method | Domains | Boundary | Convexity |
 |---|---|---|---|---|
-| `FDNewton` | centred finite differences, damped Newton from a Poisson start (Loeper-Rapetti 2005; Benamou-Froese-Oberman 2010) | `Box` | Dirichlet | none guaranteed; checked a posteriori |
+| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
+| `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
+
+Both reproduce the standard-scheme column of Table 3 in Froese-Oberman (JCP 2011, SIAM 2011) to three digits once the grid convention is `h = 1/N`; see `benchmarks/standard_fd.md`.
 
 Planned for 0.1: one monotone wide-stencil scheme, one neural baseline (ICNN), Shortley-Weller boundary handling for disks.
 
 ## Reproduction rule
 
 A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the same order of magnitude.
-`benchmarks/` records the published numbers next to ours.
+`benchmarks/sources.md` records the published numbers, `benchmarks/<method>.md` the comparison with ours.
 A mismatch is recorded as a finding, not tuned away.
 
 ## Development
