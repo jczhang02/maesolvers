@@ -197,6 +197,10 @@ def test_summarize_median_fails_when_more_than_half_fail():
     assert s.median == np.inf and s.q05 == pytest.approx(1e-3)
 
 
+def test_summarize_median_fails_when_exactly_half_fail():
+    assert summarize([{"max": 1e-3}] * 5 + [None] * 5, threshold=1e-2).median == np.inf
+
+
 def test_summarize_reads_the_requested_key():
     s = summarize([{"max": 1.0, "rms": 0.1}], threshold=0.5, key="rms")
     assert s.median == 0.1 and s.success_rate == 1.0

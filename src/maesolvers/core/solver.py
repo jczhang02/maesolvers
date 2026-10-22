@@ -254,6 +254,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
             and the method's own entries.
         """
         self.check(problem)
+        config = self.hparams
         for callback in callbacks:
             callback.on_solve_start(self, problem)
         start = time.perf_counter()
@@ -281,7 +282,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
             values=solution.values,
             node_hessian=solution.node_hessian,
             info=info,
-            hparams=self.hparams,
+            hparams=config,
         )
         for callback in callbacks:
             callback.on_solve_end(self, result)

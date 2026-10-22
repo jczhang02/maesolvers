@@ -198,6 +198,24 @@ def test_a_minimal_solver_plugs_in():
     assert result.hparams["init_args"] == {}
 
 
+def test_a_solver_that_is_not_a_dataclass_fails_before_setup():
+    class Plain(Solver):
+        domains = (Box,)
+        boundaries = (Dirichlet,)
+
+        def setup(self, problem):
+            raise AssertionError("setup must not run")
+
+        def run(self, problem, context, callbacks):
+            raise AssertionError
+
+        def finalize(self, problem, context, state):
+            raise AssertionError
+
+    with pytest.raises(TypeError, match="dataclass"):
+        Plain().solve(P4)
+
+
 def test_solution_info_may_not_override_run_fields():
     @dataclass(frozen=True, kw_only=True)
     class Clashing(Halving):

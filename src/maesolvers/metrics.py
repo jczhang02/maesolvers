@@ -279,7 +279,9 @@ def summarize(
 
     A failed seed (``None``, as for a timeout, or a NaN or infinite error)
     counts with error ``+inf`` and is never dropped, so when more than half
-    the seeds fail the median is ``inf``.
+    the seeds fail the median is ``inf``. With an even number of seeds the
+    median is the mean of the middle two, so exactly half failed also gives
+    ``inf``.
 
     Parameters
     ----------
