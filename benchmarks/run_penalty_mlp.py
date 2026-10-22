@@ -14,12 +14,16 @@ holds two measures of the same network:
   the boundary, where the ansatz ``G + D N`` reduces to the fit ``G`` of the
   boundary data.
 
-Each seed is one MLflow run in maesolvers-penalty-mlp-<problem>; --workers
-seeds train at a time, each in its own process with one CPU thread. Run it
-on a100server from the repository root, with the GPU named by
-CUDA_VISIBLE_DEVICES::
+Each seed is one MLflow run in maesolvers-penalty-mlp-<problem>, named by
+its seed and device; --workers seeds train at a time, each in its own
+process with one CPU thread. The receipts train on the CPU: the network is
+so small that a training step is bound by kernel launches, and on
+a100server one CPU thread (about 70 ms per step) beats an A100 shared by
+four or more processes (about 200 ms; see penalty_mlp.md). Run it on
+a100server from the repository root::
 
-    CUDA_VISIBLE_DEVICES=0 python benchmarks/run_penalty_mlp.py T6
+    python benchmarks/run_penalty_mlp.py T6
+    CUDA_VISIBLE_DEVICES=0 python benchmarks/run_penalty_mlp.py T6 --accelerator gpu
 """
 
 from __future__ import annotations
@@ -84,7 +88,9 @@ def run_seed(problem_id: str, seed: int, max_steps: int, accelerator: str) -> di
     problem = CATALOGUE[problem_id]
     solver = PenaltyMLP(seed=seed, max_steps=max_steps, accelerator=accelerator)
     logger = tracking.MLflowLogger()
-    with tracking.run(f"maesolvers-penalty-mlp-{problem_id}", run_name=f"seed={seed}"):
+    with tracking.run(
+        f"maesolvers-penalty-mlp-{problem_id}", run_name=f"seed={seed} {accelerator}"
+    ):
         result = solver.solve(problem, callbacks=[logger])
         points_max, points_mean = paper_measure(result)
         boundary_max = boundary_error(result)
@@ -127,8 +133,8 @@ def main() -> None:
     parser.add_argument("problem", choices=sorted(CATALOGUE))
     parser.add_argument("--seeds", type=int, nargs="+", default=list(range(10)))
     parser.add_argument("--max-steps", type=int, default=PenaltyMLP.max_steps)
-    parser.add_argument("--accelerator", default="gpu")
-    parser.add_argument("--workers", type=int, default=5)
+    parser.add_argument("--accelerator", default="cpu")
+    parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or HERE / f"penalty_mlp_{args.problem.lower()}.csv"
