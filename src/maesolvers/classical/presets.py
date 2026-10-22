@@ -10,8 +10,9 @@ like every solver they declare their support on the class.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
+from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17
 from maesolvers.classical.schemes import Standard9
@@ -100,8 +101,47 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
+class _SquareBoxCheck:
+    """The ``check`` of a preset whose scheme needs a box with equal sides.
+
+    Listed among a preset's bases before the iteration, whose ``check`` it
+    extends.
+    """
+
+    domains: ClassVar[tuple[type, ...]]
+    boundaries: ClassVar[tuple[type, ...]]
+    dims: ClassVar[tuple[int, ...] | None]
+    scheme: Any  # Monotone17 or Hybrid, set by the preset
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            equal sides when they are what is missing.
+        """
+        if (
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in (self.dims or ())
+            and not self.scheme.supports(problem)
+        ):
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: "
+                f"{type(self.scheme).__name__} needs a Box with equal sides"
+            )
+        super().check(problem)  # type: ignore[misc]
+
+
 @dataclass(frozen=True, kw_only=True)
-class _Monotone17Preset:
+class _Monotone17Preset(_SquareBoxCheck):
     """The fields and support of a preset on :class:`Monotone17`.
 
     Listed first among a preset's bases, so its ``__post_init__`` builds the
@@ -134,32 +174,6 @@ class _Monotone17Preset:
         object.__setattr__(self, "spline_degree", scheme.spline_degree)
         super().__post_init__()  # type: ignore[misc]
 
-    def check(self, problem: Problem) -> None:
-        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
-
-        Parameters
-        ----------
-        problem
-            The problem to solve.
-
-        Raises
-        ------
-        UnsupportedProblemError
-            If the scheme does not support the problem; the message names the
-            equal sides when they are what is missing.
-        """
-        if (
-            isinstance(problem.domain, self.domains)
-            and isinstance(problem.boundary, self.boundaries)
-            and problem.dim in (self.dims or ())
-            and not self.scheme.supports(problem)
-        ):
-            raise UnsupportedProblemError(
-                f"{type(self).__name__} does not support {problem.name}: "
-                "Monotone17 needs a Box with equal sides"
-            )
-        super().check(problem)  # type: ignore[misc]
-
 
 @dataclass(frozen=True, kw_only=True)
 class FDMonotone(_Monotone17Preset, Newton):
@@ -185,6 +199,90 @@ class FDMonotone(_Monotone17Preset, Newton):
     jacobian_floor
         The floor of the Jacobian's factors, times ``1 / (2 h^2)``, as in
         :class:`Monotone17`.
+    max_iter
+        Most Newton steps.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5 and at most ``n``.
+    """
+
+    max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _HybridPreset(_SquareBoxCheck):
+    """The fields and support of a preset on :class:`Hybrid`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = Hybrid.domains
+    boundaries: ClassVar[tuple[type, ...]] = Hybrid.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = Hybrid.dims
+
+    scheme: Hybrid = field(init=False, repr=False)
+    n: int = Hybrid.n
+    stencil: Literal[9, 17, 33] = Hybrid.stencil
+    boundary: Literal["narrow", "interpolate"] = Hybrid.boundary
+    jacobian_floor: float = Hybrid.jacobian_floor
+    spline_degree: int = Hybrid.spline_degree
+    epsilon: float | None = Hybrid.epsilon
+    band: float = Hybrid.band
+
+    def __post_init__(self) -> None:
+        scheme = Hybrid(
+            n=self.n,
+            stencil=self.stencil,
+            boundary=self.boundary,
+            jacobian_floor=self.jacobian_floor,
+            spline_degree=self.spline_degree,
+            epsilon=self.epsilon,
+            band=self.band,
+        )
+        object.__setattr__(self, "scheme", scheme)
+        for name in (
+            "n",
+            "stencil",
+            "jacobian_floor",
+            "spline_degree",
+            "epsilon",
+            "band",
+        ):
+            object.__setattr__(self, name, getattr(scheme, name))
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDHybrid(_HybridPreset, Newton):
+    """The hybrid scheme of Froese-Oberman 2011 solved by damped Newton.
+
+    ``FDHybrid(n=n, stencil=s, epsilon=e, band=b, ...)`` is
+    ``Newton(scheme=Hybrid(n=n, stencil=s, epsilon=e, band=b, ...), ...)``,
+    the column "Hybrid" of Froese-Oberman 2011, Table 3 (J. Comput. Phys.):
+    the standard 9-point scheme where the data are regular, the monotone
+    wide-stencil scheme within ``band`` grid steps of the boundary and of
+    where ``f`` is at most ``epsilon`` or at least ``1 / epsilon``.
+    ``max_iter`` is ``FDMonotone``'s.
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the monotone scheme's stencil: 9, 17 or 33.
+    boundary
+        ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
+    jacobian_floor
+        The floor of the monotone Jacobian's factors, times ``1 / (2 h^2)``,
+        as in :class:`Monotone17`.
+    epsilon
+        The threshold of the switching rule, or None for ``h``.
+    band
+        Radius in grid steps of the monotone neighbourhood, at least 0.
     max_iter
         Most Newton steps.
     tol
