@@ -17,9 +17,9 @@
 
 ## Features
 
-- **One interface**: a `Problem` (domain, right-hand side, boundary condition, exact solution when known), any object with `solve(problem) -> Result`, and a `Result` that carries the solution as a callable plus the method's own nodes, values and discrete Hessian.
+- **One interface**: a `Problem` (domain, right-hand side, a `Dirichlet` or `Transport` boundary condition, exact solution when known), a `Solver` whose `solve(problem) -> Result` runs one fixed lifecycle, and a `Result` that carries the solution as a callable plus, for grid methods, the nodes, values and discrete Hessian.
 - **One catalogue**: test problems `P1` to `P5`, provisional until the research programme fixes its test set, with numbers that are never reused so that tables from different methods line up.
-- **Shared metrics**: `evaluate(result)` reports solution errors at the method's nodes and on a common grid, the equation residual, convexity statistics and cost, the same way for every method.
+- **Shared metrics**: `evaluate(result)` reports the max and RMS errors at the method's nodes (or on the shared grid for methods without nodes), the same errors on the shared grid, convexity statistics, cost and the problem's observables, the same way for every method; `summarize` aggregates seeds and counts failed ones.
 - **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
 - **Light dependencies**: numpy and scipy only; torch arrives with the `neural` extra and the neural solvers.
 
@@ -43,20 +43,19 @@ print(evaluate(result))
 ```
 
 ```text
-rel_l2_nodes: 6.31e-06       # relative L2 error at the method's own nodes
-max_nodes: 1.68e-05          # max error at the nodes (the number papers print)
-rel_l2_grid: 6.39e-06        # the same two errors on the shared 201 x 201 grid
-max_grid: 1.68e-05
-residual_rms: 3.12e-12       # det D^2 u_h - f, RMS and max, with the method's own Hessian
-residual_max: 2.07e-11
-eigmin_min: 1                # smallest Hessian eigenvalue over the nodes
-nonconvex_fraction: 0        # share of nodes where it is negative
-time: 0.0809                 # seconds
+max: 1.68e-05                # max error at the method's own nodes (the number papers print)
+rms: 9.27e-06                # RMS error at the nodes
+max_grid: 1.68e-05           # the same two errors on the shared 201 x 201 grid, a secondary value
+rms_grid: 9.37e-06
+nonconvex_fraction: 0        # share of interior nodes with a negative Hessian eigenvalue
+eigmin: 1                    # smallest eigenvalue of the discrete Hessian there
+eigmin_exact: 1              # and of the exact solution's Hessian at the same nodes
+time: 0.06                   # seconds
 iterations: 4
 unknowns: 3969
 ```
 
-Any object with a `solve(problem)` method that returns a `Result` plugs into the same `evaluate`, so a new method is one class away from the comparison table.
+A new method subclasses `Solver` (or `IterativeSolver`) as a frozen dataclass and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
 
 ## Test problems
 
