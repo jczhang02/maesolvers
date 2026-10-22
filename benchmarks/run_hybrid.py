@@ -7,10 +7,11 @@ on the cone T21, which the catalogue lacks; run_monotone17.py builds it.
 
 With --checks it writes hybrid_checks.csv instead, the evidence for the
 design choices and the findings of hybrid.md: Section 8.1 of the paper
-(Newton on the standard and on the hybrid scheme, from the exact solution
-and from the Poisson start, on T2); the width of the monotone band on T1 and
-T20; and the error after each Newton step on T1 at the coarse grids, against
-the paper's iteration counts (Table 1).
+(Newton on the standard and on the hybrid scheme, from the exact solution,
+with and without the line search, and from the Poisson start, on T2); the
+width of the monotone band on T1 and T20; and the error after each Newton
+step on T1 at the coarse grids, against the paper's iteration counts
+(Table 1).
 
 Every solve is one MLflow run in maesolvers-hybrid-<problem> unless
 --no-mlflow is given. The solves run in --processes worker processes
@@ -33,6 +34,7 @@ from typing import Any
 
 import numpy as np
 from run_monotone17 import JCP_N, cone, printed, published_value, write
+from scipy.sparse.linalg import spsolve
 
 from maesolvers import (
     T1,
@@ -81,6 +83,21 @@ class ExactStart(Newton):
         grid = context.monotone if isinstance(self.scheme, Hybrid) else context
         assert problem.exact is not None
         return problem.exact(grid.nodes[grid.interior])
+
+
+@dataclass(frozen=True, kw_only=True)
+class UndampedExactStart(ExactStart):
+    """Full Newton steps, no line search, from the exact solution."""
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """One full Newton step; its max residual, inf if not finite."""
+        scheme: Any = self.scheme
+        r = scheme.residual(context, iterate)
+        new = iterate + spsolve(scheme.jacobian(context, iterate), -r)
+        norm = float(np.max(np.abs(scheme.residual(context, new))))
+        return new, norm if np.isfinite(norm) else float("inf")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -172,6 +189,8 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         scheme = Standard9(n=N) if scheme_name == "standard" else Hybrid(n=N)
         if start == "exact":
             solver: Solver = ExactStart(scheme=scheme, max_iter=200)
+        elif start == "exact, undamped":
+            solver = UndampedExactStart(scheme=scheme, max_iter=20)
         elif start == "poisson":
             solver = Newton(scheme=scheme, max_iter=200)
         else:  # "monotone"
@@ -216,6 +235,7 @@ CHECK_TASKS: list[tuple[str, str, int, Any]] = [
         for N in (31, 63, 127)
         for scheme, start in (
             ("standard", "exact"),
+            ("standard", "exact, undamped"),
             ("standard", "poisson"),
             ("hybrid", "exact"),
             ("hybrid", "poisson"),
