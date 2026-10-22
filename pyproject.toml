@@ -28,7 +28,11 @@ maesolvers = "maesolvers.cli:main"
 Repository = "https://github.com/jczhang02/maesolvers"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+    "pyright[nodejs]>=1.1.400",
+    "pytest>=8",
+    "ruff>=0.6",
+]
 # Experiment logging on a100server (see CLAUDE.md, Experiments); not a library dependency.
 experiments = ["mlflow>=3.4"]
 
@@ -46,6 +50,12 @@ packages = ["src/maesolvers"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "standard"
+# The oldest Python the package supports, whatever the interpreter running pyright.
+pythonVersion = "3.10"
 
 [tool.ruff]
 line-length = 88

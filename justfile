@@ -29,10 +29,11 @@ fmt:
     uv run ruff format .
     uv run ruff check --fix .
 
-# Check formatting, lint and tests, as CI does: tests without extras, then with cli
+# Check formatting, lint, types and tests, as CI does: tests without extras, then with cli
 check:
     uv run --exact ruff format --check .
     uv run --exact ruff check --no-fix .
+    uv run --exact --extra cli --group experiments pyright
     uv run --exact pytest -q
     uv run --exact --extra cli pytest -q
 

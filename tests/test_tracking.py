@@ -166,6 +166,16 @@ def test_logger_needs_an_active_run(monkeypatch):
         FDNewton(n=8).solve(T1, callbacks=[tracking.MLflowLogger()])
 
 
+def test_logger_needs_the_run_until_the_end(monkeypatch):
+    fake = FakeMLflow().install(monkeypatch)
+    solver, logger = FDNewton(n=8), tracking.MLflowLogger()
+    logger.on_solve_start(solver, T1)
+    logger.on_step_end(solver, 1, {"residual": 1.0})
+    fake.active = False
+    with pytest.raises(RuntimeError, match=re.escape("tracking.run")):
+        logger.on_solve_end(solver, solver.solve(T1))
+
+
 def test_run_sets_the_experiment_tags_and_params(monkeypatch):
     fake = FakeMLflow().install(monkeypatch)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:/nowhere")

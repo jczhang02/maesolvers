@@ -138,6 +138,19 @@ def flatten(config: Any, prefix: str = "") -> dict[str, Any]:
     return out
 
 
+def _active_run_id() -> str:
+    """Return the id of the active MLflow run, or raise RuntimeError without one."""
+    import mlflow
+
+    active = mlflow.active_run()
+    if active is None:
+        raise RuntimeError(
+            "MLflowLogger logs into the active MLflow run; open one with "
+            "maesolvers.tracking.run(experiment)"
+        )
+    return active.info.run_id
+
+
 class MLflowLogger(Callback):
     """Log a solve into the active MLflow run.
 
@@ -160,7 +173,7 @@ class MLflowLogger(Callback):
     Raises
     ------
     RuntimeError
-        At the start of a solve, if no MLflow run is active.
+        At the start or the end of a solve, if no MLflow run is active.
     """
 
     def __init__(self) -> None:
@@ -171,11 +184,7 @@ class MLflowLogger(Callback):
         """Tag the run and log the hyperparameters and the problem."""
         import mlflow
 
-        if mlflow.active_run() is None:
-            raise RuntimeError(
-                "MLflowLogger logs into the active MLflow run; open one with "
-                "maesolvers.tracking.run(experiment)"
-            )
+        _active_run_id()
         self._steps = []
         mlflow.set_tags(git_tags())
         mlflow.log_params({**flatten(solver.hparams), "problem": problem.name})
@@ -196,8 +205,7 @@ class MLflowLogger(Callback):
 
         if self._steps:
             mlflow.MlflowClient().log_batch(
-                mlflow.active_run().info.run_id,
-                metrics=[Metric(*step) for step in self._steps],
+                _active_run_id(), metrics=[Metric(*step) for step in self._steps]
             )
             self._steps = []
         self.evaluation = evaluate(result)
