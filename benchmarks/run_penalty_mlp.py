@@ -9,11 +9,15 @@ holds two measures of the same network:
   shared evaluation grid of ADR 0007, the primary error of the library;
 - ``points_max``, ``points_mean``: the paper's measure, max and mean
   absolute error at 10^6 uniform random points inside the domain, drawn
-  once from the fixed generator seed POINTS_SEED (Section 4.6 of the paper).
+  once from the fixed generator seed POINTS_SEED (Section 4.6 of the paper);
+- ``boundary_max``: the max absolute error at 10^5 uniform random points on
+  the boundary, where the ansatz ``G + D N`` reduces to the fit ``G`` of the
+  boundary data.
 
-Each seed is one MLflow run in maesolvers-penalty-mlp-<problem>. Run it on
-a100server from the repository root, with the GPU named by
-CUDA_VISIBLE_DEVICES and at most 16 CPU threads in all::
+Each seed is one MLflow run in maesolvers-penalty-mlp-<problem>; --workers
+seeds train at a time, each in its own process with one CPU thread. Run it
+on a100server from the repository root, with the GPU named by
+CUDA_VISIBLE_DEVICES::
 
     CUDA_VISIBLE_DEVICES=0 python benchmarks/run_penalty_mlp.py T6
 """
@@ -46,6 +50,7 @@ FIELDS = (
     "grid_rms",
     "points_max",
     "points_mean",
+    "boundary_max",
     "nonconvex_fraction",
     "iterations",
     "stop",
@@ -63,6 +68,14 @@ def paper_measure(result, n: int = POINTS) -> tuple[float, float]:
     return float(np.max(error)), float(np.mean(error))
 
 
+def boundary_error(result, n: int = POINTS // 10) -> float:
+    """Max absolute error at ``n`` uniform random boundary points."""
+    problem = result.problem
+    rng = np.random.default_rng(POINTS_SEED)
+    points = problem.domain.sample_boundary(n, rng)
+    return float(np.max(np.abs(result.u(points) - problem.exact(points))))
+
+
 def run_seed(problem_id: str, seed: int, max_steps: int, accelerator: str) -> dict:
     """Train one seed, log it to MLflow, and return its CSV row."""
     import torch
@@ -74,9 +87,16 @@ def run_seed(problem_id: str, seed: int, max_steps: int, accelerator: str) -> di
     with tracking.run(f"maesolvers-penalty-mlp-{problem_id}", run_name=f"seed={seed}"):
         result = solver.solve(problem, callbacks=[logger])
         points_max, points_mean = paper_measure(result)
+        boundary_max = boundary_error(result)
         import mlflow
 
-        mlflow.log_metrics({"points_max": points_max, "points_mean": points_mean})
+        mlflow.log_metrics(
+            {
+                "points_max": points_max,
+                "points_mean": points_mean,
+                "boundary_max": boundary_max,
+            }
+        )
     metrics = logger.evaluation or evaluate(result)
     info = result.info
     return {
@@ -86,6 +106,7 @@ def run_seed(problem_id: str, seed: int, max_steps: int, accelerator: str) -> di
         "grid_rms": metrics["rms"],
         "points_max": points_max,
         "points_mean": points_mean,
+        "boundary_max": boundary_max,
         "nonconvex_fraction": metrics["nonconvex_fraction"],
         "iterations": info["iterations"],
         "stop": info["stop"],
@@ -107,7 +128,7 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, nargs="+", default=list(range(10)))
     parser.add_argument("--max-steps", type=int, default=PenaltyMLP.max_steps)
     parser.add_argument("--accelerator", default="gpu")
-    parser.add_argument("--workers", type=int, default=10)
+    parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or HERE / f"penalty_mlp_{args.problem.lower()}.csv"
@@ -126,7 +147,7 @@ def main() -> None:
             writer.writerow(
                 {k: f"{v:.6e}" if isinstance(v, float) else v for k, v in row.items()}
             )
-    for key in ("grid_max", "grid_rms", "points_max", "points_mean"):
+    for key in ("grid_max", "grid_rms", "points_max", "points_mean", "boundary_max"):
         print(f"{args.problem} {key}: {band([r[key] for r in rows])}")
     stops = [r["stop"] for r in rows]
     print(f"stops: {dict((s, stops.count(s)) for s in sorted(set(stops)))}")
