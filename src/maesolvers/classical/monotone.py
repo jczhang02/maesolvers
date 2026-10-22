@@ -22,25 +22,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, cast
 
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical.schemes import (
-    Scheme,
-    _interior_mask,
-    _spline,
-    difference_operators,
-)
+from maesolvers.classical._grid import interior_mask, spline
+from maesolvers.classical.schemes import Scheme, difference_operators
 from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, Field
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
 
-STENCIL_WIDTHS: dict[int, int] = {9: 1, 17: 2, 33: 3}
+_STENCIL_WIDTHS: dict[int, int] = {9: 1, 17: 2, 33: 3}
 """Stencil size in points to its width, the largest index offset of a neighbour."""
 
 
@@ -70,9 +66,9 @@ def stencil_pairs(points: int) -> np.ndarray:
     ValueError
         If ``points`` is not 9, 17 or 33.
     """
-    if points not in STENCIL_WIDTHS:
+    if points not in _STENCIL_WIDTHS:
         raise ValueError(f"stencil must be 9, 17 or 33 points, got {points!r}")
-    width = STENCIL_WIDTHS[points]
+    width = _STENCIL_WIDTHS[points]
     first = [
         (a, b)
         for a in range(1, width + 1)
@@ -200,8 +196,8 @@ def pair_jacobian_coefficients(
     The derivative in ``a`` is ``max(b, floor)`` where ``a >= 0`` and
     ``kappa`` where ``a < 0``, and likewise in ``b``: an element of the
     generalised (Clarke) Jacobian, with the other factor kept at least
-    ``floor``, as Froese and Oberman (2011, Section 5.3) do, so that the
-    Newton matrix stays an M-matrix where that factor vanishes.
+    ``floor``, as Froese and Oberman (2011, Section 5.3) do, so that minus
+    the Newton matrix stays an M-matrix where that factor vanishes.
 
     Parameters
     ----------
@@ -253,7 +249,8 @@ class MonotoneGrid:
     available
         Shape ``(pairs, m)``: where a pair enters the minimum.
     kappa
-        The slope of :func:`pair_values` below zero, shape ``(m,)``.
+        The slope of :func:`pair_values` below zero, shape ``(m,)``:
+        ``sqrt(max(f, mean f, 1))``.
     floor
         The Jacobian floor, ``jacobian_floor / (2 h^2)``.
     laplace
@@ -287,11 +284,15 @@ class Monotone17(Scheme):
     an orthogonal pair of the stencil (:func:`stencil_pairs`). The scheme is
     monotone and its solutions converge to the viscosity solution; its
     accuracy is limited by the angular resolution of the stencil as well as
-    by ``h``. Below zero each pair's value continues with a positive slope
-    (:func:`pair_values`). That leaves the value of every discretely convex
-    grid function unchanged and makes the convex solutions the only roots;
+    by ``h``. Below zero each pair's value continues with the slope
+    ``kappa = sqrt(max(f, mean f, 1))`` (:func:`pair_values`). That leaves
+    the value of every discretely convex grid function unchanged, and a root
+    has no negative second difference in any pair that enters the minimum;
     without it, where ``f = 0`` any grid function with a negative second
-    difference solves the equation.
+    difference in every pair solves the equation. As ``kappa >= 1``, a
+    negative second difference ``a`` adds at least ``|a|`` to the residual,
+    so ``Newton``'s stopping rule cannot accept a non-convex iterate that
+    is not a root.
 
     Parameters
     ----------
@@ -333,7 +334,7 @@ class Monotone17(Scheme):
     dims: ClassVar[tuple[int, ...]] = (2,)
 
     n: int = 64
-    stencil: int = 17
+    stencil: Literal[9, 17, 33] = 17
     boundary: Literal["narrow", "interpolate"] = "narrow"
     jacobian_floor: float = 1e-12
     spline_degree: int = 3
@@ -353,7 +354,7 @@ class Monotone17(Scheme):
                 f"got {spline_degree}"
             )
         object.__setattr__(self, "n", n)
-        object.__setattr__(self, "stencil", stencil)
+        object.__setattr__(self, "stencil", cast(Literal[9, 17, 33], stencil))
         object.__setattr__(
             self, "jacobian_floor", positive("jacobian_floor", self.jacobian_floor)
         )
@@ -400,6 +401,8 @@ class Monotone17(Scheme):
         ------
         UnsupportedProblemError
             If :meth:`supports` is False.
+        ValueError
+            If ``f`` is negative or not finite at an interior node.
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
@@ -411,7 +414,7 @@ class Monotone17(Scheme):
         x = np.linspace(box.lo[0], box.hi[0], n + 1)
         y = np.linspace(box.lo[1], box.hi[1], n + 1)
         nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = _interior_mask(n).ravel()
+        interior = interior_mask(n).ravel()
         pairs = stencil_pairs(self.stencil)
         parts = [
             directional_difference(x, y, (int(a), int(b)), g)
@@ -425,6 +428,11 @@ class Monotone17(Scheme):
         else:
             available = np.ones((len(pairs), (n - 1) ** 2), dtype=bool)
         f = problem.f(nodes[interior])
+        if not np.all(np.isfinite(f)) or np.any(f < 0):
+            raise ValueError(
+                f"Monotone17 needs a finite f >= 0 at the interior nodes, and "
+                f"{problem.name} has f from {np.min(f)} to {np.max(f)} there"
+            )
         h = float(x[1] - x[0])
         floor = self.jacobian_floor / (2.0 * h * h)
         return MonotoneGrid(
@@ -438,7 +446,7 @@ class Monotone17(Scheme):
             operators=sp.csr_matrix(sp.vstack(operators)),
             data=np.array([part[1] for part in parts]).reshape(shape),
             available=available,
-            kappa=np.maximum(np.sqrt(np.maximum(f, np.mean(f))), floor),
+            kappa=np.sqrt(np.maximum(np.maximum(f, np.mean(f)), 1.0)),
             floor=floor,
             laplace=factorized((operators[0] + operators[1]).tocsc()),
         )
@@ -495,7 +503,7 @@ class Monotone17(Scheme):
         return _available_values(grid, d).min(axis=0) - grid.f
 
     def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
-        """Return a generalised Jacobian of :meth:`residual`, an M-matrix.
+        """Return a generalised Jacobian ``J`` of :meth:`residual`; ``-J`` is an M-matrix.
 
         At each node the pair that attains the minimum is differentiated
         (Danskin's theorem) with the coefficients of
@@ -573,7 +581,7 @@ class Monotone17(Scheme):
         hess[grid.interior, 1, 1] = dyy @ values
         hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = dxy @ values
         return Solution(
-            u=_spline(grid.x, grid.y, values, self.spline_degree),
+            u=spline(grid.x, grid.y, values, self.spline_degree),
             nodes=grid.nodes,
             values=values,
             node_hessian=hess,

@@ -1,4 +1,4 @@
-"""Regenerate monotone17.csv and monotone17_iterates.csv.
+"""Regenerate monotone17.csv and monotone17_iterates.csv, or monotone17_checks.csv.
 
 Runs FDMonotone on T1, T2 and T20 over the grid sizes of Froese-Oberman,
 J. Comput. Phys. 230 (2011), Table 3 (the SIAM J. Numer. Anal. 49 (2011)
@@ -6,13 +6,24 @@ Table 3 sizes are a subset), with the 9-, 17- and 33-point stencils and both
 boundary treatments, the 17-point stencil also with h = 1/(N - 1), and on the
 cone T21, which the catalogue lacks and this script builds for each grid.
 Then it runs Newton from the papers' start for 1 to 8 steps on the coarse
-grids (monotone17.md, Finding 2). Every solve is
-one MLflow run in maesolvers-monotone17-<problem> unless --no-mlflow is
-given. The solves run in --processes worker processes (default 12), so set
-one thread each. Run it on a100server from the repository root::
+grids (monotone17.md, Finding 2).
+
+With --checks it writes monotone17_checks.csv instead, the evidence for the
+design choices and the T20 finding: Newton on the bare positive-part scheme
+(kappa = 0, the papers' floored Jacobian) from two starts; Newton on the
+papers' regularised scheme MA^delta for several delta; the standard scheme
+under the Poisson iteration on T20; and the papers' Jacobian floor at
+N = 181.
+
+Every solve is one MLflow run in maesolvers-monotone17-<problem> unless
+--no-mlflow is given. The solves run in --processes worker processes
+(default 12), so set one thread each. Run it on a100server from the
+repository root::
 
     just remote-bg monotone17 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
         python benchmarks/run_monotone17.py
+    just remote-bg monotone17-checks env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+        python benchmarks/run_monotone17.py --checks --processes 4
 """
 
 from __future__ import annotations
@@ -25,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import scipy.sparse as sp
 
 from maesolvers import (
     T1,
@@ -33,12 +45,15 @@ from maesolvers import (
     Box,
     Dirichlet,
     FDMonotone,
+    FDPoisson,
     Monotone17,
     Newton,
     Problem,
+    Result,
     Solver,
     tracking,
 )
+from maesolvers.classical.monotone import MonotoneGrid
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -144,16 +159,120 @@ class PapersStartNewton(Newton):
         return scheme.solve_laplace(context, np.sqrt(2.0 * scheme.rhs(context)))
 
 
-def solve(solver: Solver, problem: Problem, run_name: str, log: bool) -> dict[str, Any]:
-    """Solve, log to MLflow if ``log``, and return ``evaluate`` with the result's info."""
+def _jacobian(grid: MonotoneGrid, weights: np.ndarray) -> sp.csc_matrix:
+    """``sum over pairs p and directions k of diag(weights[p, k]) D_pk``."""
+    weights = weights.ravel()
+    m = grid.f.size
+    rows = np.tile(np.arange(m), 2 * grid.pairs)
+    collapse = sp.csr_matrix(
+        (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
+    )
+    return sp.csc_matrix(collapse @ grid.operators)
+
+
+@dataclass(frozen=True, kw_only=True)
+class BareMonotone17(Monotone17):
+    """Froese and Oberman's scheme as printed: min over pairs of a^+ b^+ = f.
+
+    No slope below zero (kappa = 0), and their Jacobian (SINUM Section 5):
+    Danskin's theorem on the active pair, each factor max(D u, floor) whatever
+    its sign, with their floor 1e-8 / (2 h^2) (Section 5.3).
+    """
+
+    jacobian_floor: float = 1e-8
+
+    def residual(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
+        """``min over available pairs of a^+ b^+ - f``."""
+        return self._bare(grid, v).min(axis=0) - grid.f
+
+    def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
+        """The papers' floored Danskin Jacobian."""
+        d = self.directional_differences(grid, v)
+        chosen = np.arange(grid.pairs)[:, None] == self._bare(grid, v).argmin(axis=0)
+        weights = np.maximum(d[:, ::-1], grid.floor) * chosen[:, None, :]
+        return _jacobian(grid, weights)
+
+    def _bare(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
+        d = self.directional_differences(grid, v)
+        values = np.maximum(d[:, 0], 0.0) * np.maximum(d[:, 1], 0.0)
+        return np.where(grid.available, values, np.inf)
+
+
+def _smooth_max0(a: np.ndarray, delta: float) -> tuple[np.ndarray, np.ndarray]:
+    """max^delta(a, 0) = (a + sqrt(a^2 + delta^2)) / 2 and its derivative, stably."""
+    s = np.hypot(a, delta)
+    gap = delta**2 / (2.0 * (s + np.abs(a)))  # (s - |a|) / 2
+    slope = gap / s  # (1 - |a| / s) / 2
+    return np.maximum(a, 0.0) + gap, np.where(a >= 0.0, 1.0 - slope, slope)
+
+
+def _smooth_min(
+    x: np.ndarray, y: np.ndarray, delta: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """min^delta(x, y) = (x + y - sqrt((x - y)^2 + delta^2)) / 2 and its partials."""
+    t = x - y
+    s = np.hypot(t, delta)
+    gap = delta**2 / (2.0 * (s + np.abs(t)))
+    slope = gap / s
+    dx = np.where(t <= 0.0, 1.0 - slope, slope)
+    return np.minimum(x, y) - gap, dx, 1.0 - dx
+
+
+@dataclass(frozen=True, kw_only=True)
+class SmoothMonotone17(Monotone17):
+    """The regularised scheme (MA)^delta of SINUM Section 3.5.
+
+    Each positive part is max^delta(D u, 0) and the minimum over the pairs a
+    succession of min^delta, in the order of stencil_pairs, over the pairs
+    available at the node. Smooth, so its Jacobian is the exact one.
+    """
+
+    delta: float = 1e-2
+
+    def residual(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
+        """``MA^delta[u] - f``."""
+        return self._value_and_weights(grid, v)[0] - grid.f
+
+    def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
+        """The Jacobian of :meth:`residual`."""
+        return _jacobian(grid, self._value_and_weights(grid, v)[1])
+
+    def _value_and_weights(
+        self, grid: MonotoneGrid, v: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        d = self.directional_differences(grid, v)
+        plus, dplus = _smooth_max0(d, self.delta)
+        products = plus[:, 0] * plus[:, 1]
+        # d products[p] / d d[p, k]
+        local = dplus * plus[:, ::-1]
+        # value, and its derivative in each pair's product, built pair by pair
+        value = np.full(grid.f.size, np.nan)
+        dvalue = np.zeros((grid.pairs, grid.f.size))
+        for p in range(grid.pairs):
+            use = grid.available[p]
+            first = use & np.isnan(value)
+            value[first] = products[p, first]
+            dvalue[p, first] = 1.0
+            more = use & ~first
+            new, dx, dy = _smooth_min(value[more], products[p, more], self.delta)
+            value[more] = new
+            dvalue[:, more] *= dx
+            dvalue[p, more] = dy
+        return value, dvalue[:, None, :] * local
+
+
+def solve(
+    solver: Solver, problem: Problem, run_name: str, log: bool
+) -> tuple[dict[str, Any], Result]:
+    """Solve and log to MLflow if ``log``; ``evaluate`` with the info, and the result."""
     if not log:
         result = solver.solve(problem)
-        return {**evaluate(result), **result.info}
+        return {**evaluate(result), **result.info}, result
     logger = tracking.MLflowLogger()
     with tracking.run(f"maesolvers-monotone17-{problem.name}", run_name=run_name):
         result = solver.solve(problem, callbacks=[logger])
     assert logger.evaluation is not None  # set when the solve ends
-    return {**logger.evaluation, **result.info}
+    return {**logger.evaluation, **result.info}, result
 
 
 def sequence(task: tuple[str, int, str, bool]) -> list[dict[str, Any]]:
@@ -174,7 +293,7 @@ def sequence(task: tuple[str, int, str, bool]) -> list[dict[str, Any]]:
         problem = cone(n) if name == "T21" else {"T1": T1, "T2": T2, "T20": T20}[name]
         solver = FDMonotone(n=n, stencil=stencil, boundary=boundary)
         run_name = f"N={N} h={convention} stencil={stencil} {boundary}"
-        m = solve(solver, problem, run_name, log)
+        m, _ = solve(solver, problem, run_name, log)
         sinum = (
             SINUM[(name, stencil)][SINUM_N.index(N)]
             if N in SINUM_N and (name, stencil) in SINUM
@@ -216,7 +335,7 @@ def iterates(task: tuple[str, int, bool]) -> list[dict[str, Any]]:
                 scheme=Monotone17(n=N, stencil=stencil), max_iter=steps
             )
             run_name = f"N={N} stencil={stencil} papers start, {steps} steps"
-            m = solve(solver, problem, run_name, log)
+            m, _ = solve(solver, problem, run_name, log)
             rows.append(
                 {
                     "problem": name,
@@ -230,6 +349,88 @@ def iterates(task: tuple[str, int, bool]) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+def checks(task: tuple[str, str, int, int, Any, bool]) -> dict[str, Any]:
+    """One row of monotone17_checks.csv.
+
+    ``task`` is (check, problem, N, stencil, variant, log); the variant is the
+    start for "bare", delta for "delta", the floor for "floor", unused else.
+    """
+    check, name, N, stencil, variant, log = task
+    problem = {"T1": T1, "T2": T2, "T20": T20}[name]
+    start, delta, floor = "", "", ""
+    if check == "bare":
+        start = variant
+        start_class = PapersStartNewton if variant == "papers" else Newton
+        solver: Solver = start_class(
+            scheme=BareMonotone17(n=N, stencil=stencil), max_iter=200
+        )
+        floor = 1e-8
+    elif check == "delta":
+        delta = variant
+        solver = Newton(
+            scheme=SmoothMonotone17(n=N, stencil=stencil, delta=variant), max_iter=200
+        )
+    elif check == "poisson":
+        solver = FDPoisson(n=N)
+    else:  # "floor"
+        floor = variant
+        solver = Newton(
+            scheme=Monotone17(n=N, stencil=stencil, jacobian_floor=variant),
+            max_iter=1000,
+        )
+    run_name = f"check={check} N={N} stencil={stencil} variant={variant}"
+    m, result = solve(solver, problem, run_name, log)
+    print(f"{name} {run_name}: max {m['max']:.4g} its {m['iterations']}", flush=True)
+    min_difference: Any = ""
+    if check != "poisson":
+        scheme: Any = solver.scheme  # type: ignore[attr-defined]
+        grid = scheme.discretize(problem)
+        d = scheme.directional_differences(grid, result.values[grid.interior])
+        min_difference = float(
+            d[np.broadcast_to(grid.available[:, None], d.shape)].min()
+        )
+    return {
+        "check": check,
+        "problem": name,
+        "N": N,
+        "stencil": stencil if check != "poisson" else 9,
+        "start": start,
+        "delta": delta,
+        "jacobian_floor": floor,
+        "max_err_nodes": m["max"],
+        "iterations": m["iterations"],
+        "converged": m["converged"],
+        "residual_max": m["residual_max"],
+        "min_available_difference": min_difference,
+        "nonconvex_fraction": m["nonconvex_fraction"],
+        "time_s": f"{m['time']:.2f}",
+    }
+
+
+CHECK_TASKS: list[tuple[str, str, int, int, Any]] = [
+    *(("floor", "T20", 181, 17, floor) for floor in (1e-8, 1e-12)),  # slowest first
+    *(
+        ("bare", name, N, stencil, start)
+        for name, N, stencil in (
+            ("T20", 31, 9),
+            ("T20", 31, 17),
+            ("T20", 31, 33),
+            ("T20", 63, 17),
+            ("T2", 31, 17),
+            ("T1", 31, 17),
+        )
+        for start in ("ours", "papers")
+    ),
+    *(
+        ("delta", name, N, 17, delta)
+        for name, N in (("T20", 31), ("T20", 63), ("T1", 31))
+        for delta in (1.0, 1e-1, 1e-2, 1e-3, 1e-4)
+    ),
+    *(("poisson", "T20", N, 9, "") for N in (31, 45, 63)),
+]
+"""(check, problem, N, stencil, variant) of every row of monotone17_checks.csv."""
 
 
 def write(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -250,8 +451,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
     parser.add_argument("--processes", type=int, default=12, help="worker processes")
+    parser.add_argument(
+        "--checks", action="store_true", help="write monotone17_checks.csv only"
+    )
     args = parser.parse_args()
     log = not args.no_mlflow
+    if args.checks:
+        with Pool(args.processes) as pool:
+            rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
+        write(HERE / "monotone17_checks.csv", rows)
+        return
     main_tasks = [
         (name, stencil, boundary, log)
         for name in ("T1", "T2", "T20", "T21")

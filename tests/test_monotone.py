@@ -214,26 +214,121 @@ def test_solve_laplace_keeps_the_dirichlet_data():
     np.testing.assert_allclose(v, _quadratic(grid.nodes[grid.interior]), atol=1e-12)
 
 
-@pytest.mark.parametrize("problem", [T1, T2, T20])
-def test_newton_reaches_a_discretely_convex_root_that_does_not_depend_on_kappa(problem):
-    scheme = Monotone17(n=16, stencil=17)
-    result = Newton(scheme=scheme, max_iter=200).solve(problem)
-    assert result.info["converged"]
-    grid = scheme.discretize(problem)
-    v = result.values[grid.interior]
+def _ridge(x):
+    return np.abs(np.asarray(x, dtype=float)[..., 0] - 0.5)
+
+
+RIDGE = Problem(
+    "ridge",
+    Box((0.0, 0.0), (1.0, 1.0)),
+    _constant(0.0),
+    Dirichlet(_ridge),
+    exact=_ridge,
+)
+"""``f = 0`` with convex, non-harmonic data: the root is the convex envelope."""
+
+
+def _available_differences(scheme, grid, v):
     d = scheme.directional_differences(grid, v)
-    assert d[np.broadcast_to(grid.available[:, None], d.shape)].min() > -1e-8
-    scaled = dataclasses.replace(grid, kappa=10.0 * grid.kappa)
-    scale = max(1.0, float(grid.f.max()))
-    assert np.abs(scheme.residual(scaled, v)).max() <= 1e-8 * scale
+    return d[np.broadcast_to(grid.available[:, None], d.shape)]
 
 
-def test_the_bare_positive_part_scheme_has_non_convex_roots_where_f_vanishes():
-    """Why pair_values continues below zero: a^+ b^+ = 0 for any concave pair."""
-    concave = np.full((2, 2, 1), -1.0)
-    bare = np.maximum(concave[:, 0], 0) * np.maximum(concave[:, 1], 0)
-    assert bare.min() == 0.0
-    assert pair_values(concave, np.ones(1)).min() < 0.0
+@pytest.mark.parametrize("n", [5, 6, 12, 31])
+@pytest.mark.parametrize("stencil", [9, 17, 33])
+def test_newton_reaches_the_convex_envelope_where_f_vanishes(n, stencil):
+    """The ridge lies between nodes for odd ``n`` and on them for even ``n``."""
+    scheme = Monotone17(n=n, stencil=stencil)
+    result = Newton(scheme=scheme, max_iter=200).solve(RIDGE)
+    assert result.info["converged"]
+    grid = scheme.discretize(RIDGE)
+    assert _available_differences(scheme, grid, result.values[grid.interior]).min() > (
+        -1e-8
+    )
+    assert evaluate(result)["max"] < 1e-9
+
+
+def _newton_from(solver, problem, grid, v):
+    """Run the solver's step hook from ``v`` on ``grid`` until it converges."""
+    for _ in range(solver.max_iter):
+        step = solver.step(problem, grid, v)
+        assert step is not None, "the line search stalled"
+        v, measure = step
+        if solver.converged(problem, grid, measure):
+            return v
+    raise AssertionError("Newton did not converge")
+
+
+@pytest.mark.parametrize(("problem", "atol"), [(T20, 1e-9), (RIDGE, 1e-7)])
+def test_the_root_depends_neither_on_kappa_nor_on_the_start(problem, atol):
+    """Ten times ``kappa``, and a non-convex start, reach the same grid function.
+
+    On the ridge ``f = 0`` everywhere and the Jacobian is nearly singular in the
+    flat parts, so the residual tolerance pins the values to about ``1e-8``.
+    """
+    scheme = Monotone17(n=16, stencil=17)
+    solver = Newton(scheme=scheme, max_iter=200)
+    grid = scheme.discretize(problem)
+    reference = solver.solve(problem).values[grid.interior]
+    nonconvex = -scheme.solve_laplace(grid, np.ones(grid.f.size))  # superharmonic
+    assert _available_differences(scheme, grid, nonconvex).min() < -0.1
+    for context in (grid, dataclasses.replace(grid, kappa=10.0 * grid.kappa)):
+        for start in (solver.initial_guess(problem, context), nonconvex):
+            v = _newton_from(solver, problem, context, start)
+            np.testing.assert_allclose(v, reference, rtol=0, atol=atol)
+
+
+def test_kappa_is_at_least_one_so_the_stopping_rule_sees_a_negative_difference():
+    for problem in (RIDGE, T20, T2):
+        grid = Monotone17(n=8).discretize(problem)
+        assert grid.kappa.min() >= 1.0
+    grid = Monotone17(n=8).discretize(T2)
+    expected = np.sqrt(np.maximum(np.maximum(grid.f, grid.f.mean()), 1.0))
+    np.testing.assert_allclose(grid.kappa, expected)
+
+
+def test_a_bump_in_the_flat_disk_solves_the_bare_scheme_but_not_monotone17():
+    """Where ``f = 0`` the bare ``min a^+ b^+`` cannot see a negative difference."""
+    scheme = Monotone17(n=16, stencil=17)
+    grid = scheme.discretize(T20)
+    v = FDMonotone(n=16, stencil=17).solve(T20).values[grid.interior]
+    centre = int(np.argmin(np.linalg.norm(grid.nodes[grid.interior] - 0.5, axis=1)))
+    assert grid.f[centre] == 0.0
+    v[centre] += 1e-3
+    d = scheme.directional_differences(grid, v)
+    assert np.all(d[:, :, centre] < 0)
+    bare = np.where(
+        grid.available, np.maximum(d[:, 0], 0) * np.maximum(d[:, 1], 0), np.inf
+    ).min(axis=0)
+    assert bare[centre] - grid.f[centre] == 0.0
+    assert scheme.residual(grid, v)[centre] <= d[:, :, centre].max() < 0
+
+
+def test_the_centred_hessian_is_indefinite_in_the_flat_disk_of_t20():
+    """``node_hessian`` is not the scheme's: its ``u_xy`` mixes the diagonal pairs.
+
+    Every stencil direction is convex at the root, yet the centred 9-point Hessian
+    has a negative eigenvalue at nodes of the disk where ``f = 0``, so
+    ``nonconvex_fraction`` is not zero (``benchmarks/monotone17.md``, Finding 6).
+    """
+    scheme = Monotone17(n=16, stencil=17)
+    result = Newton(scheme=scheme, max_iter=200).solve(T20)
+    grid = scheme.discretize(T20)
+    assert _available_differences(scheme, grid, result.values[grid.interior]).min() > (
+        -1e-8
+    )
+    assert evaluate(result)["nonconvex_fraction"] > 0.05
+    eigmin = np.linalg.eigvalsh(result.node_hessian[grid.interior])[:, 0]
+    in_disk = np.linalg.norm(grid.nodes[grid.interior] - 0.5, axis=1) <= 0.2
+    assert np.all(eigmin[~in_disk] > -1e-8) and eigmin[in_disk].min() < -1e-3
+
+
+def test_a_negative_or_infinite_f_is_an_error_naming_the_problem():
+    for value in (-1.0, np.inf, np.nan):
+        bad = Problem(
+            "bad", Box((0.0, 0.0), (1.0, 1.0)), _constant(value), Dirichlet(_ridge)
+        )
+        with pytest.raises(ValueError, match=r"finite f >= 0.*bad"):
+            FDMonotone(n=4).solve(bad)
 
 
 def test_solution_carries_the_centred_hessian_and_the_residual():
@@ -267,8 +362,10 @@ def test_supports_a_square_dirichlet_box_only():
     assert not scheme.supports(oblong) and not scheme.supports(cube)
     with pytest.raises(UnsupportedProblemError, match="equal sides"):
         scheme.discretize(oblong)
-    with pytest.raises(UnsupportedProblemError, match="FDMonotone does not support R"):
+    with pytest.raises(UnsupportedProblemError, match=r"FDMonotone .* equal sides"):
         FDMonotone(n=4).solve(oblong)
+    with pytest.raises(UnsupportedProblemError, match="FDMonotone does not support T8"):
+        FDMonotone(n=4).solve(T8)
 
 
 @pytest.mark.parametrize(
@@ -367,6 +464,15 @@ def test_a_misspelt_boundary_is_a_config_error():
     pytest.importorskip("jsonargparse")
     with pytest.raises(ValueError, match="boundary"):
         from_config({"class_path": "FDMonotone", "init_args": {"boundary": "wide"}})
+
+
+def test_a_stencil_size_outside_the_choices_is_a_config_error():
+    pytest.importorskip("jsonargparse")
+    with pytest.raises(ValueError, match="stencil"):
+        from_config({"class_path": "FDMonotone", "init_args": {"stencil": 25}})
+    assert from_config({"class_path": "FDMonotone", "init_args": {"stencil": 33}}) == (
+        FDMonotone(stencil=33)
+    )
 
 
 def test_the_jacobian_floor_changes_the_steps_not_the_solution():

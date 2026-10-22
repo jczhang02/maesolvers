@@ -20,12 +20,12 @@ from typing import Any, ClassVar
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
+from maesolvers.classical._grid import interior_mask, spline
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
-from maesolvers.core.domains import Box, Field
+from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
 
@@ -130,7 +130,7 @@ def difference_operators(
         in flat order.
     """
     m = n + 1
-    interior = _interior_mask(n).ravel()
+    interior = interior_mask(n).ravel()
     index = np.flatnonzero(interior)
     rows = np.arange(index.size)
 
@@ -184,13 +184,6 @@ def monge_ampere_jacobian(
     return (
         sp.diags(uyy) @ dxx + sp.diags(uxx) @ dyy - 2.0 * sp.diags(uxy) @ dxy
     ).tocsc()
-
-
-def _interior_mask(n: int) -> np.ndarray:
-    """Shape ``(n + 1, n + 1)``: True at the nodes off the boundary."""
-    mask = np.zeros((n + 1, n + 1), dtype=bool)
-    mask[1:-1, 1:-1] = True
-    return mask
 
 
 @dataclass(frozen=True, eq=False)
@@ -330,7 +323,7 @@ class Standard9(Scheme):
         x = np.linspace(box.lo[0], box.hi[0], n + 1)
         y = np.linspace(box.lo[1], box.hi[1], n + 1)
         nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = _interior_mask(n).ravel()
+        interior = interior_mask(n).ravel()
         dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
         (axx, bxx), (ayy, byy), (axy, bxy) = (
             (d[:, interior].tocsc(), d[:, ~interior].tocsc()) for d in (dxx, dyy, dxy)
@@ -464,7 +457,7 @@ class Standard9(Scheme):
         hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = uxy
         h = (float(grid.x[1] - grid.x[0]), float(grid.y[1] - grid.y[0]))
         return Solution(
-            u=_spline(grid.x, grid.y, values, self.spline_degree),
+            u=spline(grid.x, grid.y, values, self.spline_degree),
             nodes=grid.nodes,
             values=values,
             node_hessian=hess,
@@ -475,17 +468,3 @@ class Standard9(Scheme):
                 "residual_max": float(np.max(np.abs(self.residual(grid, v)))),
             },
         )
-
-
-def _spline(x: np.ndarray, y: np.ndarray, values: np.ndarray, degree: int) -> Field:
-    """Tensor spline of the given degree through values on the grid ``x`` by ``y``."""
-    spline = RectBivariateSpline(
-        x, y, values.reshape(len(x), len(y)), kx=degree, ky=degree
-    )
-
-    def u(p: np.ndarray) -> np.ndarray:
-        p = np.asarray(p, dtype=float)
-        out = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
-        return out.reshape(p.shape[:-1])
-
-    return u

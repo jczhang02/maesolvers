@@ -15,6 +15,8 @@ from typing import ClassVar, Literal
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17
 from maesolvers.classical.schemes import Standard9
+from maesolvers.core.problem import Problem
+from maesolvers.core.solver import UnsupportedProblemError
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,7 +103,7 @@ class _Monotone17Preset:
 
     scheme: Monotone17 = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: int = Monotone17.stencil
+    stencil: Literal[9, 17, 33] = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     spline_degree: int = Monotone17.spline_degree
@@ -120,6 +122,32 @@ class _Monotone17Preset:
         object.__setattr__(self, "jacobian_floor", scheme.jacobian_floor)
         object.__setattr__(self, "spline_degree", scheme.spline_degree)
         super().__post_init__()  # type: ignore[misc]
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            equal sides when they are what is missing.
+        """
+        if (
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in (self.dims or ())
+            and not self.scheme.supports(problem)
+        ):
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: "
+                "Monotone17 needs a Box with equal sides"
+            )
+        super().check(problem)  # type: ignore[misc]
 
 
 @dataclass(frozen=True, kw_only=True)
