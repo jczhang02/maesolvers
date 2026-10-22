@@ -2,14 +2,16 @@
 
 Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
 :class:`Result`; the solvers live in :mod:`maesolvers.classical`.
-:func:`integer` and :func:`positive` check constructor parameters, for solvers
+:func:`integer`, :func:`positive` and :func:`nonnegative` check constructor parameters, for solvers
 of your own as for the shipped ones.
 """
 
-from maesolvers.core._params import integer, positive
+from maesolvers.core._params import integer, nonnegative, positive
 from maesolvers.core.boundary import BoundaryCondition, Dirichlet, Transport
 from maesolvers.core.callbacks import Callback
 from maesolvers.core.domains import (
+    BoundaryDistance,
+    BoundarySampling,
     Box,
     CutQuarterDisk,
     Disk,
@@ -30,6 +32,8 @@ from maesolvers.core.solver import (
 
 __all__ = [
     "BoundaryCondition",
+    "BoundaryDistance",
+    "BoundarySampling",
     "Box",
     "Callback",
     "CutQuarterDisk",
@@ -49,5 +53,6 @@ __all__ = [
     "Transport",
     "UnsupportedProblemError",
     "integer",
+    "nonnegative",
     "positive",
 ]
