@@ -29,11 +29,12 @@ fmt:
     uv run ruff format .
     uv run ruff check --fix .
 
-# Check formatting, lint and tests, as CI does
+# Check formatting, lint and tests, as CI does: tests without extras, then with cli
 check:
-    uv run --extra cli ruff format --check .
-    uv run --extra cli ruff check --no-fix .
-    uv run --extra cli pytest -q
+    uv run --exact ruff format --check .
+    uv run --exact ruff check --no-fix .
+    uv run --exact pytest -q
+    uv run --exact --extra cli pytest -q
 
 # One-time a100server setup: bare repo, clone, data dirs, local remote
 server-init:

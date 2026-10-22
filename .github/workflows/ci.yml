@@ -16,7 +16,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-      - run: uv sync --group dev --extra cli
+      - run: uv sync --group dev
       - run: uv run ruff format --check .
       - run: uv run ruff check .
-      - run: uv run pytest -q
+      # Without extras (ADR 0006): the core and every classical solver.
+      - run: uv run --exact pytest -q
+      # With the cli extra: from_config and the command line.
+      - run: uv sync --group dev --extra cli
+      - run: uv run --exact --extra cli pytest -q
