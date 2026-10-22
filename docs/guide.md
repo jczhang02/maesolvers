@@ -84,7 +84,7 @@ All three read the same constructor signatures, so they accept the same names an
 from maesolvers import FDNewton, Newton, Standard9
 
 solver = FDNewton(n=128, tol=1e-12)
-composed = Newton(scheme=Standard9(n=128), tol=1e-12)  # the same solver, from its parts
+composed = Newton(scheme=Standard9(n=128), tol=1e-12)  # the same method, from its parts
 ```
 
 `FDNewton` is a preset: it names the common pair of the standard 9-point scheme and Newton's method.
