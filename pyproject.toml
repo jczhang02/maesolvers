@@ -20,6 +20,9 @@ neural = ["torch"]
 # Configs and the `maesolvers solve` command line (ADR 0005); imported only by maesolvers.cli.
 cli = ["jsonargparse>=4.49"]
 
+[project.scripts]
+maesolvers = "maesolvers.cli:main"
+
 [project.urls]
 Repository = "https://github.com/jczhang02/maesolvers"
 
