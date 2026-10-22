@@ -18,6 +18,7 @@ from maesolvers.core import (
     Result,
     Solution,
     Solver,
+    Trace,
     Transport,
     UnsupportedProblemError,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "Result",
     "Solution",
     "Solver",
+    "Trace",
     "Transport",
     "UnsupportedProblemError",
 ]

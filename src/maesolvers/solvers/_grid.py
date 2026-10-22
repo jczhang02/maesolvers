@@ -15,6 +15,7 @@ import scipy.sparse as sp
 from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
+from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Field
 from maesolvers.core.problem import Problem
@@ -152,17 +153,32 @@ def build_grid(problem: Problem, n: int) -> Grid:
     )
 
 
-def check_grid_parameters(n: int, tol: float, spline_degree: int) -> None:
-    """Validate the parameters both grid solvers share."""
-    if n < 2:
-        raise ValueError(f"n must be at least 2, got {n}")
-    if not tol > 0.0:
-        raise ValueError(f"tol must be positive, got {tol}")
-    if not 1 <= spline_degree <= min(5, n):
+def grid_parameters(
+    n: object, tol: object, spline_degree: object
+) -> tuple[int, float, int]:
+    """Validate and normalise the parameters both grid solvers share.
+
+    Returns
+    -------
+    tuple
+        ``n``, ``tol`` and ``spline_degree`` as plain int, float and int.
+
+    Raises
+    ------
+    TypeError
+        If ``n`` or ``spline_degree`` is not an integer or ``tol`` not a real.
+    ValueError
+        If a value is out of range.
+    """
+    n = integer("n", n, 2)
+    tol = positive("tol", tol)
+    spline_degree = integer("spline_degree", spline_degree, 1)
+    if spline_degree > min(5, n):
         raise ValueError(
             f"spline_degree must be between 1 and min(5, n) = {min(5, n)}, "
             f"got {spline_degree}"
         )
+    return n, tol, spline_degree
 
 
 def grid_solution(grid: Grid, v: np.ndarray, spline_degree: int) -> Solution:

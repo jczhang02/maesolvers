@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 import numpy as np
@@ -16,6 +16,11 @@ from maesolvers.core.problem import Problem
 @dataclass(frozen=True, eq=False)
 class Result:
     """The solution of a :class:`~maesolvers.core.problem.Problem` by one method.
+
+    Every field after ``u`` is keyword-only. The node arrays are stored as
+    read-only float copies, ``info`` and ``hparams`` as deep copies in plain
+    dicts, so a result does not change when the caller's data does and its
+    records serialise with ``json`` or YAML as they are.
 
     Parameters
     ----------
@@ -35,10 +40,12 @@ class Result:
         is.
     node_hessian
         Shape ``(M, d, d)``: the method's own discrete Hessian at ``nodes``,
-        NaN where it defines none (boundary nodes), or None.
+        or None. :func:`~maesolvers.metrics.evaluate` reads it at the interior
+        nodes only and ignores the entries at boundary nodes, which may be NaN.
     info
         Run record: ``time`` (seconds), ``iterations``, ``converged``,
-        ``unknowns`` and method-specific entries.
+        ``history`` (the convergence measure after every step), ``unknowns``
+        and method-specific entries.
     hparams
         The solver's configuration, ``{"class_path": ..., "init_args": ...}``,
         enough to build the same solver again.
@@ -46,6 +53,7 @@ class Result:
 
     problem: Problem
     u: Field
+    _: KW_ONLY
     hessian: HessianField | None = None
     nodes: np.ndarray | None = None
     values: np.ndarray | None = None
@@ -64,13 +72,13 @@ class Result:
             self._check_node_arrays()
         elif self.node_hessian is not None:
             raise ValueError("Result.node_hessian needs Result.nodes")
-        object.__setattr__(self, "info", MappingProxyType(dict(self.info)))
-        object.__setattr__(self, "hparams", MappingProxyType(dict(self.hparams)))
+        object.__setattr__(self, "info", copy.deepcopy(dict(self.info)))
+        object.__setattr__(self, "hparams", copy.deepcopy(dict(self.hparams)))
 
     def _check_node_arrays(self) -> None:
         d = self.problem.dim
-        nodes = np.asarray(self.nodes, dtype=float)
-        values = np.asarray(self.values, dtype=float)
+        nodes = _read_only(self.nodes)
+        values = _read_only(self.values)
         if nodes.ndim != 2 or nodes.shape[1] != d:
             raise ValueError(
                 f"Result.nodes must have shape (M, {d}), got {nodes.shape}"
@@ -83,10 +91,17 @@ class Result:
         object.__setattr__(self, "nodes", nodes)
         object.__setattr__(self, "values", values)
         if self.node_hessian is not None:
-            hess = np.asarray(self.node_hessian, dtype=float)
+            hess = _read_only(self.node_hessian)
             if hess.shape != (m, d, d):
                 raise ValueError(
                     f"Result.node_hessian must have shape ({m}, {d}, {d}), "
                     f"got {hess.shape}"
                 )
             object.__setattr__(self, "node_hessian", hess)
+
+
+def _read_only(array: object) -> np.ndarray:
+    """A read-only float copy of ``array``."""
+    out = np.array(array, dtype=float)
+    out.setflags(write=False)
+    return out

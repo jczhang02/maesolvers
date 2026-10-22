@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -62,12 +63,12 @@ class Halving(IterativeSolver[float, float]):
     def initial_guess(self, problem, context):
         return context
 
-    def step(self, context, iterate):
+    def step(self, problem, context, iterate):
         if iterate / 2 < self.floor:
             return None
         return iterate / 2, iterate / 2
 
-    def converged(self, context, measure):
+    def converged(self, problem, context, measure):
         return measure < self.tol
 
     def finalize(self, problem, context, state):
@@ -108,6 +109,15 @@ def test_max_iter_must_be_positive():
         Halving(max_iter=0)
 
 
+def test_an_iterative_solver_must_name_its_measure():
+    @dataclass(frozen=True, kw_only=True)
+    class Unnamed(Halving):
+        measure = None
+
+    with pytest.raises(TypeError, match="measure"):
+        Unnamed()
+
+
 def test_solvers_take_keyword_arguments_only():
     with pytest.raises(TypeError):
         FDNewton(64)
@@ -133,6 +143,13 @@ def test_result_carries_the_hparams():
     }
 
 
+@pytest.mark.parametrize("solver", [FDNewton(n=16, tol=1e-8), FDPoisson(max_iter=7)])
+def test_hparams_rebuild_the_solver_and_serialise(solver):
+    assert type(solver)(**solver.hparams["init_args"]) == solver
+    result = Halving().solve(P4)
+    json.dumps(solver.hparams), json.dumps(result.hparams), json.dumps(result.info)
+
+
 def test_hparams_nest_dataclass_parts():
     @dataclass(frozen=True)
     class Part:
@@ -148,12 +165,63 @@ def test_hparams_nest_dataclass_parts():
     }
 
 
+def test_hparams_nest_containers_of_parts():
+    @dataclass(frozen=True)
+    class Term:
+        weight: float = 1.0
+
+    @dataclass(frozen=True, kw_only=True)
+    class Weighted(Halving):
+        terms: tuple[Term, ...] = (Term(), Term(2.0))
+        named: dict = dataclasses.field(default_factory=lambda: {"bc": [Term(3.0)]})
+
+    config = Weighted().hparams["init_args"]
+    term = f"{__name__}.{Term.__qualname__}"
+    assert config["terms"] == (
+        {"class_path": term, "init_args": {"weight": 1.0}},
+        {"class_path": term, "init_args": {"weight": 2.0}},
+    )
+    assert config["named"] == {
+        "bc": [{"class_path": term, "init_args": {"weight": 3.0}}]
+    }
+    json.dumps(config)
+
+
 def test_supports_checks_domain_boundary_and_dimension():
-    assert Halving.supports(P1) and Halving.supports(P4)
-    assert not Halving.supports(P3)
-    assert FDNewton.supports(P4) and not FDNewton.supports(P1)
+    assert Halving().supports(P1) and Halving().supports(P4)
+    assert not Halving().supports(P3)
+    assert FDNewton().supports(P4) and not FDNewton().supports(P1)
     cube = Problem("C", Box((0,) * 3, (1,) * 3), _zero, Dirichlet(_zero))
-    assert Halving.supports(cube) and not FDPoisson.supports(cube)
+    assert Halving().supports(cube) and not FDPoisson().supports(cube)
+
+
+def test_supports_may_ask_the_parts():
+    @dataclass(frozen=True)
+    class Scheme:
+        n: int = 4
+
+        def supports(self, problem):
+            return isinstance(problem.domain, Disk)
+
+    @dataclass(frozen=True, kw_only=True)
+    class Composite(Solver[None, None]):
+        scheme: Scheme = Scheme()
+
+        def supports(self, problem):
+            return self.scheme.supports(problem)
+
+        def setup(self, problem):
+            return None
+
+        def run(self, problem, context, callbacks):
+            return Trace(None, 0, True)
+
+        def finalize(self, problem, context, state):
+            return Solution(u=_zero)
+
+    assert Composite().solve(P1).info["converged"]
+    with pytest.raises(UnsupportedProblemError, match="P4, a 2D Box"):
+        Composite().solve(P4)
 
 
 def test_unsupported_problem_is_rejected_before_any_hook():
@@ -164,6 +232,7 @@ def test_unsupported_problem_is_rejected_before_any_hook():
 
 
 def test_a_solver_must_declare_what_it_supports():
+    @dataclass(frozen=True)
     class Undeclared(Solver):
         def setup(self, problem):
             return None
@@ -216,6 +285,39 @@ def test_a_solver_that_is_not_a_dataclass_fails_before_setup():
         Plain().solve(P4)
 
 
+def test_a_subclass_needs_its_own_dataclass_decorator():
+    """Without it the new field misses from hparams and the constructor."""
+
+    class Mine(Halving):
+        damping: float = 0.5
+
+    class MyPoisson(FDPoisson):
+        damping: float = 0.5
+
+    for cls in (Mine, MyPoisson):
+        with pytest.raises(TypeError, match="@dataclass"):
+            cls()
+
+
+def test_a_solver_must_be_frozen():
+    @dataclass
+    class Mutable(Solver[None, None]):
+        domains = (Box,)
+        boundaries = (Dirichlet,)
+
+        def setup(self, problem):
+            return None
+
+        def run(self, problem, context, callbacks):
+            return Trace(None, 0, True)
+
+        def finalize(self, problem, context, state):
+            return Solution(u=_zero)
+
+    with pytest.raises(TypeError, match="frozen"):
+        Mutable()
+
+
 def test_solution_info_may_not_override_run_fields():
     @dataclass(frozen=True, kw_only=True)
     class Clashing(Halving):
@@ -228,19 +330,32 @@ def test_solution_info_may_not_override_run_fields():
 
 @pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
 @pytest.mark.parametrize(
-    ("kwargs", "message"),
+    ("kwargs", "error", "message"),
     [
-        (dict(n=1), "n must be"),
-        (dict(tol=0.0), "tol must be"),
-        (dict(spline_degree=0), "spline_degree"),
-        (dict(spline_degree=6), "spline_degree"),
-        (dict(n=2, spline_degree=3), "spline_degree"),
-        (dict(max_iter=0), "max_iter"),
+        (dict(n=1), ValueError, "n must be"),
+        (dict(tol=0.0), ValueError, "tol must be"),
+        (dict(tol=np.inf), ValueError, "tol must be"),
+        (dict(spline_degree=0), ValueError, "spline_degree"),
+        (dict(spline_degree=6), ValueError, "spline_degree"),
+        (dict(n=2, spline_degree=3), ValueError, "spline_degree"),
+        (dict(max_iter=0), ValueError, "max_iter"),
+        (dict(n=8.5), TypeError, "n must be an integer"),
+        (dict(n=True), TypeError, "n must be an integer"),
+        (dict(max_iter=2.5), TypeError, "max_iter must be an integer"),
+        (dict(spline_degree="3"), TypeError, "spline_degree must be an integer"),
+        (dict(tol="1e-3"), TypeError, "tol must be a real number"),
     ],
 )
-def test_grid_solvers_validate_their_parameters(solver, kwargs, message):
-    with pytest.raises(ValueError, match=message):
+def test_grid_solvers_validate_their_parameters(solver, kwargs, error, message):
+    with pytest.raises(error, match=message):
         solver(**kwargs)
+
+
+@pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
+def test_grid_solvers_store_plain_numbers(solver):
+    s = solver(n=np.int64(8), max_iter=np.int32(5), tol=np.float32(1e-3))
+    assert (s.n, s.max_iter) == (8, 5) and s.tol == pytest.approx(1e-3)
+    assert type(s.n) is int and type(s.max_iter) is int and type(s.tol) is float
 
 
 @pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
@@ -254,3 +369,10 @@ def test_grid_solvers_report_nodes_and_their_hessian(solver):
     steps = [e for e in recorder.events if e[0] == "step"]
     assert len(steps) == result.info["iterations"]
     assert set(steps[0][2]) == {solver.measure}
+
+
+def test_result_arrays_are_read_only():
+    result = FDNewton(n=8).solve(P4)
+    for array in (result.nodes, result.values, result.node_hessian):
+        with pytest.raises(ValueError, match="read-only"):
+            array[0] = 99.0

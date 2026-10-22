@@ -17,11 +17,12 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import KW_ONLY, dataclass, field, fields, is_dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
 
+from maesolvers.core._params import integer
 from maesolvers.core.callbacks import Callback
 from maesolvers.core.domains import Field, HessianField
 from maesolvers.core.problem import Problem
@@ -67,7 +68,8 @@ class Solution:
     Parameters
     ----------
     u, hessian, nodes, values, node_hessian
-        As in :class:`~maesolvers.core.result.Result`.
+        As in :class:`~maesolvers.core.result.Result`; all but ``u`` are
+        keyword-only.
     unknowns
         Number of unknowns (degrees of freedom, network parameters), or None.
     info
@@ -77,6 +79,7 @@ class Solution:
     """
 
     u: Field
+    _: KW_ONLY
     hessian: HessianField | None = None
     nodes: np.ndarray | None = None
     values: np.ndarray | None = None
@@ -86,38 +89,49 @@ class Solution:
 
 
 def _config(obj: object) -> Any:
-    """The configuration of a dataclass part, nested parts included.
+    """The configuration of a part, nested parts included.
 
     Parameters
     ----------
     obj
-        A dataclass instance such as a solver, or a plain value.
+        A dataclass instance such as a solver, a tuple, list or mapping of
+        parts, or a plain value.
 
     Returns
     -------
     Any
         ``{"class_path": ..., "init_args": {...}}`` for a dataclass instance,
-        built recursively over its init fields, the value itself otherwise;
-        the form jsonargparse reads (ADR 0005).
+        built recursively over its init fields; a tuple, list or dict of the
+        configurations of the elements for a container; the value itself
+        otherwise. This is the form jsonargparse reads (ADR 0005).
     """
-    if not is_dataclass(obj) or isinstance(obj, type):
-        return obj
-    cls = type(obj)
-    return {
-        "class_path": f"{cls.__module__}.{cls.__qualname__}",
-        "init_args": {
-            f.name: _config(getattr(obj, f.name)) for f in fields(obj) if f.init
-        },
-    }
+    if is_dataclass(obj) and not isinstance(obj, type):
+        cls = type(obj)
+        return {
+            "class_path": f"{cls.__module__}.{cls.__qualname__}",
+            "init_args": {
+                f.name: _config(getattr(obj, f.name)) for f in fields(obj) if f.init
+            },
+        }
+    if isinstance(obj, tuple):
+        return tuple(_config(v) for v in obj)
+    if isinstance(obj, list):
+        return [_config(v) for v in obj]
+    if isinstance(obj, Mapping):
+        return {k: _config(v) for k, v in obj.items()}
+    return obj
 
 
 class Solver(ABC, Generic[ContextT, StateT]):
     """Base class of every solver.
 
-    A subclass is a frozen dataclass whose fields are its hyperparameters. It
-    declares the problems it supports in the class variables ``domains``,
-    ``boundaries`` and, if it is limited in dimension, ``dims``, and
-    implements :meth:`setup`, :meth:`run` and :meth:`finalize`.
+    A subclass is decorated with ``@dataclass(frozen=True, kw_only=True)``;
+    its fields are its hyperparameters. It declares the problems it supports
+    in the class variables ``domains``, ``boundaries`` and, if it is limited
+    in dimension, ``dims``, and implements :meth:`setup`, :meth:`run` and
+    :meth:`finalize`. A solver composed of parts (ADR 0004) may instead
+    override :meth:`supports` and ask its parts. A subclass that defines
+    ``__post_init__`` calls ``super().__post_init__()`` from it.
 
     Attributes
     ----------
@@ -127,15 +141,38 @@ class Solver(ABC, Generic[ContextT, StateT]):
         Boundary condition classes the solver handles.
     dims : tuple of int or None
         Space dimensions the solver handles, None for any.
+
+    Raises
+    ------
+    TypeError
+        On construction, or at the latest in :meth:`solve`, if the class
+        itself is not decorated as a frozen dataclass (an inherited
+        decoration does not count: its new fields would miss from
+        :attr:`hparams`).
     """
 
     domains: ClassVar[tuple[type, ...]]
     boundaries: ClassVar[tuple[type, ...]]
     dims: ClassVar[tuple[int, ...] | None] = None
 
+    def __post_init__(self) -> None:
+        """Check the class definition; a subclass's own ``__post_init__`` calls it."""
+        self._check_definition()
+
     @classmethod
-    def supports(cls, problem: Problem) -> bool:
+    def _check_definition(cls) -> None:
+        """Raise TypeError if the class misses a declaration its base needs."""
+        params = cls.__dict__.get("__dataclass_params__")
+        if params is None or not params.frozen:
+            raise TypeError(
+                f"{cls.__name__} must be decorated with @dataclass(frozen=True)"
+            )
+
+    def supports(self, problem: Problem) -> bool:
         """Whether the solver handles the problem's domain, boundary and dimension.
+
+        The default reads the class variables ``domains``, ``boundaries`` and
+        ``dims``.
 
         Parameters
         ----------
@@ -146,8 +183,12 @@ class Solver(ABC, Generic[ContextT, StateT]):
         -------
         bool
         """
+        cls = type(self)
         if not hasattr(cls, "domains") or not hasattr(cls, "boundaries"):
-            raise TypeError(f"{cls.__name__} must declare domains and boundaries")
+            raise TypeError(
+                f"{cls.__name__} must declare domains and boundaries "
+                "or override supports"
+            )
         return (
             isinstance(problem.domain, cls.domains)
             and isinstance(problem.boundary, cls.boundaries)
@@ -165,13 +206,10 @@ class Solver(ABC, Generic[ContextT, StateT]):
             If :meth:`supports` is False.
         """
         if not self.supports(problem):
-            dims = "any dimension" if self.dims is None else f"dimensions {self.dims}"
             raise UnsupportedProblemError(
-                f"{type(self).__name__} handles domains "
-                f"{[c.__name__ for c in self.domains]}, boundaries "
-                f"{[c.__name__ for c in self.boundaries]} in {dims}; problem "
-                f"{problem.name} has a {problem.dim}D {type(problem.domain).__name__} "
-                f"with a {type(problem.boundary).__name__} boundary"
+                f"{type(self).__name__} does not support {problem.name}, a "
+                f"{problem.dim}D {type(problem.domain).__name__} problem with a "
+                f"{type(problem.boundary).__name__} boundary"
             )
 
     @abstractmethod
@@ -229,9 +267,12 @@ class Solver(ABC, Generic[ContextT, StateT]):
 
     @property
     def hparams(self) -> dict[str, Any]:
-        """The solver's configuration, ``{"class_path": ..., "init_args": ...}``."""
-        if not is_dataclass(self):
-            raise TypeError(f"{type(self).__name__} must be a dataclass")
+        """The solver's configuration, ``{"class_path": ..., "init_args": ...}``.
+
+        Nested parts are configurations of the same form, so
+        ``type(s)(**s.hparams["init_args"]) == s`` for a solver without parts.
+        """
+        self._check_definition()
         return _config(self)
 
     def solve(self, problem: Problem, callbacks: Sequence[Callback] = ()) -> Result:
@@ -253,8 +294,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
             ``iterations``, ``converged``, ``history``, ``unknowns`` when known,
             and the method's own entries.
         """
-        self.check(problem)
         config = self.hparams
+        self.check(problem)
         for callback in callbacks:
             callback.on_solve_start(self, problem)
         start = time.perf_counter()
@@ -298,22 +339,32 @@ class IterativeSolver(Solver[ContextT, IterateT]):
 
     Subclasses implement :meth:`initial_guess`, :meth:`step` and
     :meth:`converged` besides :meth:`Solver.setup` and
-    :meth:`Solver.finalize`, set the class variable ``measure`` to the name
-    of what :meth:`step` measures, and call ``super().__post_init__()`` from
-    their own ``__post_init__``.
+    :meth:`Solver.finalize` and set the class variable ``measure`` to the
+    name of what :meth:`step` measures (the key of ``on_step_end`` metrics).
+    Every hook after :meth:`Solver.setup` takes the problem and the context
+    first.
 
     Parameters
     ----------
     max_iter
-        Most steps to take, at least 1.
+        Most steps to take, an integer of at least 1.
     """
 
     max_iter: int = 100
-    measure: ClassVar[str] = "measure"
+    measure: ClassVar[str]
 
     def __post_init__(self) -> None:
-        if self.max_iter < 1:
-            raise ValueError(f"max_iter must be at least 1, got {self.max_iter}")
+        super().__post_init__()
+        object.__setattr__(self, "max_iter", integer("max_iter", self.max_iter, 1))
+
+    @classmethod
+    def _check_definition(cls) -> None:
+        super()._check_definition()
+        if not isinstance(getattr(cls, "measure", None), str):
+            raise TypeError(
+                f"{cls.__name__} must set the class variable measure, the name "
+                "of what step measures"
+            )
 
     @abstractmethod
     def initial_guess(self, problem: Problem, context: ContextT) -> IterateT:
@@ -333,12 +384,14 @@ class IterativeSolver(Solver[ContextT, IterateT]):
 
     @abstractmethod
     def step(
-        self, context: ContextT, iterate: IterateT
+        self, problem: Problem, context: ContextT, iterate: IterateT
     ) -> tuple[IterateT, float] | None:
         """One step from ``iterate``.
 
         Parameters
         ----------
+        problem
+            The problem.
         context
             What :meth:`Solver.setup` returned.
         iterate
@@ -352,11 +405,13 @@ class IterativeSolver(Solver[ContextT, IterateT]):
         """
 
     @abstractmethod
-    def converged(self, context: ContextT, measure: float) -> bool:
+    def converged(self, problem: Problem, context: ContextT, measure: float) -> bool:
         """Whether a step's convergence measure meets the stopping criterion.
 
         Parameters
         ----------
+        problem
+            The problem.
         context
             What :meth:`Solver.setup` returned.
         measure
@@ -389,14 +444,14 @@ class IterativeSolver(Solver[ContextT, IterateT]):
         history: list[float] = []
         converged = False
         while len(history) < self.max_iter:
-            stepped = self.step(context, iterate)
+            stepped = self.step(problem, context, iterate)
             if stepped is None:
                 break
             iterate, measure = stepped
             history.append(float(measure))
             for callback in callbacks:
                 callback.on_step_end(self, len(history), {self.measure: float(measure)})
-            if self.converged(context, measure):
+            if self.converged(problem, context, measure):
                 converged = True
                 break
         return Trace(iterate, len(history), converged, tuple(history))

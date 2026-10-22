@@ -47,8 +47,8 @@ P3 = Problem(
     boundary=Transport(Ellipse((3.5, 0.0), (2.0, 0.5))),
     exact=lambda x: x[..., 0] ** 2 + 3.5 * x[..., 0] + 0.25 * x[..., 1] ** 2,
     note=(
-        "Uniform density on the unit disk to uniform density on the ellipse; "
-        "f/g = 1 so the equation is det D^2 u = 1 (Caboussat-Peruso 2025)."
+        "Uniform source density f = 1 on the unit disk to the uniform target "
+        "density on the ellipse, both of area pi (Caboussat-Peruso 2025)."
     ),
 )
 

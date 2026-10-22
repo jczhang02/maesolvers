@@ -53,10 +53,26 @@ def test_solution_and_hessian_must_be_callable(kwargs):
         Result(SQUARE, **kwargs)
 
 
-def test_info_is_a_read_only_copy():
+def test_records_are_deep_copies_in_plain_dicts():
+    hparams = {"class_path": "m.S", "init_args": {"n": 8}}
     info = {"time": 1.0}
-    result = Result(SQUARE, _u, info=info)
+    result = Result(SQUARE, _u, info=info, hparams=hparams)
     info["time"] = 2.0
-    assert result.info["time"] == 1.0
+    hparams["init_args"]["n"] = 5
+    assert result.info == {"time": 1.0}
+    assert result.hparams["init_args"]["n"] == 8
+    assert type(result.info) is dict and type(result.hparams) is dict
+
+
+def test_node_arrays_are_read_only_copies():
+    values = np.zeros(2)
+    result = Result(SQUARE, _u, nodes=np.zeros((2, 2)), values=values)
+    values[0] = 1.0
+    assert result.values[0] == 0.0
+    with pytest.raises(ValueError, match="read-only"):
+        result.values[0] = 1.0
+
+
+def test_optional_fields_are_keyword_only():
     with pytest.raises(TypeError):
-        result.info["time"] = 3.0
+        Result(SQUARE, _u, None)

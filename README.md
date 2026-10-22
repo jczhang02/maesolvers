@@ -55,7 +55,34 @@ iterations: 4
 unknowns: 3969
 ```
 
-A new method subclasses `Solver` (or `IterativeSolver`) as a frozen dataclass and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
+A new method subclasses `Solver` (or `IterativeSolver`) and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
+The subclass carries its own `@dataclass(frozen=True, kw_only=True)` decorator (an inherited one does not count, and construction fails without it), declares `domains` and `boundaries` (and `measure` for an `IterativeSolver`), and every hook after `setup` takes the problem and the context first.
+
+```python
+from dataclasses import dataclass
+from typing import ClassVar
+
+from maesolvers import Box, Dirichlet, IterativeSolver, Solution
+
+
+@dataclass(frozen=True, kw_only=True)
+class MySolver(IterativeSolver):
+    domains: ClassVar = (Box,)
+    boundaries: ClassVar = (Dirichlet,)
+    measure: ClassVar = "residual"  # the key of the per-step metrics
+
+    n: int = 64  # a hyperparameter, recorded in Result.hparams
+    tol: float = 1e-10
+
+    def setup(self, problem): ...  # grid, operators: the context
+    def initial_guess(self, problem, context): ...  # the first iterate
+    def step(self, problem, context, iterate): ...  # (next iterate, measure), or None
+    def converged(self, problem, context, measure):
+        return measure <= self.tol
+
+    def finalize(self, problem, context, state):
+        return Solution(u=..., nodes=..., values=...)
+```
 
 ## Test problems
 

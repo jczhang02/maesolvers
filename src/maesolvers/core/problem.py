@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from types import MappingProxyType
 
 from maesolvers.core.boundary import BoundaryCondition, Dirichlet, Transport
@@ -18,7 +18,8 @@ class Problem:
     """Find convex ``u`` with ``det D^2 u = f`` in ``domain``.
 
     Problems compare by identity: two problems with the same name are still
-    different objects, because their callables cannot be compared.
+    different objects, because their callables cannot be compared. The fields
+    after ``boundary`` are keyword-only.
 
     Parameters
     ----------
@@ -27,7 +28,9 @@ class Problem:
     domain
         The domain, a :class:`~maesolvers.core.domains.Domain`.
     f
-        Right-hand side, positive or zero; a :data:`Field`.
+        Right-hand side, positive or zero; a :data:`Field`. For a
+        :class:`~maesolvers.core.boundary.Transport` problem it is the source
+        density; the target density is uniform 1 on the target.
     boundary
         :class:`~maesolvers.core.boundary.Dirichlet` or
         :class:`~maesolvers.core.boundary.Transport`.
@@ -46,6 +49,7 @@ class Problem:
     domain: Domain
     f: Field
     boundary: BoundaryCondition
+    _: KW_ONLY
     exact: Field | None = None
     observables: Mapping[str, Observable] = field(default_factory=dict)
     note: str = ""

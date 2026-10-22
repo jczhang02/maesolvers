@@ -26,7 +26,7 @@ from maesolvers.core.solver import IterativeSolver, Solution
 from maesolvers.solvers._grid import (
     Grid,
     build_grid,
-    check_grid_parameters,
+    grid_parameters,
     grid_solution,
 )
 
@@ -64,7 +64,10 @@ class FDNewton(IterativeSolver[Grid, np.ndarray]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        check_grid_parameters(self.n, self.tol, self.spline_degree)
+        n, tol, spline_degree = grid_parameters(self.n, self.tol, self.spline_degree)
+        object.__setattr__(self, "n", n)
+        object.__setattr__(self, "tol", tol)
+        object.__setattr__(self, "spline_degree", spline_degree)
 
     def setup(self, problem: Problem) -> Grid:
         """Build the grid, the difference operators and the boundary data."""
@@ -75,15 +78,19 @@ class FDNewton(IterativeSolver[Grid, np.ndarray]):
         return context.solve_poisson(2.0 * np.sqrt(context.f))
 
     def step(
-        self, context: Grid, iterate: np.ndarray
+        self, problem: Problem, context: Grid, iterate: np.ndarray
     ) -> tuple[np.ndarray, float] | None:
         """One Newton step, halved until the max residual decreases.
 
-        Returns None when no step length decreases it (rounding level).
+        An iterate that already meets the stopping criterion (a warm start)
+        is returned unchanged with its residual. Returns None when no step
+        length decreases the residual (rounding level).
         """
         uxx, uyy, uxy = context.second_derivatives(iterate)
         r = uxx * uyy - uxy**2 - context.f
         norm = float(np.max(np.abs(r)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
         jac = (
             sp.diags(uyy) @ context.axx
             + sp.diags(uxx) @ context.ayy
@@ -99,7 +106,7 @@ class FDNewton(IterativeSolver[Grid, np.ndarray]):
             t *= 0.5
         return None
 
-    def converged(self, context: Grid, measure: float) -> bool:
+    def converged(self, problem: Problem, context: Grid, measure: float) -> bool:
         """Max residual at most ``tol * max(1, max f)``."""
         return measure <= self.tol * max(1.0, float(np.max(np.abs(context.f))))
 

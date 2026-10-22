@@ -35,7 +35,10 @@ class Dirichlet:
 class Transport:
     """Second boundary value problem: ``grad u`` maps the domain onto ``target``.
 
-    The solution is unique up to an additive constant.
+    The source density is the problem's ``f`` and the target density is
+    uniform 1 on ``target``, so the equation is ``det D^2 u = f`` and mass
+    balance requires the integral of ``f`` over the domain to equal the
+    volume of ``target``. The solution is unique up to an additive constant.
 
     Parameters
     ----------

@@ -25,7 +25,7 @@ from maesolvers.core.solver import IterativeSolver, Solution
 from maesolvers.solvers._grid import (
     Grid,
     build_grid,
-    check_grid_parameters,
+    grid_parameters,
     grid_solution,
 )
 
@@ -59,7 +59,10 @@ class FDPoisson(IterativeSolver[Grid, np.ndarray]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        check_grid_parameters(self.n, self.tol, self.spline_degree)
+        n, tol, spline_degree = grid_parameters(self.n, self.tol, self.spline_degree)
+        object.__setattr__(self, "n", n)
+        object.__setattr__(self, "tol", tol)
+        object.__setattr__(self, "spline_degree", spline_degree)
 
     def setup(self, problem: Problem) -> Grid:
         """Build the grid, the difference operators and the boundary data."""
@@ -69,14 +72,16 @@ class FDPoisson(IterativeSolver[Grid, np.ndarray]):
         """Solve ``laplace u = sqrt(2 f)``."""
         return context.solve_poisson(np.sqrt(2.0 * context.f))
 
-    def step(self, context: Grid, iterate: np.ndarray) -> tuple[np.ndarray, float]:
+    def step(
+        self, problem: Problem, context: Grid, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float]:
         """One Poisson solve; the measure is the max change at the nodes."""
         uxx, uyy, uxy = context.second_derivatives(iterate)
         rhs = np.sqrt(uxx**2 + uyy**2 + 2.0 * uxy**2 + 2.0 * context.f)
         new = context.solve_poisson(rhs)
         return new, float(np.max(np.abs(new - iterate)))
 
-    def converged(self, context: Grid, measure: float) -> bool:
+    def converged(self, problem: Problem, context: Grid, measure: float) -> bool:
         """Successive iterates differ by at most ``tol``."""
         return measure <= self.tol
 
