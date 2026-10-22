@@ -2,6 +2,7 @@
 
 import dataclasses
 import sys
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
@@ -16,6 +17,7 @@ from maesolvers import (
     T8,
     T9,
     T12,
+    T16,
     Adam,
     Dirichlet,
     HardDirichlet,
@@ -124,6 +126,31 @@ def test_the_composed_solver_supports_what_all_its_parts_support():
         UnsupportedProblemError, match="NeuralSolver does not support T9"
     ):
         _solver().solve(T9)
+
+
+@dataclass(frozen=True, kw_only=True)
+class BoundaryMisfit(Loss):
+    """A loss of your own that reads the Dirichlet data and keeps the default supports."""
+
+    def __call__(self, u, batch):
+        from maesolvers.neural import functional
+
+        misfit = functional.mean_squared_misfit(u(batch.boundary), batch.g)
+        return {"loss": misfit}
+
+
+def test_a_loss_supports_dirichlet_problems_by_default():
+    loss = BoundaryMisfit()
+    assert loss.supports(T1) and loss.supports(T9)
+    assert not loss.supports(T12) and not loss.supports(T16)  # transport
+
+
+def test_a_solver_with_a_loss_on_dirichlet_data_refuses_a_transport_problem():
+    solver = _solver(network=MLP(), loss=BoundaryMisfit(), optimizer=Adam())
+    assert solver.supports(T1)
+    assert not solver.supports(T12) and not solver.supports(T16)
+    with pytest.raises(UnsupportedProblemError, match="does not support T12"):
+        solver.solve(T12)
 
 
 @pytest.mark.parametrize(

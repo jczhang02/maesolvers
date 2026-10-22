@@ -94,12 +94,12 @@ class TrainingModule(lightning.LightningModule):
 
     def on_fit_start(self) -> None:
         """Move the collocation points and data to the training device."""
-        data = self.data
+        data, device = self.data, self.device
         self.data = Batch(
-            *(
-                getattr(data, name).to(self.device)
-                for name in ("interior", "f", "boundary", "g")
-            )
+            interior=data.interior.to(device),
+            f=data.f.to(device),
+            boundary=data.boundary.to(device),
+            g=None if data.g is None else data.g.to(device),
         )
 
     def _torch_optimizer(self) -> LightningOptimizer:

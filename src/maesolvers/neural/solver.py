@@ -57,7 +57,7 @@ class _Context:
     collocation: Collocation
     model: Any
     f: np.ndarray
-    g: np.ndarray
+    g: np.ndarray | None
 
 
 @dataclass(frozen=True, eq=False)
@@ -229,19 +229,17 @@ class NeuralSolver(Solver[_Context, _Trained]):
         -------
         _Context
             The points, the network and ``f`` and ``g`` at the points (``g``
-            zero for a boundary condition other than Dirichlet).
+            None for a boundary condition other than Dirichlet).
         """
         from maesolvers.neural import _torch
 
         collocation = self.collocation(problem)
         with _torch.building(self.seed):
             model = self.network.build(problem, collocation)
-        boundary = problem.boundary
-        g = (
-            boundary.g(collocation.boundary)
-            if isinstance(boundary, Dirichlet) and len(collocation.boundary)
-            else np.zeros(len(collocation.boundary))
-        )
+        boundary, points = problem.boundary, collocation.boundary
+        g = None
+        if isinstance(boundary, Dirichlet):
+            g = boundary.g(points) if len(points) else np.zeros(0)
         return _Context(collocation, model, problem.f(collocation.interior), g)
 
     def run(
@@ -339,5 +337,5 @@ class NeuralSolver(Solver[_Context, _Trained]):
             interior=tensor(points.interior),
             f=tensor(context.f),
             boundary=tensor(points.boundary),
-            g=tensor(context.g),
+            g=None if context.g is None else tensor(context.g),
         )

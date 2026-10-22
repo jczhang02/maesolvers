@@ -40,14 +40,15 @@ class Batch:
     boundary
         Shape ``(K, d)``: the boundary collocation points.
     g
-        Shape ``(K,)``: the Dirichlet data at ``boundary``; zeros for a
-        problem with another boundary condition.
+        Shape ``(K,)``: the Dirichlet data at ``boundary``; None for a
+        problem with another boundary condition, so that a loss that reads
+        it there fails instead of fitting made-up data.
     """
 
     interior: "torch.Tensor"
     f: "torch.Tensor"
     boundary: "torch.Tensor"
-    g: "torch.Tensor"
+    g: "torch.Tensor | None"
 
 
 class Loss(ABC):
@@ -58,11 +59,17 @@ class Loss(ABC):
     :attr:`~maesolvers.core.solver.Solver.hparams` record it and jsonargparse
     builds it from a ``class_path`` (ADR 0005). It implements
     :meth:`__call__`, and overrides :meth:`supports` if it does not handle
-    every problem.
+    every Dirichlet problem, or if it handles another boundary condition.
     """
 
     def supports(self, problem: Problem) -> bool:
-        """Whether the loss is a valid objective for the problem; True by default.
+        """Whether the loss is a valid objective for the problem.
+
+        A :class:`Batch` carries Dirichlet data only, so by default a loss
+        supports exactly the problems with a
+        :class:`~maesolvers.core.boundary.Dirichlet` boundary condition. A
+        loss for another condition overrides this, and must not read
+        ``batch.g``, which is None there.
 
         Parameters
         ----------
@@ -73,7 +80,7 @@ class Loss(ABC):
         -------
         bool
         """
-        return True
+        return isinstance(problem.boundary, Dirichlet)
 
     @abstractmethod
     def __call__(self, u: "torch.nn.Module", batch: Batch) -> "dict[str, torch.Tensor]":
@@ -126,7 +133,8 @@ class PenaltyLoss(Loss):
         not finite.
     ValueError
         When called with ``B > 0`` on a batch without boundary points, so at
-        the first training step, before any update.
+        the first training step, before any update, or without Dirichlet
+        data.
     """
 
     convexity_weight: float = 1e4
@@ -151,7 +159,7 @@ class PenaltyLoss(Loss):
         -------
         bool
         """
-        return isinstance(problem.boundary, Dirichlet) and (
+        return super().supports(problem) and (
             self.convexity_weight == 0.0 or problem.dim == 2
         )
 
@@ -172,15 +180,11 @@ class PenaltyLoss(Loss):
         Raises
         ------
         ValueError
-            If ``boundary_weight > 0`` and the batch has no boundary points.
+            If ``boundary_weight > 0`` and the batch has no boundary points
+            or no Dirichlet data (``batch.g`` is None).
         """
         from maesolvers.neural import functional
 
-        if self.boundary_weight > 0.0 and batch.boundary.shape[0] == 0:
-            raise ValueError(
-                "PenaltyLoss has boundary_weight > 0 but the sampler gave no "
-                "boundary points"
-            )
         hess = functional.hessian(u, batch.interior)
         terms = {
             "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).sum(),
@@ -188,6 +192,16 @@ class PenaltyLoss(Loss):
         }
         loss = terms["equation"] + self.convexity_weight * terms["convexity"]
         if self.boundary_weight > 0.0:
+            if batch.boundary.shape[0] == 0:
+                raise ValueError(
+                    "PenaltyLoss has boundary_weight > 0 but the sampler gave no "
+                    "boundary points"
+                )
+            if batch.g is None:
+                raise ValueError(
+                    "PenaltyLoss has boundary_weight > 0 but the batch has no "
+                    "Dirichlet data"
+                )
             terms["boundary"] = functional.mean_squared_misfit(
                 u(batch.boundary), batch.g
             )

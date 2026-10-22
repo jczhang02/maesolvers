@@ -20,6 +20,7 @@ from maesolvers import (  # noqa: E402
     T1,
     T6,
     T8,
+    T16,
     Adam,
     Callback,
     HardDirichlet,
@@ -30,7 +31,13 @@ from maesolvers import (  # noqa: E402
     tracking,
 )
 from maesolvers.metrics import evaluate  # noqa: E402
-from maesolvers.neural import Collocation, Loss, Network, Optimizer  # noqa: E402
+from maesolvers.neural import (  # noqa: E402
+    Batch,
+    Collocation,
+    Loss,
+    Network,
+    Optimizer,
+)
 from maesolvers.neural import functional as F  # noqa: E402
 
 pytestmark = pytest.mark.neural
@@ -325,6 +332,39 @@ def test_the_loss_terms_of_the_penalty_loss():
     expected = terms["equation"] + 2.0 * terms["convexity"] + 3.0 * terms["boundary"]
     assert terms["loss"].item() == pytest.approx(expected.item())
     assert hess.shape == (2, 2, 2)
+
+
+def test_the_penalty_loss_refuses_a_batch_without_dirichlet_data():
+    points = torch.tensor([[0.5, 0.5]], dtype=torch.float64)
+    batch = Batch(interior=points, f=torch.ones(1), boundary=points, g=None)
+    with pytest.raises(ValueError, match="no Dirichlet data"):
+        PenaltyLoss(boundary_weight=1.0)(lambda x: x.sum(dim=-1), batch)
+
+
+@dataclass(frozen=True, kw_only=True)
+class Residual(Loss):
+    """A loss of your own for any boundary condition: the residual alone."""
+
+    def supports(self, problem):
+        return True
+
+    def __call__(self, u, batch):
+        if batch.g is not None:
+            raise AssertionError("a transport problem has no Dirichlet data")
+        hess = F.hessian(u, batch.interior)
+        return {"loss": F.monge_ampere_residual(hess, batch.f).pow(2).mean()}
+
+
+def test_a_batch_has_no_dirichlet_data_for_another_boundary_condition():
+    solver = NeuralSolver(
+        network=MLP(width=4, depth=1),
+        loss=Residual(),
+        sampler=UniformSampler(interior_points=20, boundary_points=8),
+        optimizer=Adam(),
+        max_steps=2,
+    )
+    result = solver.solve(T16)  # Box, Transport: Residual checks batch.g is None
+    assert result.info["iterations"] == 2
 
 
 def test_mlflow_logs_a_neural_solve(tmp_path, monkeypatch):
