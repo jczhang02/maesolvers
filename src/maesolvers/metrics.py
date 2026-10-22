@@ -299,6 +299,11 @@ def summarize(
     of seeds the median is the mean of the middle two, so exactly half failed
     also gives ``inf``.
 
+    A run that stops unconverged (``info["converged"]`` False) with a finite
+    error is a normal seed: it fails only if its error is not below
+    ``threshold``. Whether ADR 0007's "divergence" should also count such a
+    run as failed is open until the neural solvers (issues #12, #14).
+
     Parameters
     ----------
     results
