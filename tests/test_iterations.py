@@ -74,7 +74,7 @@ def test_a_preset_is_its_composition(preset, iteration, problem):
 )
 def test_preset_defaults_and_flat_hparams(preset, defaults):
     assert preset().hparams == {
-        "class_path": f"maesolvers.classical.presets.{preset.__name__}",
+        "class_path": f"maesolvers.{preset.__name__}",
         "init_args": defaults,
     }
     assert "scheme" not in repr(preset())
@@ -83,10 +83,10 @@ def test_preset_defaults_and_flat_hparams(preset, defaults):
 def test_composed_hparams_nest_the_scheme():
     config = PoissonIteration(scheme=Standard9(n=8), max_iter=3).hparams
     assert config == {
-        "class_path": "maesolvers.classical.iterations.PoissonIteration",
+        "class_path": "maesolvers.PoissonIteration",
         "init_args": {
             "scheme": {
-                "class_path": "maesolvers.classical.schemes.Standard9",
+                "class_path": "maesolvers.Standard9",
                 "init_args": {"n": 8, "spline_degree": 3},
             },
             "max_iter": 3,

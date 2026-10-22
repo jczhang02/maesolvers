@@ -10,6 +10,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Dirichlet(g)` and `Transport(target)` boundary condition types; for `Transport`, `Problem.f` is the source density and the target density is uniform 1 on `target`.
 - `Problem.observables`: named numbers computed from a solution, reported by `evaluate`; each name must be an ASCII identifier (`ValueError` otherwise), so that it is also a valid MLflow metric name.
 - `Result.hessian`, an optional callable Hessian, and `Result.hparams`, the solver's configuration as `class_path` and `init_args`, nested parts and containers of parts included.
+  A `class_path` is `maesolvers.<Name>` for a class `maesolvers` exports (the form `--print_config` writes), so records and the MLflow parameters `tracking.flatten` makes from them do not depend on the internal module layout; for any other class it is the dotted module path.
 - `Result.interior` and `Solution.interior`: an optional boolean mask of the method's interior nodes, where `evaluate` reads `node_hessian`; without it `evaluate` falls back to `problem.domain.interior(nodes)`, which may count nodes on a curved boundary as interior.
   `FDNewton` and `FDPoisson` set it.
 - `Solver` base class with the fixed lifecycle `check -> setup -> run -> finalize`, the class variables `domains`, `boundaries` and `dims`, the instance method `supports(problem)` (a composed solver may override it) and the `hparams` property; `Solution` and `Trace` are what its hooks return, both exported at the top level (ADR 0003).

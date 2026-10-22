@@ -51,8 +51,8 @@ def test_git_tags_outside_a_checkout_are_unknown(tmp_path, monkeypatch):
 def test_flatten_dots_nested_parts():
     config = Newton(scheme=Standard9(n=8), max_iter=3).hparams
     assert tracking.flatten(config) == {
-        "class_path": "maesolvers.classical.iterations.Newton",
-        "scheme.class_path": "maesolvers.classical.schemes.Standard9",
+        "class_path": "maesolvers.Newton",
+        "scheme.class_path": "maesolvers.Standard9",
         "scheme.n": 8,
         "scheme.spline_degree": 3,
         "max_iter": 3,
@@ -118,7 +118,7 @@ def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
     assert params == (
         "params",
         {
-            "class_path": "maesolvers.classical.presets.FDNewton",
+            "class_path": "maesolvers.FDNewton",
             "max_iter": 50,
             "tol": 1e-10,
             "n": 8,

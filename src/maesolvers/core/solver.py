@@ -14,6 +14,7 @@ the solver.
 
 from __future__ import annotations
 
+import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
@@ -105,11 +106,14 @@ def _config(obj: object) -> Any:
         built recursively over its init fields; a tuple, list or dict of the
         configurations of the elements for a container; the value itself
         otherwise. This is the form jsonargparse reads (ADR 0005).
+        The ``class_path`` of a class exported by ``maesolvers`` is
+        ``maesolvers.<Name>``, the form jsonargparse prints, so a record does
+        not depend on the internal module layout; of any other class it is
+        the dotted module path.
     """
     if is_dataclass(obj) and not isinstance(obj, type):
-        cls = type(obj)
         return {
-            "class_path": f"{cls.__module__}.{cls.__qualname__}",
+            "class_path": _class_path(type(obj)),
             "init_args": {
                 f.name: _config(getattr(obj, f.name)) for f in fields(obj) if f.init
             },
@@ -121,6 +125,15 @@ def _config(obj: object) -> Any:
     if isinstance(obj, Mapping):
         return {k: _config(v) for k, v in obj.items()}
     return obj
+
+
+def _class_path(cls: type) -> str:
+    """``maesolvers.<Name>`` for a class the package exports, else its module path."""
+    # Looked up at call time: the package imports this module.
+    package = sys.modules["maesolvers"]
+    if getattr(package, cls.__name__, None) is cls:
+        return f"maesolvers.{cls.__name__}"
+    return f"{cls.__module__}.{cls.__qualname__}"
 
 
 class Solver(ABC, Generic[ContextT, StateT]):

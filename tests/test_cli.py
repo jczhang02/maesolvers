@@ -14,6 +14,8 @@ from maesolvers.metrics import evaluate
 
 pytest.importorskip("jsonargparse")
 
+import yaml  # noqa: E402  (a jsonargparse dependency)
+
 from maesolvers.cli import main  # noqa: E402
 
 COMPOSED_YAML = textwrap.dedent(
@@ -169,6 +171,42 @@ def test_a_printed_config_reruns(tmp_path, capsys):
     assert from_config(record["run"]["solver"]) == Newton(
         scheme=Standard9(n=16), tol=1e-9
     )
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        ["--solver", "FDNewton", "--solver.n", "8"],
+        [
+            "--solver",
+            "Newton",
+            "--solver.scheme",
+            "Standard9",
+            "--solver.scheme.n",
+            "8",
+        ],
+    ],
+    ids=["preset", "composed"],
+)
+def test_printed_config_and_record_name_the_same_class_paths(tmp_path, capsys, solver):
+    args = [*solver, "--problem", "T1"]
+    with pytest.raises(SystemExit):
+        main(["solve", *args, "--print_config"])
+    printed = yaml.safe_load(capsys.readouterr().out)["solver"]
+    recorded = _solve(tmp_path, *args)["run"]["solver"]
+    assert _class_paths(printed) == _class_paths(recorded)
+
+
+def _class_paths(config):
+    """Every ``class_path`` in a configuration, by its dotted key."""
+    paths = {}
+    if isinstance(config, dict):
+        for key, value in config.items():
+            if key == "class_path":
+                paths[key] = value
+            for sub, path in _class_paths(value).items():
+                paths[f"{key}.{sub}"] = path
+    return paths
 
 
 def test_the_run_of_a_record_is_a_config_file(tmp_path):
