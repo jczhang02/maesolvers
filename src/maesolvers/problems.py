@@ -1,7 +1,7 @@
-"""Problem definition and the shared catalogue P1 to P5.
+"""Problem definition and the catalogue P1 to P5.
 
-The catalogue follows the project's test-problem page: numbers are never
-reused, and every solver reports on these problems.
+The catalogue is provisional until the research programme fixes its test set.
+Numbers are never reused, and every solver reports on these problems.
 """
 
 from __future__ import annotations

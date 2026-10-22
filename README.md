@@ -18,7 +18,7 @@
 ## Features
 
 - **One interface**: a `Problem` (domain, right-hand side, boundary condition, exact solution when known), any object with `solve(problem) -> Result`, and a `Result` that carries the solution as a callable plus the method's own nodes, values and discrete Hessian.
-- **Fixed catalogue**: test problems `P1` to `P5` with numbers that are never reused, so tables from different methods and different years line up.
+- **One catalogue**: test problems `P1` to `P5`, provisional until the research programme fixes its test set, with numbers that are never reused so that tables from different methods line up.
 - **Shared metrics**: `evaluate(result)` reports solution errors at the method's nodes and on a common grid, the equation residual, convexity statistics and cost, the same way for every method.
 - **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
 - **Light dependencies**: numpy and scipy only; torch arrives with the `neural` extra and the neural solvers.
@@ -60,7 +60,8 @@ Any object with a `solve(problem)` method that returns a `Result` plugs into the
 
 ## Test problems
 
-All five are two-dimensional; the numbering is shared with the research repository that defines them.
+All five are two-dimensional.
+The catalogue is provisional: the research repository has not fixed its test problems yet, and the numbering will be aligned with it when it does.
 
 | Name | Domain | `f` | Boundary | Exact solution | Tests |
 |---|---|---|---|---|---|
