@@ -350,7 +350,8 @@ class Monotone17(Scheme):
         ``1e-12`` does not. The floor changes the steps, not the solution.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``, as in :class:`Standard9`.
 
     Attributes
     ----------
@@ -381,10 +382,9 @@ class Monotone17(Scheme):
                 f"boundary must be 'narrow' or 'interpolate', got {self.boundary!r}"
             )
         spline_degree = integer("spline_degree", self.spline_degree, 1)
-        if spline_degree > min(5, n):
+        if spline_degree > 5:
             raise ValueError(
-                f"spline_degree must be between 1 and min(5, n) = {min(5, n)}, "
-                f"got {spline_degree}"
+                f"spline_degree must be between 1 and 5, got {spline_degree}"
             )
         object.__setattr__(self, "n", n)
         object.__setattr__(self, "stencil", cast(Literal[9, 17, 33], stencil))
@@ -619,7 +619,8 @@ class Monotone17(Scheme):
         hess[grid.interior, 1, 1] = dyy @ values
         hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = dxy @ values
         return Solution(
-            u=spline(grid.x, grid.y, values, self.spline_degree),
+            # a spline needs degree + 1 knots, so a coarse grid lowers the degree
+            u=spline(grid.x, grid.y, values, min(self.spline_degree, n)),
             nodes=grid.nodes,
             values=values,
             node_hessian=hess,

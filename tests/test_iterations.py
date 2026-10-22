@@ -16,6 +16,7 @@ from maesolvers import (
     T8,
     T12,
     FDFiltered,
+    FDHybrid,
     FDMonotone,
     FDNewton,
     FDPoisson,
@@ -213,6 +214,7 @@ def test_newton_and_poisson_reach_different_roots_on_t2():
 def test_the_registry_lists_the_presets_read_only():
     assert dict(SOLVERS) == {
         "FDFiltered": FDFiltered,
+        "FDHybrid": FDHybrid,
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
@@ -222,7 +224,9 @@ def test_the_registry_lists_the_presets_read_only():
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
-@pytest.mark.parametrize("solver", [FDFiltered, FDMonotone, FDNewton, FDPoisson])
+@pytest.mark.parametrize(
+    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson]
+)
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
     # The filtered scheme answers through its parts (#23); its narrower part

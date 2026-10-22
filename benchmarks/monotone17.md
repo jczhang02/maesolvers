@@ -167,7 +167,7 @@ The regularised `(MA)^delta` gives `6.73e-4`, `7.24e-4` and `7.248e-4` at `N = 3
 ## Finding 3: the JCP T2 column at `N <= 63` matches `h = 1/(N - 1)`
 
 At `N = 31`, 45 and 63 the JCP monotone values (`1.74e-3`, `0.98e-3`, `0.59e-3`) are ours with `n = N - 1` cells, to the printed digits (`1.7379e-3`, `0.9795e-3`, `0.5860e-3`), while at `N = 89` they are ours with `n = N` (`0.3745e-3`; with `n = N - 1`, `0.3758e-3` rounds to 0.38), and from `N = 127` on the two conventions round alike.
-The JCP column "Hybrid" prints the same three values at `N = 31` to 63, so both columns there probably come from the same runs.
+The JCP column "Hybrid" prints the same three values at `N = 31` to 63, so both columns there probably come from the same runs; that column matches `h = 1/(N - 1)` at every printed `N` (`hybrid.md`, Finding 2).
 SINUM's coarser digits (1.7, 0.6) do not separate the two conventions.
 For the standard scheme every printed value of both tables follows `h = 1/N` (`standard_fd.md`, Finding 1); why the coarse monotone runs on T2 would use another grid is not known.
 It does not carry over to T1 or T20 (Finding 2, Finding 5).
@@ -230,4 +230,4 @@ CPU times are 2011 MATLAB hardware and are not compared.
 
 - SINUM Table 4 (3D, 19-point stencil): 3D boxes come with 0.2.
 - BFO 2010, Table 7, the 9-, 17- and 33-point columns on T7: they are the wide-stencil scheme of Oberman 2008, the product of the smallest and largest directional second difference, not the scheme of the 2011 papers.
-- The JCP column "Hybrid": a separate scheme, planned for 0.1.
+- The JCP column "Hybrid": a separate scheme, compared in `hybrid.md`.

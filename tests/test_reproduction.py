@@ -25,6 +25,7 @@ from maesolvers import (
     Box,
     Dirichlet,
     FDFiltered,
+    FDHybrid,
     FDMonotone,
     FDNewton,
     FDPoisson,
@@ -97,6 +98,19 @@ def test_monotone_smooth_example_matches_the_jcp_table_at_181():
 @pytest.mark.parametrize("n,expected", sorted(JCP_T2.items()))
 def test_monotone_blowup_example_matches_the_jcp_table(n, expected):
     err = evaluate(FDMonotone(n=n).solve(T2))["max"]
+    assert round(err / 1e-3, 2) == expected
+
+
+# Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Hybrid" (17
+# points). Ours (FDHybrid, h = 1/N) agrees to the printed digits on T2 from
+# N = 127 on, and at every N with h = 1/(N - 1) (benchmarks/hybrid.md,
+# Finding 2); T1, T20 and the cone are a mismatch and not pinned.
+JCP_HYBRID_T2 = {127: 0.20, 181: 0.12}  # units of 1e-3
+
+
+@pytest.mark.parametrize("n,expected", sorted(JCP_HYBRID_T2.items()))
+def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
+    err = evaluate(FDHybrid(n=n).solve(T2))["max"]
     assert round(err / 1e-3, 2) == expected
 
 
