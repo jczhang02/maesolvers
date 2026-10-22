@@ -24,6 +24,8 @@ Every change to the public interface is listed here; 0.x may break the interface
   The iterations `Newton(scheme, max_iter=50, tol=1e-10)` and `PoissonIteration(scheme, max_iter=10_000, tol=1e-12)` take any scheme that provides the methods of the protocols `NewtonScheme` and `PoissonScheme`, checked in `check` with a `TypeError` that names what is missing; the scheme decides `supports`.
   `Newton`, `PoissonIteration` and `Standard9` are exported at the top level.
 - `maesolvers.SOLVERS` (`maesolvers.registry`): the presets by name, read-only.
+- `maesolvers.tracking.MLflowLogger`, a callback that logs a solve into the active MLflow run: git tags, the flattened `hparams` and the problem name as parameters, every step's metrics at its step, and the numeric fields of `evaluate` with `converged` at the end; it raises `RuntimeError` without an active run.
+  `tracking.flatten(config)` gives the dotted parameter names (`scheme.n`), and `tracking.git_tags()` the git state.
 
 ### Changed
 
@@ -37,6 +39,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `FDNewton` and `FDPoisson` take keyword arguments only, validate them on construction (`TypeError` for a float `n` or a string `tol`, numpy scalars stored as plain numbers), and raise `UnsupportedProblemError` instead of `TypeError` or `ValueError` for an unsupported problem.
 - `FDNewton` reports a start that already meets `tol` as converged after one step instead of stalling.
 - `FDNewton` and `FDPoisson` are presets: `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))` and `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, with the same defaults, call style and numbers as before; their `hparams` stay flat and their `class_path` is now `maesolvers.classical.presets.FDNewton` (`.FDPoisson`).
+- `maesolvers.tracking` tags runs with the git checkout of the current working directory instead of the checkout that holds the package, and imports mlflow only when a run starts or a logger is used.
 - `Result.info` holds `time`, `iterations`, `converged`, `history`, `unknowns`, `h` and `residual_max` for both finite-difference solvers.
 
 ### Removed
