@@ -6,6 +6,10 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Added
 
+- `Standard9` discretises 2D Dirichlet problems on a `Disk`, an `Ellipse` and the `CutQuarterDisk` of T6, with Shortley-Weller stencils next to the boundary, so `FDNewton` and `FDPoisson` solve T8 and T6 (issue #1); its `domains` (and the presets') are `(Box, Disk, Ellipse, CutQuarterDisk)`.
+  On these domains `n` counts cells per side of the grid over the bounding box, `Result.nodes` lists the nodes with unknowns and then the boundary points, and the solution off the nodes is the Clough-Tocher interpolant (`spline_degree` applies to a box only), extrapolated to first order past the hull of the nodes so that it stays second order at corners off the grid.
+- `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes`: the pure function behind it, returning a `ShortleyWellerOperators` named tuple (`nodes`, `interior`, `dxx`, `dyy`, `dxy`, `min_step`): the nodes, the mask of the nodes with unknowns, the operators `D_xx`, `D_yy`, `D_xy` and the smallest step fraction at each node.
+- `Standard9` results (and so `FDNewton` and `FDPoisson` results) carry `info["min_step"]`, the smallest step fraction of a stencil (1 on a box), and `info["interpolant"]`, `"spline(k)"` or `"clough_tocher"`, the interpolant behind `Result.u` and `max_grid`.
 - `maesolvers.neural`, the neural solvers (ADR 0004, 0008), behind the `neural` extra (torch, lightning >= 2): the package and every part import with numpy alone, so `import maesolvers` still loads no extra, and a solve without torch or lightning raises `ImportError` naming the extra.
   `NeuralSolver(network, loss, sampler, optimizer, max_steps=1000, tol=1e-5, seed=0, accelerator="cpu")` trains on a Lightning `Trainer` in float64, full batch, one optimizer step per training step; it stops converged when the largest component of the loss gradient is at most `tol`, and otherwise after `max_steps`, on a step that changes nothing (not counted as a step), or on a non-finite loss.
   A trainable parameter the loss does not reach (the output bias of a plain `MLP` under `PenaltyLoss`) has a zero gradient.
@@ -28,6 +32,10 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Changed
 
+- `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
+- `Standard9`'s `UnsupportedProblemError` message lists the four domains.
+- `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
+- The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale`, `interpolate` and `interpolant` are new.
 - The `neural` extra is torch and lightning >= 2 (it was torch alone).
 - CI's `test` job installs the `neural-cpu` group and runs the neural tests on CPU; it fails if a CUDA wheel is installed.
 - The development Python is 3.12 (`.python-version`): torch 2.7.1 has no wheel for 3.14.

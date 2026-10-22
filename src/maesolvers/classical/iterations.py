@@ -210,7 +210,10 @@ class Newton(SchemeIteration):
     max_iter
         Most Newton steps.
     tol
-        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+        Stop when ``max |residual| <= tol * max(1, max |f|)``, the residual
+        as the scheme defines it (:meth:`Standard9.residual
+        <maesolvers.classical.schemes.Standard9.residual>` scales it next to
+        a curved boundary).
     """
 
     measure: ClassVar[str] = "residual"

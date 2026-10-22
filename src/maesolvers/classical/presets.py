@@ -52,15 +52,22 @@ class FDNewton(_Standard9Preset, Newton):
     Parameters
     ----------
     n
-        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
-        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+        Cells per side of the grid over the domain's bounding box
+        (``h = 1/n`` on the unit square, ADR 0001), at least 2; on a box
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns.
     max_iter
         Most Newton steps.
     tol
-        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+        Stop when ``max |residual| <= tol * max(1, max |f|)``; next to a
+        curved boundary the residual is row-scaled
+        (:meth:`Standard9.residual
+        <maesolvers.classical.schemes.Standard9.residual>`), so the test
+        there is looser by the inverse of the smallest step fraction.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes on a box, 1 to 5; a grid with fewer than ``spline_degree``
+        cells per side takes degree ``n``. On a curved domain the solution
+        off the nodes is the Clough-Tocher interpolant, whatever the degree.
     """
 
 
@@ -75,12 +82,16 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     Parameters
     ----------
     n
-        Cells per side (``h = 1/n`` on the unit square, ADR 0001); at least 2.
+        Cells per side of the grid over the domain's bounding box
+        (``h = 1/n`` on the unit square, ADR 0001), at least 2; on a box
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns.
     max_iter
         Most iterations.
     tol
         Stop when successive iterates differ by at most ``tol`` at every node.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes on a box, 1 to 5; a grid with fewer than ``spline_degree``
+        cells per side takes degree ``n``. On a curved domain the solution
+        off the nodes is the Clough-Tocher interpolant, whatever the degree.
     """
