@@ -1573,6 +1573,18 @@ wheels = [
 ]
 
 [[package]]
+name = "jsonargparse"
+version = "4.52.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f1/1b/86ab3c48f74609de566e6c6fea5493a7bea4c7de485e5a56fa1239c698b5/jsonargparse-4.52.0.tar.gz", hash = "sha256:103168510fab9d45a980fe7560dcbf20d1cce38320a43904583d23869af3bee1", size = 164776, upload-time = "2026-09-01T05:53:07.575Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/70/e9114d52e9e72daaaeec30ecafe1018a4fbe6288ec35e16822529676b671/jsonargparse-4.52.0-py3-none-any.whl", hash = "sha256:1878b16b6be90c3e838aac569784a110fe1eb1806c28e56175cdc7f2e563d78c", size = 174766, upload-time = "2026-09-01T05:53:04.257Z" },
+]
+
+[[package]]
 name = "kiwisolver"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1734,6 +1746,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cli = [
+    { name = "jsonargparse" },
+]
 neural = [
     { name = "torch" },
 ]
@@ -1749,11 +1764,12 @@ experiments = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jsonargparse", marker = "extra == 'cli'", specifier = ">=4.49" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "scipy", specifier = ">=1.10" },
     { name = "torch", marker = "extra == 'neural'" },
 ]
-provides-extras = ["neural"]
+provides-extras = ["neural", "cli"]
 
 [package.metadata.requires-dev]
 dev = [
