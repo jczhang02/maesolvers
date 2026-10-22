@@ -45,6 +45,8 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 ### Changed
 
+- `Newton`'s line search tries the step lengths 1 down to `2^-19` (20 of them), not down to `2^-39`: below, the sufficient decrease `1e-4 t` is rounding, so a direction that does not decrease the residual (the filtered scheme's approximate Jacobian) was taken in steps of `2^-33` that changed nothing, until `max_iter`; such a solve now stops at once, not converged.
+  The shipped presets take at most 11 halvings on the catalogue problems, and every receipt under `benchmarks/` reruns to the same values.
 - `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.

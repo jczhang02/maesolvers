@@ -214,6 +214,14 @@ def test_the_solution_is_the_accurate_parts_with_the_filter_diagnostics():
     assert evaluate(result)["max"] < 2e-3
 
 
+def test_newton_stops_instead_of_crawling_when_no_step_decreases_the_residual():
+    # On T1 the filter band holds nodes where the paper's Jacobian (2 J_M for
+    # 2 J_M - J_A) gives no descent; Newton used to take steps of 2^-33 there
+    # until max_iter.
+    result = FDFiltered(n=32).solve(T1)
+    assert not result.info["converged"] and result.info["iterations"] < 20
+
+
 def test_supported_problems_are_those_of_both_parts():
     scheme = _filtered()
     assert scheme.supports(T1) and not scheme.supports(T8)
