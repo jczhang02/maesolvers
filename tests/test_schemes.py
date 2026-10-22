@@ -75,7 +75,9 @@ def test_the_exact_quadratic_has_zero_residual():
     grid = scheme.discretize(QUADRATIC)
     v = _quadratic(grid.nodes[grid.interior])
     np.testing.assert_allclose(scheme.residual(grid, v), 0.0, atol=1e-11)
-    for d2, expected in zip(scheme.second_derivatives(grid, v), (2.0, 3.0, 0.5)):
+    for d2, expected in zip(
+        scheme.second_derivatives(grid, v), (2.0, 3.0, 0.5), strict=True
+    ):
         np.testing.assert_allclose(d2, expected, rtol=1e-10)
 
 

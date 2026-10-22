@@ -15,7 +15,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 HERE = Path(__file__).parent
 PUBLISHED = {
@@ -63,7 +63,7 @@ titles = {
     "T1": "T1: smooth, u = exp(|x|^2/2)",
     "T2": "T2: corner blow-up, u = -sqrt(2 - |x|^2)",
 }
-for ax, prob in zip(axes, ("T1", "T2")):
+for ax, prob in zip(axes, ("T1", "T2"), strict=True):
     for data, label, style in (
         (
             poisson[prob],

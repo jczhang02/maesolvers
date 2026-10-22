@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 def _parser() -> ArgumentParser:
-    """The ``maesolvers`` parser with its ``solve`` subcommand."""
+    """Build the ``maesolvers`` parser with its ``solve`` subcommand."""
     jsonargparse = _jsonargparse.module()
     solve = jsonargparse.ArgumentParser(
         description="Solve a catalogue problem and print evaluate as a table."
@@ -79,7 +79,7 @@ def _parser() -> ArgumentParser:
 
 
 def _table(result: Result, metrics: Mapping[str, float]) -> str:
-    """A status line, then one ``name value`` row per metric."""
+    """Format a status line, then one ``name value`` row per metric."""
     info = result.info
     status = "converged" if info["converged"] else "did not converge"
     lines = [
@@ -94,7 +94,7 @@ def _table(result: Result, metrics: Mapping[str, float]) -> str:
 
 
 def _solver_name(result: Result) -> str:
-    """The solver's class name, from ``result.hparams``."""
+    """Return the solver's class name, from ``result.hparams``."""
     return str(result.hparams["class_path"]).rpartition(".")[2]
 
 

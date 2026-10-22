@@ -26,7 +26,7 @@ class _Standard9Preset:
 
     domains: ClassVar[tuple[type, ...]] = Standard9.domains
     boundaries: ClassVar[tuple[type, ...]] = Standard9.boundaries
-    dims: ClassVar[tuple[int, ...]] = Standard9.dims
+    dims: ClassVar[tuple[int, ...] | None] = Standard9.dims
 
     scheme: Standard9 = field(init=False, repr=False)
     n: int = Standard9.n

@@ -19,9 +19,10 @@ The same scheme under two iterations can reach different discrete solutions
 # test_every_numeric_solver_parameter_is_checked_against_its_type.
 
 from dataclasses import dataclass, is_dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
 
 from maesolvers.classical.schemes import Scheme
@@ -143,7 +144,7 @@ class SchemeIteration(IterativeSolver[Any, np.ndarray]):
         return self.scheme.discretize(problem)
 
     def finalize(self, problem: Problem, context: Any, state: np.ndarray) -> Solution:
-        """The scheme's solution fields for the final iterate.
+        """Return the scheme's solution fields for the final iterate.
 
         Parameters
         ----------
@@ -180,6 +181,25 @@ def _check_scheme(iteration: object, scheme: object) -> None:
         )
 
 
+class _NewtonScheme(Protocol):
+    """The scheme methods :class:`Newton` calls: ``rhs`` and its ``requires``."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def residual(self, grid: Any, v: np.ndarray) -> np.ndarray: ...
+    def jacobian(self, grid: Any, v: np.ndarray) -> sp.spmatrix: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+class _PoissonScheme(Protocol):
+    """The scheme methods :class:`PoissonIteration` calls: ``rhs`` and its ``requires``."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def second_derivatives(
+        self, grid: Any, v: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
 @dataclass(frozen=True, kw_only=True)
 class Newton(SchemeIteration):
     """Damped Newton on a scheme's residual, from a Poisson start.
@@ -207,6 +227,11 @@ class Newton(SchemeIteration):
     max_iter: int = 50
     tol: float = 1e-10
 
+    @property
+    def _scheme(self) -> _NewtonScheme:
+        """The scheme, typed by the methods :meth:`check` makes sure it has."""
+        return cast(_NewtonScheme, self.scheme)
+
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
         """Solve ``laplace u = 2 sqrt(f)``, the convex branch's trace.
 
@@ -222,8 +247,8 @@ class Newton(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return self.scheme.solve_laplace(
-            context, 2.0 * np.sqrt(self.scheme.rhs(context))
+        return self._scheme.solve_laplace(
+            context, 2.0 * np.sqrt(self._scheme.rhs(context))
         )
 
     def step(
@@ -247,15 +272,15 @@ class Newton(SchemeIteration):
             meets the stopping criterion (a warm start) is returned unchanged.
             None when no step length decreases the residual (rounding level).
         """
-        r = self.scheme.residual(context, iterate)
+        r = self._scheme.residual(context, iterate)
         norm = float(np.max(np.abs(r)))
         if self.converged(problem, context, norm):
             return iterate, norm
-        direction = spsolve(self.scheme.jacobian(context, iterate), -r)
+        direction = spsolve(self._scheme.jacobian(context, iterate), -r)
         t = 1.0
         for _ in range(_BACKTRACKS):
             candidate = iterate + t * direction
-            new_norm = float(np.max(np.abs(self.scheme.residual(context, candidate))))
+            new_norm = float(np.max(np.abs(self._scheme.residual(context, candidate))))
             if new_norm < (1.0 - _SUFFICIENT_DECREASE * t) * norm:
                 return candidate, new_norm
             t *= 0.5
@@ -277,7 +302,7 @@ class Newton(SchemeIteration):
         -------
         bool
         """
-        scale = max(1.0, float(np.max(np.abs(self.scheme.rhs(context)))))
+        scale = max(1.0, float(np.max(np.abs(self._scheme.rhs(context)))))
         return measure <= self.tol * scale
 
 
@@ -311,6 +336,11 @@ class PoissonIteration(SchemeIteration):
     max_iter: int = 10_000
     tol: float = 1e-12
 
+    @property
+    def _scheme(self) -> _PoissonScheme:
+        """The scheme, typed by the methods :meth:`check` makes sure it has."""
+        return cast(_PoissonScheme, self.scheme)
+
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
         """Solve ``laplace u = sqrt(2 f)``.
 
@@ -326,8 +356,8 @@ class PoissonIteration(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return self.scheme.solve_laplace(
-            context, np.sqrt(2.0 * self.scheme.rhs(context))
+        return self._scheme.solve_laplace(
+            context, np.sqrt(2.0 * self._scheme.rhs(context))
         )
 
     def step(
@@ -349,9 +379,9 @@ class PoissonIteration(SchemeIteration):
         tuple
             The next unknowns and the max change at the nodes.
         """
-        uxx, uyy, uxy = self.scheme.second_derivatives(context, iterate)
-        f = self.scheme.rhs(context)
-        new = self.scheme.solve_laplace(
+        uxx, uyy, uxy = self._scheme.second_derivatives(context, iterate)
+        f = self._scheme.rhs(context)
+        new = self._scheme.solve_laplace(
             context, np.sqrt(uxx**2 + uyy**2 + 2.0 * uxy**2 + 2.0 * f)
         )
         return new, float(np.max(np.abs(new - iterate)))

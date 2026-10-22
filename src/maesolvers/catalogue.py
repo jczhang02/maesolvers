@@ -85,7 +85,7 @@ def _unit_box(dim: int) -> Box:
 
 
 def _dirichlet(name: str, domain: Domain, f: Field, u: Field, note: str) -> Problem:
-    """The problem with exact solution ``u`` and its trace as Dirichlet data."""
+    """Build the problem with exact solution ``u`` and its trace as Dirichlet data."""
     u = _field(domain.dim, u)
     return Problem(
         name, domain, _field(domain.dim, f), Dirichlet(u), exact=u, note=note

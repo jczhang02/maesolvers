@@ -101,8 +101,8 @@ def test_cut_quarter_disk_bbox_touches_the_domain_on_every_side():
     edge = np.array([[0.5, 0.0], [0.0, 1.0]])
     assert np.all(domain.contains(edge)) and not np.any(domain.interior(edge))
     corner = np.array([(1 + root7) / 4, (root7 - 1) / 4])
-    assert domain.interior(corner - [1e-9, 0.0])
-    assert not domain.contains(corner + [1e-9, 0.0])
+    assert domain.interior(corner - np.array([1e-9, 0.0]))
+    assert not domain.contains(corner + np.array([1e-9, 0.0]))
 
 
 @pytest.mark.parametrize(

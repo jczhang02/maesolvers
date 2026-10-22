@@ -1,5 +1,6 @@
 """MLflow logging: the git tags, the flattened parameters and the logger."""
 
+import re
 import subprocess
 import sys
 import types
@@ -99,14 +100,21 @@ class FakeMLflow(types.ModuleType):
         yield "run"
         self.calls.append(("end",))
 
+    def _needs_a_run(self, run_id=None):
+        # mlflow's fluent API starts a new run when none is active and no run_id is given.
+        assert self.active or run_id, "a fluent call would start a new run"
+
     def set_tags(self, tags):
+        self._needs_a_run()
         self.calls.append(("tags", sorted(tags)))
 
     def log_params(self, params):
+        self._needs_a_run()
         self.calls.append(("params", params))
 
-    def log_metrics(self, metrics, step=None):
-        self.calls.append(("metrics", metrics, step))
+    def log_metrics(self, metrics, step=None, run_id=None):
+        self._needs_a_run(run_id)
+        self.calls.append(("metrics", metrics, step, run_id))
 
 
 def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
@@ -132,8 +140,8 @@ def test_logger_logs_hparams_steps_and_the_evaluation(monkeypatch):
         "id",
         [("residual", r, i) for i, r in enumerate(history, start=1)],
     )
-    kind, metrics, step = final
-    assert kind == "metrics" and step is None
+    kind, metrics, step, run_id = final
+    assert kind == "metrics" and step is None and run_id == "id"
     assert metrics["converged"] == 1.0 and metrics["iterations"] == len(history)
     assert {"max", "rms", "max_grid", "eigmin", "time", "unknowns"} <= set(metrics)
     assert all(type(v) is float for v in metrics.values())
@@ -161,8 +169,31 @@ def test_logger_sends_nothing_between_start_and_end(monkeypatch):
 
 def test_logger_needs_an_active_run(monkeypatch):
     FakeMLflow(active=False).install(monkeypatch)
-    with pytest.raises(RuntimeError, match="tracking.run"):
+    with pytest.raises(RuntimeError, match=re.escape("tracking.run")):
         FDNewton(n=8).solve(T1, callbacks=[tracking.MLflowLogger()])
+
+
+def test_logger_needs_the_run_until_the_end(monkeypatch):
+    fake = FakeMLflow().install(monkeypatch)
+    solver, logger = FDNewton(n=8), tracking.MLflowLogger()
+    logger.on_solve_start(solver, T1)
+    logger.on_step_end(solver, 1, {"residual": 1.0})
+    fake.active = False
+    with pytest.raises(RuntimeError, match=re.escape("tracking.run")):
+        logger.on_solve_end(solver, solver.solve(T1))
+
+
+def test_logger_needs_the_run_at_the_end_without_steps(monkeypatch):
+    # A Solver whose run reports no step, or a first step that returns None.
+    fake = FakeMLflow().install(monkeypatch)
+    solver, logger = FDNewton(n=8), tracking.MLflowLogger()
+    result = solver.solve(T1)
+    logger.on_solve_start(solver, T1)
+    logged = list(fake.calls)
+    fake.active = False
+    with pytest.raises(RuntimeError, match=re.escape("tracking.run")):
+        logger.on_solve_end(solver, result)
+    assert fake.calls == logged
 
 
 def test_run_sets_the_experiment_tags_and_params(monkeypatch):

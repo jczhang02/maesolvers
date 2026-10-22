@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def module() -> types.ModuleType:
-    """The jsonargparse module, or an ImportError that names the extra to install.
+    """Import jsonargparse, or raise an ImportError that names the extra to install.
 
     Returns
     -------

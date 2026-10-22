@@ -58,6 +58,7 @@ from maesolvers.registry import SOLVERS
 __all__ = [
     "CATALOGUE",
     "SHARED_TEST_SET",
+    "SOLVERS",
     "T1",
     "T2",
     "T3",
@@ -72,7 +73,6 @@ __all__ = [
     "T16",
     "T20",
     "T22",
-    "SOLVERS",
     "Box",
     "Callback",
     "CutQuarterDisk",

@@ -36,7 +36,7 @@ _FIELDS = (
 
 
 def shared_grid(domain: Domain, size: int | None = None) -> np.ndarray:
-    """The shared evaluation grid of a domain.
+    """Return the shared evaluation grid of a domain.
 
     A uniform grid over the bounding box, both ends included on every axis,
     restricted to the domain (test-set specification, Section 2). Only a
@@ -61,7 +61,7 @@ def shared_grid(domain: Domain, size: int | None = None) -> np.ndarray:
             raise ValueError(f"no shared grid size for dimension {d}; pass size")
         size = SHARED_GRID_SIZE[d]
     box = domain.bbox
-    axes = [np.linspace(a, b, size) for a, b in zip(box.lo, box.hi)]
+    axes = [np.linspace(a, b, size) for a, b in zip(box.lo, box.hi, strict=True)]
     points = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, d)
     keep = (
         domain.contains(points) if isinstance(domain, Box) else domain.interior(points)

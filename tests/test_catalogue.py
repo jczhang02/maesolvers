@@ -357,7 +357,7 @@ def _box_loop(box, count):
     corners = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
     t = np.linspace(0.0, 1.0, count, endpoint=False)[:, None]
     return np.concatenate(
-        [a + t * (b - a) for a, b in zip(corners, np.roll(corners, -1, 0))]
+        [a + t * (b - a) for a, b in zip(corners, np.roll(corners, -1, 0), strict=True)]
     )
 
 

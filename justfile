@@ -29,12 +29,13 @@ fmt:
     uv run ruff format .
     uv run ruff check --fix .
 
-# Check formatting, lint and tests, as CI does: tests without extras, then with cli
+# What CI runs on one Python: format, lint, types, tests without extras, tests with cli and mlflow
 check:
     uv run --exact ruff format --check .
     uv run --exact ruff check --no-fix .
-    uv run --exact pytest -q
-    uv run --exact --extra cli pytest -q
+    uv run --exact --extra cli --group experiments pyright
+    uv run --exact pytest -q -m "not neural"
+    uv run --exact --extra cli --group experiments pytest -q
 
 # One-time a100server setup: bare repo, clone, data dirs, local remote
 server-init:

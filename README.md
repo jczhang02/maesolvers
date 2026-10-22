@@ -128,6 +128,8 @@ class MySolver(IterativeSolver):
         return Solution(u=..., nodes=..., values=...)
 ```
 
+[`docs/guide.md`](docs/guide.md) walks through solving, the three ways to pass parameters, and a complete solver of your own, with a new iteration and a new scheme as smaller plug-in points; a test runs every block of it.
+
 ## Test problems
 
 `maesolvers.catalogue` defines every problem, `CATALOGUE` maps each T id to it, and each is also importable by name (`from maesolvers import T1`).
@@ -137,20 +139,20 @@ Every Dirichlet problem with an exact solution takes its boundary data from it; 
 
 | Id | Domain | `f` | Boundary | Exact solution | Tests |
 |---|---|---|---|---|---|
-| T1 | `(0, 1)^2` | `(1 + |x|^2) exp(|x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | smooth, the standard finite-difference example |
-| T2 | `(0, 1)^2` | `2 (2 - |x|^2)^-2` | Dirichlet | `-sqrt(2 - |x|^2)` | gradient blow-up at the corner `(1, 1)` |
-| T3 | `(0, 1)^2` | `|x|^-1` | Dirichlet | `(2 sqrt 2 / 3) |x|^(3/2)` | `f` blows up at `(0, 0)` but is integrable |
-| T4 | `(0, 1)^2` | 1 for `|x - x0| > 0.4`, else 0 | Dirichlet | 0.08 for `r <= 0.4`, `0.08 + (r s - 0.16 ln((r + s) / 0.4)) / 2` beyond, `r = |x - x0|`, `s = sqrt(r^2 - 0.16)` | discontinuous `f`, C^1 Alexandrov solution (not the source paper's `u`, see its note) |
-| T5 | `(0, 1.5)^2` | 4 for `|x| > 1`, else 0 | Dirichlet | 0 for `r <= 1`, `r sqrt(r^2 - 1) - ln(r + sqrt(r^2 - 1))` beyond | discontinuous `f`, C^1 Alexandrov solution |
+| T1 | `(0, 1)^2` | `(1 + \|x\|^2) exp(\|x\|^2)` | Dirichlet | `exp(\|x\|^2 / 2)` | smooth, the standard finite-difference example |
+| T2 | `(0, 1)^2` | `2 (2 - \|x\|^2)^-2` | Dirichlet | `-sqrt(2 - \|x\|^2)` | gradient blow-up at the corner `(1, 1)` |
+| T3 | `(0, 1)^2` | `\|x\|^-1` | Dirichlet | `(2 sqrt 2 / 3) \|x\|^(3/2)` | `f` blows up at `(0, 0)` but is integrable |
+| T4 | `(0, 1)^2` | 1 for `\|x - x0\| > 0.4`, else 0 | Dirichlet | 0.08 for `r <= 0.4`, `0.08 + (r s - 0.16 ln((r + s) / 0.4)) / 2` beyond, `r = \|x - x0\|`, `s = sqrt(r^2 - 0.16)` | discontinuous `f`, C^1 Alexandrov solution (not the source paper's `u`, see its note) |
+| T5 | `(0, 1.5)^2` | 4 for `\|x\| > 1`, else 0 | Dirichlet | 0 for `r <= 1`, `r sqrt(r^2 - 1) - ln(r + sqrt(r^2 - 1))` beyond | discontinuous `f`, C^1 Alexandrov solution |
 | T6 | quarter of the unit disk cut by `y > x - 1/2` (`CutQuarterDisk`) | from `u` | Dirichlet | `0.7 exp((x - 1/2)^2 / 2 + y^2) + x^2 - 1/2` | asymmetric domain |
 | T7 | `[-1, 1]^2` | 1 | Dirichlet, `g = 1` | none; observable `u_origin`, `u(0, 0)` (compare at even `n`) | no classical solution at the corners |
-| T8 | unit disk | 1 | Dirichlet, `g = 0` | `(|x|^2 - 1) / 2` | branch selection: the concave `(1 - |x|^2) / 2` also solves the equation |
-| T9 | `(0, 1)^3` | `(1 + |x|^2) exp(3 |x|^2 / 2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 3D |
-| T10 | `(0, 1)^4` | `(1 + |x|^2) exp(2 |x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | T1 in 4D |
+| T8 | unit disk | 1 | Dirichlet, `g = 0` | `(\|x\|^2 - 1) / 2` | branch selection: the concave `(1 - \|x\|^2) / 2` also solves the equation |
+| T9 | `(0, 1)^3` | `(1 + \|x\|^2) exp(3 \|x\|^2 / 2)` | Dirichlet | `exp(\|x\|^2 / 2)` | T1 in 3D |
+| T10 | `(0, 1)^4` | `(1 + \|x\|^2) exp(2 \|x\|^2)` | Dirichlet | `exp(\|x\|^2 / 2)` | T1 in 4D |
 | T12 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition, linear map |
-| T16 | `(-1/2, 1/2)^2` | from `q(z)` (Benamou-Froese-Oberman 2014) | transport onto the same square | `|x|^2 / 2 + 4 q(x1) q(x2)` | transport with an oscillating density |
-| T20 | `(0, 1)^2` | `(1 - 0.2 / |x - x0|)^+` | Dirichlet | `((|x - x0| - 0.2)^+)^2 / 2` | C^1 solution, `f = 0` on a disk |
-| T22 | `(0, 1)^3` | `3 (3 - |x|^2)^(-5/2)` | Dirichlet | `-sqrt(3 - |x|^2)` | T2 in 3D |
+| T16 | `(-1/2, 1/2)^2` | from `q(z)` (Benamou-Froese-Oberman 2014) | transport onto the same square | `\|x\|^2 / 2 + 4 q(x1) q(x2)` | transport with an oscillating density |
+| T20 | `(0, 1)^2` | `(1 - 0.2 / \|x - x0\|)^+` | Dirichlet | `((\|x - x0\| - 0.2)^+)^2 / 2` | C^1 solution, `f = 0` on a disk |
+| T22 | `(0, 1)^3` | `3 (3 - \|x\|^2)^(-5/2)` | Dirichlet | `-sqrt(3 - \|x\|^2)` | T2 in 3D |
 
 Each problem's `note` names its source paper.
 T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Problem.f` is a function and cannot hold a measure.
@@ -166,6 +168,7 @@ Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64
 A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
 A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
 `maesolvers.SOLVERS` lists the presets by name.
+[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations.
 
 ## Reproduction
 
@@ -216,10 +219,12 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ```sh
 uv sync --group dev
-uv run pytest
-uv run ruff format . && uv run ruff check .
+just check   # ruff format and lint, pyright on src/, pytest without extras, then with cli and mlflow
+just fmt     # format and fix
 ```
 
+CI runs the same checks on Python 3.10 and 3.13, and its job without extras also checks that the package imports with numpy and scipy alone.
+The pytest marker `neural` is reserved for the tests that need the `neural` extra, which come with the neural solvers; no test carries it yet.
 Tests check every catalogue problem against the point values of the shared test-set specification and against its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
 
 ## License

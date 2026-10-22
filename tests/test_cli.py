@@ -14,9 +14,9 @@ from maesolvers.metrics import evaluate
 
 pytest.importorskip("jsonargparse")
 
-import yaml  # noqa: E402  (a jsonargparse dependency)
+import yaml  # a jsonargparse dependency
 
-from maesolvers.cli import main  # noqa: E402
+from maesolvers.cli import main
 
 COMPOSED_YAML = textwrap.dedent(
     """\
