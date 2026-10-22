@@ -17,13 +17,13 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
 from maesolvers.domains import Box
 from maesolvers.problems import Problem
 from maesolvers.result import Result
-from maesolvers.solvers.fd_newton import _difference_operators
+from maesolvers.solvers.fd_newton import _difference_operators, _eval
 
 
 @dataclass
@@ -33,7 +33,8 @@ class FDPoisson:
     n: int = 64
     max_iter: int = 10_000
     tol: float = 1e-12
-    interpolation: str = "cubic"
+    spline_degree: int = 3
+    """Degree of the tensor spline that evaluates the solution off the grid."""
 
     def solve(self, problem: Problem) -> Result:
         if problem.boundary != "dirichlet":
@@ -86,12 +87,12 @@ class FDPoisson:
         hess[idx_int, 0, 0] = uxx
         hess[idx_int, 1, 1] = uyy
         hess[idx_int, 0, 1] = hess[idx_int, 1, 0] = uxy
-        interp = RegularGridInterpolator(
-            (x, y), u.reshape(m, m), method=self.interpolation
+        spline = RectBivariateSpline(
+            x, y, u.reshape(m, m), kx=self.spline_degree, ky=self.spline_degree
         )
         return Result(
             problem=problem,
-            u=lambda p: interp(np.asarray(p, dtype=float)),
+            u=lambda p: _eval(spline, p),
             nodes=flat,
             values=u,
             hessian=hess,

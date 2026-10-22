@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import spsolve
 
 from maesolvers.domains import Box
@@ -33,7 +33,8 @@ class FDNewton:
     max_iter: int = 50
     tol: float = 1e-10
     """Stop when ``max |residual| <= tol * max(1, max f)``."""
-    interpolation: str = "cubic"
+    spline_degree: int = 3
+    """Degree of the tensor spline that evaluates the solution off the grid."""
 
     def solve(self, problem: Problem) -> Result:
         if problem.boundary != "dirichlet":
@@ -113,10 +114,12 @@ class FDNewton:
         hess[idx_int, 0, 0] = uxx
         hess[idx_int, 1, 1] = uyy
         hess[idx_int, 0, 1] = hess[idx_int, 1, 0] = uxy
-        interp = RegularGridInterpolator((x, y), grid, method=self.interpolation)
+        spline = RectBivariateSpline(
+            x, y, grid, kx=self.spline_degree, ky=self.spline_degree
+        )
         return Result(
             problem=problem,
-            u=lambda p: interp(np.asarray(p, dtype=float)),
+            u=lambda p: _eval(spline, p),
             nodes=nodes.reshape(-1, 2),
             values=u,
             hessian=hess,
@@ -132,6 +135,13 @@ class FDNewton:
                 "time": time.perf_counter() - t0,
             },
         )
+
+
+def _eval(spline: RectBivariateSpline, p: np.ndarray) -> np.ndarray:
+    """Evaluate a tensor spline at points of shape ``(..., 2)``."""
+    p = np.asarray(p, dtype=float)
+    out = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
+    return out.reshape(p.shape[:-1])
 
 
 def _difference_operators(

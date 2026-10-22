@@ -68,3 +68,16 @@ Its fixed point (Poisson or Gauss-Seidel iteration) is what the literature's "st
 ## Not compared
 
 CPU times (2010 MATLAB hardware), the monotone and hybrid columns (schemes not implemented yet), and the Gauss-Seidel iteration counts (method not implemented).
+
+## Shared 201 x 201 grid
+
+The protocol asks for the error on the shared grid as well (cubic tensor spline off the nodes).
+P4 agrees with the node error, as it should for a smooth solution.
+P5 is larger on the shared grid at coarse N: the spline overshoots near the corner where the gradient blows up, so for P5 the node error is the number to compare with the literature and the shared-grid error measures the interpolant as much as the scheme.
+
+| N | P4 nodes | P4 shared grid | P5 nodes | P5 shared grid |
+|---|---|---|---|---|
+| 31 | 7.144e-05 | 7.144e-05 | 1.715e-02 | 4.474e-02 |
+| 63 | 1.731e-05 | 1.732e-05 | 1.253e-02 | 2.609e-02 |
+| 127 | 4.263e-06 | 4.263e-06 | 9.004e-03 | 8.023e-03 |
+| 255 | 1.057e-06 | 1.057e-06 | 6.418e-03 | 5.645e-03 |
