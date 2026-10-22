@@ -14,9 +14,22 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 1 and whose lower corner is not the origin.
 """
 
+import numpy as np
 import pytest
 
-from maesolvers import T1, T2, T7, FDMonotone, FDNewton, FDPoisson
+from maesolvers import (
+    T1,
+    T2,
+    T7,
+    T20,
+    Box,
+    Dirichlet,
+    FDFiltered,
+    FDMonotone,
+    FDNewton,
+    FDPoisson,
+    Problem,
+)
 from maesolvers.metrics import evaluate
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
@@ -85,3 +98,64 @@ def test_monotone_smooth_example_matches_the_jcp_table_at_181():
 def test_monotone_blowup_example_matches_the_jcp_table(n, expected):
     err = evaluate(FDMonotone(n=n).solve(T2))["max"]
     assert round(err / 1e-3, 2) == expected
+
+
+# Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
+# counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
+# and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
+# Only converged solves are pinned: on T2 the filtered scheme matches to the
+# printed digits up to N = 127 without converging (Finding 4).
+
+
+def _centred_exp(x):
+    return np.exp(np.sum((np.asarray(x, dtype=float) - 0.5) ** 2, axis=-1) / 2)
+
+
+def _centred_exp_f(x):
+    r2 = np.sum((np.asarray(x, dtype=float) - 0.5) ** 2, axis=-1)
+    return (1 + r2) * np.exp(r2)
+
+
+C2_CENTRED = Problem(
+    "C2-centred",
+    Box((0.0, 0.0), (1.0, 1.0)),
+    _centred_exp_f,
+    Dirichlet(_centred_exp),
+    exact=_centred_exp,
+)
+FO2013_FILTERED_C2 = {31: 4.54, 63: 1.06}  # Table 4.2; units of 1e-5
+FO2013_STANDARD = {  # Table 4.2, column "Standard": (problem, N, units, value)
+    "C2": (C2_CENTRED, 31, 1e-5, 4.54),
+    "T20": (T20, 31, 1e-4, 3.78),
+    "T2-31": (T2, 31, 1e-3, 17.38),
+    "T2-63": (T2, 63, 1e-3, 12.62),
+}
+FO2013_MONOTONE = {  # Table 4.1, columns "Monotone": (problem, N, stencil, units, value)
+    "C2-17": (C2_CENTRED, 31, 17, 1e-5, 9.12),
+    "C2-17-63": (C2_CENTRED, 63, 17, 1e-5, 3.42),
+    "T2-9": (T2, 63, 9, 1e-3, 0.86),
+    "T2-17": (T2, 63, 17, 1e-3, 0.59),
+    "T2-33": (T2, 63, 33, 1e-3, 0.59),
+}
+
+
+@pytest.mark.parametrize("stencil", [9, 17, 33])
+@pytest.mark.parametrize("N", sorted(FO2013_FILTERED_C2))
+def test_filtered_smooth_example_matches_froese_oberman_2013(N, stencil):
+    result = FDFiltered(n=N - 1, stencil=stencil).solve(C2_CENTRED)
+    assert result.info["converged"]
+    assert round(evaluate(result)["max"] / 1e-5, 2) == FO2013_FILTERED_C2[N]
+
+
+@pytest.mark.parametrize("case", sorted(FO2013_STANDARD))
+def test_standard_column_of_froese_oberman_2013_has_n_minus_one_cells(case):
+    problem, N, units, expected = FO2013_STANDARD[case]
+    err = evaluate(FDPoisson(n=N - 1).solve(problem))["max"]
+    assert round(err / units, 2) == expected
+
+
+@pytest.mark.parametrize("case", sorted(FO2013_MONOTONE))
+def test_monotone_columns_of_froese_oberman_2013(case):
+    problem, N, stencil, units, expected = FO2013_MONOTONE[case]
+    err = evaluate(FDMonotone(n=N - 1, stencil=stencil).solve(problem))["max"]
+    assert round(err / units, 2) == expected
