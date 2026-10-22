@@ -10,8 +10,9 @@ solves it and prints :func:`maesolvers.metrics.evaluate` as a table::
 A configuration file for ``--config`` has the keys ``solver``, a solver
 configuration as :func:`maesolvers.from_config` reads it, ``problem``, a T id,
 and optionally ``output``, a path relative to the file. Arguments apply in
-order, so an override after ``--config`` changes the file's value. ``--print_config`` prints the full
-configuration without solving, as a file ``--config`` reads back.
+order, so an override after ``--config`` changes the file's value.
+``--print_config`` prints the full configuration without solving, as a file
+``--config`` reads back.
 
 ``--output`` writes the run as strict JSON: ``run``, the configuration that
 reruns it (``{"solver": Result.hparams, "problem": id}``, a ``--config``
