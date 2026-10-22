@@ -11,9 +11,12 @@ The same scheme under two iterations can reach different discrete solutions
 (``benchmarks/standard_fd.md``, Finding 2).
 """
 
-# No `from __future__ import annotations` here: jsonargparse reads the field types
-# (ADR 0005), and in a subclass from another module (a preset, a user's iteration)
-# it cannot resolve the string annotation "Scheme"; tests/test_config.py guards it.
+# No `from __future__ import annotations` here. jsonargparse reads the field types
+# (ADR 0005); with postponed annotations in this module, jsonargparse 4.52 fails to
+# evaluate the dataclass-generated __init__ of the presets (AttributeError in
+# _postponed_annotations.get_types) and leaves every parameter of FDNewton and
+# FDPoisson, plain int and float included, Unvalidated. Guarded by
+# test_every_numeric_solver_parameter_is_checked_against_its_type.
 
 from dataclasses import dataclass, is_dataclass
 from typing import Any, ClassVar
