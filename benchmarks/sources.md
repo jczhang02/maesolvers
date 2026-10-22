@@ -126,7 +126,8 @@ Read: local journal PDF from the Zotero folder (two copies of the same journal v
 Open copy: https://arxiv.org/abs/1007.0765 (not checked).
 
 Method: a wide-stencil monotone discretisation MA_M[u] = min over orthogonal grid-direction pairs (nu_1, nu_2) of the product of the positive parts of D_{nu nu} u.
-For Newton, the max and min are replaced by smooth monotone versions (MA^delta).
+Section 3.5 defines a regularised scheme MA^delta, with max^delta(a, b) = (a + b + sqrt((a - b)^2 + delta^2))/2 and min^delta likewise (delta^2 read in arXiv 1007.0765; the journal text layer garbles it), the positive parts max^delta(D u, 0) and the minimum over pairs a succession of min^delta; Theorem 9 proves that Newton converges for MA^delta.
+No value of delta is printed, and Section 5 states Newton for MA_M itself, with Danskin's theorem for the Jacobian, so the tables need not come from MA^delta.
 The equations are solved by damped Newton, with the step reduced until the residual decreases.
 The linear systems are solved by MATLAB backslash (sparse LU).
 The initial guess is one step of the semi-implicit scheme, Laplacian u^0 = sqrt(2f) in 2D, convexified only for the most singular example.

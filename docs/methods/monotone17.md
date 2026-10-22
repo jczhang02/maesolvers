@@ -39,18 +39,23 @@ The consistency error is `O(h^2 + dtheta)`: for a fixed stencil the error stops 
 ### Below zero
 
 The bare scheme is flat wherever a second difference is negative: `(D_nu nu u)^+ = 0` there, whatever its value.
-Where `f = 0` this makes every grid function with a negative second difference a root (on T20 two Newton starts reached roots whose errors differ by a factor 2, `benchmarks/monotone17.md`, Finding 5), and where `f > 0` it leaves Newton without a direction out of a non-convex iterate (from the Poisson start on T2 the line search stalls at once).
+Where `f = 0` this makes every grid function with a negative second difference in each pair a root: on T20 at `N = 31`, Newton on the bare scheme reaches two different non-convex roots from two starts, with errors `1.09e-3` and `1.56e-3` against the convex root's `0.80e-3` (17 points, `benchmarks/monotone17_checks.csv`, rows `bare`).
+Where `f > 0` it leaves Newton without a direction out of a non-convex iterate: on T1 and T2 from the papers' start the line search of the bare scheme stalls at the first step (same rows).
 `Monotone17` therefore continues each pair's value below zero with a positive slope `kappa`:
 
 ```text
-F_pair(a, b) = a^+ b^+ + kappa (min(a, 0) + min(b, 0)),     kappa = max(sqrt(f), sqrt(mean f), epsilon),
+F_pair(a, b) = a^+ b^+ + kappa (min(a, 0) + min(b, 0)),     kappa = sqrt(max(f, mean f, 1)).
 ```
 
-with `epsilon` the Jacobian floor of the next section.
-
-This leaves the value of every discretely convex grid function unchanged, keeps the scheme monotone, and makes a pair's value negative whenever it sees a negative second difference.
-So the roots of `min F_pair = f` are exactly the discretely convex roots of Froese and Oberman's `MA_M[u] = f`, whatever `kappa` (a test checks this).
+This leaves the value of every discretely convex grid function unchanged, keeps the scheme monotone, and makes a pair's value at most `kappa a <= a` when it sees a negative second difference `a`.
+So a root of `min F_pair = f` has no negative second difference in any pair that enters the minimum, and is a root of Froese and Oberman's `MA_M[u] = f` that is convex along every stencil direction, whatever `kappa`.
+The lower bound 1 puts `kappa` on the scale of `Newton`'s stopping rule, `max |residual| <= tol * max(1, max |f|)`: a negative second difference `a` adds at least `|a|` to the residual, so the rule cannot accept a non-convex iterate.
+(A bound below 1, such as the Jacobian floor, let `Newton` stop at the harmonic start where `f = 0` everywhere.)
+Tests check that ten times `kappa`, and a non-convex start, reach the same solution on T20 and on `f = 0` with convex data.
 The papers enforce convexity through their starting point instead (one Poisson step, convexified where needed, SIAM Section 5.2).
+
+Froese and Oberman also define a smooth scheme `(MA)^delta`, with `max^delta(a, b) = (a + b + sqrt((a - b)^2 + delta^2))/2` and `min^delta` likewise in place of the positive parts and the minimum (SIAM Section 3.5), and prove that Newton converges for it (Theorem 9).
+They print no `delta`, and their Section 5 and JCP Section 7 apply Newton to `MA_M` itself with Danskin's Jacobian, as `Monotone17` does; `(MA)^delta` moves the T20 error by a factor 4 between `delta = 1e-3` and `1e-2` at `N = 31`, and Newton on it fails at `N = 63` for both (`benchmarks/monotone17.md`, Finding 5).
 
 ### Next to the boundary
 
@@ -60,7 +65,7 @@ At a node next to the boundary, a wide direction's arm can leave the box.
 - `"narrow"` (the default) leaves that pair out of the minimum, so the stencil narrows to the pairs that fit; the axis pair always fits.
 - `"interpolate"` shortens the arm to the boundary and takes the Dirichlet data there, with the first-order difference for unequal arms (Oberman 2008, Section 3.1).
 
-The papers describe the second (SIAM p. 1700, JCP p. 823); their tables match the first, to four digits on T1 from `N = 63` on (`benchmarks/monotone17.md`, Finding 1).
+The papers describe the second (SIAM p. 1700, JCP p. 823); their tables match the first, to four digits on T1 from `N = 181` on, and to three at `N = 63` and 127 (`benchmarks/monotone17.md`, Finding 1).
 The 9-point stencil fits everywhere, so the two agree there.
 
 ## Newton's method
@@ -73,12 +78,12 @@ J = sum over the active pair of diag(c_a) D_aa + diag(c_b) D_bb,
 c_a = max(b, epsilon) where a >= 0, kappa where a < 0,
 ```
 
-so `Newton` on this scheme is a semi-smooth Newton method, and `J` is an M-matrix (negative diagonal, nonnegative off-diagonal, diagonally dominant), so every step is well posed.
+so `Newton` on this scheme is a semi-smooth Newton method, and `-J` is an M-matrix (positive diagonal, nonpositive off-diagonal, diagonally dominant), so every step is well posed.
 The floor `epsilon = jacobian_floor / (2 h^2)` follows Froese and Oberman (SIAM Section 5.3), who take `jacobian_floor = 1e-8`.
-With that floor Newton converges only linearly where `f = 0`: on T20 it takes 417 steps at `n = 181` with the 17-point stencil.
-The default `1e-12` takes 28 there and reaches the same root, since the floor changes the steps, not the equation.
+With that floor Newton converges only linearly where `f = 0`: on T20 it takes 439 steps at `n = 181` with the 17-point stencil.
+The default `1e-12` takes 27 there and reaches the same root (`benchmarks/monotone17_checks.csv`, rows `floor`), since the floor changes the steps, not the equation.
 
-The papers start from `laplace u_0 = sqrt(2 f)` on a coarse grid, interpolated and convexified; Newton's start is a lower bound for the Laplacian of the convex solution and needs no convexification, because the scheme already has no non-convex roots.
+The papers start from `laplace u_0 = sqrt(2 f)` on a coarse grid, interpolated and convexified; Newton's start is a lower bound for the Laplacian of the convex solution and needs no convexification, because the scheme has no non-convex roots and a non-convex iterate cannot pass the stopping rule.
 The start changes the number of steps, not the solution.
 
 ## Source papers
@@ -110,7 +115,9 @@ Its `max_iter` is higher than `Newton`'s because T2 with the 9-point stencil nee
 - Only a 2D `Box` with equal sides and a `Dirichlet` boundary: `solve` raises `UnsupportedProblemError` for a rectangle, a disk (T8), a transport boundary (T12) or a box in 3D (T9; the 19-point 3D stencil is planned for 0.2).
 - The accuracy is limited by the stencil's angular resolution: on T1 the error stays near `1.6e-3` with 9 points, `4.4e-4` with 17 and `1.5e-4` with 33 however fine the grid, against `5.3e-7` for the standard scheme at `n = 361`.
   On smooth problems report the standard scheme (`FDPoisson`); the monotone scheme is for singular ones.
-- `Result.node_hessian` is the centred 9-point Hessian of the node values, not a quantity of the scheme; where the solution is flat (T20, inside the disk) its smallest eigenvalue is a rounding-level negative number at some nodes, so `nonconvex_fraction` is not zero there although every second difference of the stencil is nonnegative.
+- `Result.node_hessian` is the centred 9-point Hessian of the node values, not a quantity of the scheme.
+  On T20 its smallest eigenvalue is negative, by far more than rounding, at nodes of the flat disk where `f = 0`, because the centred `u_xy` (half the difference of the two diagonal second differences) makes the 2 by 2 form indefinite where `u_xx` and `u_yy` are near zero, although every stencil direction is convex.
+  So `nonconvex_fraction` is 0.04 to 0.10 on T20 at every `n`, stencil and boundary treatment, and does not decrease with `n` (`benchmarks/monotone17.md`, Finding 6); on T2 it is 8e-5 to 1.6e-3, at nodes next to the corner.
 - The cone T21, `f` a Dirac mass, is not reproduced: with the papers' `f = 4/h^2` at the tip, the scheme's minimum over pairs at the tip of the exact cone is `2/h^2` or less, so the discrete cone is steeper than the exact one and the error does not decrease with `n` (`benchmarks/monotone17.md`, Finding 4).
 - The solves use a sparse LU at every step: at `n = 361` a step takes about 1.2, 4 and 15 seconds with 9, 17 and 33 points on one core of a100server.
 
@@ -125,5 +132,5 @@ At the levels of ADR 0002, as `benchmarks/monotone17.md` states them:
 | T20 | 9 points order of magnitude; 17 and 33 points mismatch | mismatch |
 | T21 (cone) | mismatch | mismatch |
 
-The published tables match the narrow stencil next to the boundary, not the interpolation the papers describe; at coarse grids the published T1 errors are larger than the converged ones; on T20 they stay above the convex discrete solution's; the papers' discrete Dirac mass does not fit the scheme.
+The published tables match the narrow stencil next to the boundary, not the interpolation the papers describe; at coarse grids the published T1 errors are larger than the converged ones; on T20 they stay above the convex discrete solution's, within 13 percent of a non-convex root of the bare scheme at `N = 31`; the papers' discrete Dirac mass does not fit the scheme.
 `tests/test_reproduction.py` pins the exact values; the full comparison and the findings are in [`benchmarks/monotone17.md`](../../benchmarks/monotone17.md).
