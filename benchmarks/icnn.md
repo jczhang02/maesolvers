@@ -2,6 +2,7 @@
 
 `DirichletICNN` with the preset's defaults (the paper's, where the paper gives them), seeds 0 to 9, against Nystrom and Vestberg (2023), arXiv 2110.03310v3, read from the PDF.
 **Levels (ADR 0002): figure only on T1**, against Figure 2 (Example 4.2), which prints no table; **mismatch on T6**, against Table 1 (Example 4.6, the `stdev = 0` row).
+The T6 mismatch belongs to the equation term as eq. (3.3) prints it, a sum; read as a mean, the same network and optimizer reach the statistical level on T6 and meet the paper's stopping test (Finding 2).
 The ICNN table of Caboussat and Peruso (2025) is not compared: it needs the transport boundary condition of 0.2 (Not compared, below).
 
 Receipts: `icnn_t1.csv` and `icnn_t6.csv`, written by `run_icnn.py` on a100server at commit 08a29b7, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-icnn-T1` and `maesolvers-icnn-T6`, with its training curve and the device and thread count as parameters.
@@ -51,7 +52,9 @@ Both published numbers lie below our 5% quantiles, the median errors are about 1
 Eight seeds stopped at the 10000-step budget and two (1 and 2) stalled on a failed line search after 8670 and 9515 steps, SciPy's "precision loss"; none met the stopping test (Finding 2), and the loss was still falling at step 10000 in the eight (from 1.3e-6 to 1.2e-5 at step 5000, the step of Figure 7, to 2.1e-7 to 3.2e-6 at step 10000).
 As on T1, the largest error is on the boundary: the boundary max is at least the interior max in every seed.
 On T1 the figure's top lies inside our band, but near its lower end (three seeds of ten reach it); on T6 the table lies below it.
-Read together, the paper's runs trained further than ours in fewer iterations, by about an order of magnitude in the error; Finding 2 names the one difference we found that could explain it, the scale of the equation term against the stopping test, and it is not tested here, since the paper prints the sum.
+Read together, the paper's runs trained further than ours in fewer iterations, by about an order of magnitude in the error.
+Finding 2 tests the one difference we found that could explain it, a mean in place of the printed sum in the equation term: with it, the same seeds put Table 1 inside the band (max 5.47e-6 [2.58e-6, 1.68e-5], average 6.26e-7 [2.87e-7, 2.53e-6]) and meet the stopping test in 8 of 10, after a median of 3033 steps.
+The verdict here stays with the preset, which follows the print, until #13 decides between the two readings.
 The penalty MLP, run next to this table in `penalty_mlp.md`, ends at 6.10e-3 [3.59e-3, 1.02e-2], 55 times above the ICNN.
 
 ## Finding 1: the optimizer, not the start, decides the accuracy
@@ -88,12 +91,38 @@ Once the loss is near 1e-6, `y's` falls below 1e-10 and a skipped update starves
 SciPy's BFGS run directly on seeds 0, 3 and 6 for 10000 iterations (`diagnostic optimizer=bfgs ...`) gave 6.3e-5, 4.6e-5 and 6.9e-5, against 2.9e-5, 5.9e-5 and 4.9e-5 from the receipts: the same distribution; the runs differ in rounding, which 10000 quasi-Newton steps amplify.
 A test checks that `BFGS` reproduces SciPy's iterates on the Rosenbrock function to 1e-9.
 
-## Finding 2: no seed meets the paper's stopping test
+## Finding 2: a mean equation term closes the T6 gap and meets the stopping test
 
 The paper's T1 run stopped after 2287 iterations on SciPy's test, a gradient of norm at most 1e-5.
-None of our seeds meets the test of the preset, the one SciPy applies by default (largest gradient component at most 1e-5), within 10000 steps, on T1 or on T6; every T1 seed was still lowering its loss at step 10000 (MLflow: the loss at step 2287 is 3.3e-6 to 7.6e-5, at step 10000 9.1e-8 to 4.2e-6).
-The equation term of eq. (3.3) is a sum over the 3400 points, not a mean, so its gradient is large next to its value; a mean would divide that gradient by 3400, and whether the paper's code used one is not known.
-We keep the sum, as the paper prints it; with it, the paper's 2287 iterations are not reproduced, and the budget, not the test, ends our runs.
+With the preset, no seed meets the test (SciPy's default form: largest gradient component at most 1e-5) within 10000 steps, on T1 or on T6; every T1 seed was still lowering its loss at step 10000 (MLflow: the loss at step 2287 is 3.3e-6 to 7.6e-5, at step 10000 9.1e-8 to 4.2e-6).
+Eq. (3.3) prints the equation term as a sum over the 3400 collocation points and the boundary term as a mean over the 400 boundary points; the preset follows the print.
+If the paper's code took the mean of the equation term instead, three facts follow.
+
+1. **The same minimiser, up to the scale.** The mean form, `(1/3400) sum (det D^2 u - f)^2 + 100 mean (u - g)^2`, is `1/3400` times the printed sum with `boundary_weight = 3.4e5`, so the two have the same minimiser.
+   BFGS sees two differences: its start `H0 = I` is not invariant under a scaling of the loss, and its stopping test is: a largest gradient component of 1e-5 on the mean form is 0.034 on the scaled sum.
+   So `run_icnn.py --boundary-weight 340000 --tol 0.034` runs the mean reading, up to `H0`; with the preset's `tol = 1e-5` it runs the same minimiser with a test 3400 times stricter.
+2. **The reweighting acts on the boundary, where the max error is.** In every seed of all three runs below, the max on the boundary is at least the max inside; with the printed sum the root mean square boundary misfit is 4.1e-5 on T6 and 2.2e-5 on T1 (medians), the size of the max error.
+   The mean reading lowers it to 2.3e-6 and 1.4e-6, and the max error falls with it; the equation term, as a sum, is larger at its end than with the printed sum (7.3e-6 against 7.5e-7 on T6, medians): the reading trades a larger residual inside for a smaller misfit on the boundary.
+3. **The mean reading reaches the statistical level against Table 1; Figure 2 does not tell the two readings apart.**
+
+| Seeds 0 to 9, median [5%, 95%] | Paper | Printed sum (the preset, the receipts) | Mean reading (`boundary_weight = 3.4e5`, `tol = 0.034`) | Same minimiser, stricter test (`boundary_weight = 3.4e5`, `tol = 1e-5`) |
+|---|---|---|---|---|
+| T6 max error, 10^6 random interior points | 8.58e-6 (Table 1) | 1.10e-4 [5.49e-5, 2.36e-4] | 5.47e-6 [2.58e-6, 1.68e-5] | 9.34e-7 [5.19e-7, 1.44e-5] |
+| T6 average error, 10^6 random interior points | 1.17e-6 (Table 1) | 1.49e-5 [8.63e-6, 3.71e-5] | 6.26e-7 [2.87e-7, 2.53e-6] | 8.12e-8 [4.53e-8, 2.17e-6] |
+| T6 steps; stops (converged / budget / stalled) | at most 10000 | 10000; 0 / 8 / 2 | 3033; 8 / 1 / 1 | 9762; 0 / 5 / 5 |
+| T1 max error, shared grid | about 2.97e-5 (Figure 2, colorbar top) | 5.14e-5 [2.02e-5, 1.93e-4] | 4.88e-6 [2.08e-6, 1.58e-5] | 1.16e-6 [5.56e-7, 4.91e-6] |
+| T1 steps; stops (converged / budget / stalled) | 2287, converged | 10000; 0 / 10 / 0 | 3863; 7 / 1 / 2 | 9451; 0 / 3 / 7 |
+
+On T6 the mean reading puts both published numbers inside its band, the level "statistical" of ADR 0002; the median errors are 1.6 and 1.9 times below the table, and 9 of 10 seeds are below the published max (seed 1, stalled after 8412 steps, is the exception, at 2.4e-5).
+It also meets the stopping test, in 8 of 10 seeds on T6 and 7 of 10 on T1, after a few thousand steps (T1: 696 to 7906 steps for the seeds that converged, the paper's 2287 among them).
+On T1 all ten seeds end below the figure's top, the median about 6 times below it; with the printed sum the median is 1.7 times above it.
+A figure's colorbar is too coarse a measure to choose between the two; Table 1, the stopping test and the step count all side with the mean.
+The stricter test (last column) trains on and ends about 10 times below Table 1: the stopping test, not only the weight, sets where the run ends.
+Under the mean reading, too, a stalled seed is one whose line search failed; the paper restarted with Adam there (Example 4.1), which we do not.
+
+The preset keeps the printed sum, and the T6 verdict above stays a mismatch: the receipts are the preset's.
+Whether `DirichletICNN` should follow the mean reading (`boundary_weight = 3.4e5`, `tol = 0.034`, or a loss part with a mean equation term) is asked on #13.
+These runs are the MLflow runs named `diagnostic mean-equation seed=<s> boundary_weight=340000.0` (and `... tol=0.034`) in `maesolvers-icnn-T1` and `maesolvers-icnn-T6`, at commit 55c1469, CPU, one thread per seed; they are diagnostics, not receipts, so their CSVs stay on a100server (`/jczhang02/maesolvers-data/logs/icnn-mean/`).
 
 ## Conventions that differ
 
@@ -122,3 +151,10 @@ just remote-bg icnn-t6 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchm
 ```
 
 Each takes about 17 minutes on a100server with ten CPU threads; run them one after the other, to stay within 16 threads.
+
+The mean reading of Finding 2, the same way, for T1 and T6 (drop `--tol 0.034` for its last column):
+
+```sh
+just remote-bg icnn-mean-t6 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchmarks/run_icnn.py T6 \
+  --boundary-weight 340000 --tol 0.034 --name "diagnostic mean-equation" --out /tmp/icnn-mean-tol-t6.csv
+```

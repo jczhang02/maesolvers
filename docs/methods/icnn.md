@@ -30,6 +30,7 @@ E = sum_j (det D^2 u(x_j) - f(x_j))^2 + sum_k (det D^2 u(y_k) - f(y_k))^2 + C (1
 ```
 
 with `C = 100`: the equation term is a sum, not a mean, and in Example 4.2 it runs over the boundary points too.
+The preset follows the print; a mean would be the sum with `C = 3.4e5`, up to a factor `1/3400`, and our diagnostic runs side with the mean (Known limits, below).
 This is `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)`.
 So the ICNN differs from the penalty MLP in its loss as well as in its network: no convexity penalty, a boundary penalty instead of the ansatz, and the equation at the boundary points.
 It differs in its optimizer too, below.
@@ -77,7 +78,9 @@ The preset takes the parameters of its parts flat: `DirichletICNN(width=20, seed
 
 - Dirichlet only, and only on domains that sample their boundary (`Box` in any dimension, `Disk`, `CutQuarterDisk`): `solve` raises `UnsupportedProblemError` for T12, T16 and an `Ellipse`. The transport ICNN of Caboussat-Peruso 2025 is #29.
 - The boundary condition is a penalty, so `u` meets it only approximately: on T1 and T6 the max error lies on the boundary in every seed.
-- Within the 10000-step budget no seed meets the stopping test, and on T6 the errors are about 13 times those of the paper's Table 1 (`benchmarks/icnn.md`, T6 and Finding 2).
+- Within the 10000-step budget no seed meets the stopping test, and on T6 the errors are about 13 times those of the paper's Table 1 (`benchmarks/icnn.md`, T6).
+  The printed sum is the likely cause: read as a mean, the equation term weighs the boundary misfit, where the max error is, 3400 times more, and `DirichletICNN(boundary_weight=340_000, tol=0.034)`, the mean reading up to the BFGS start, puts Table 1 inside its band on T6 (max 5.47e-6 [2.58e-6, 1.68e-5] against 8.58e-6) and meets the stopping test in 8 of 10 seeds after about 3000 steps (`benchmarks/icnn.md`, Finding 2).
+  The preset keeps the sum until #13 decides.
 - Convexity holds by construction, but the class of functions is narrower than that of a plain network of the same size: every hidden unit is convex, so a solution that is nearly affine in some direction, or whose Hessian degenerates, as for `f = 0` on a set (T4, T5, T20), is harder to represent.
 - With the standard normal start, the squared roots have mean 1, so the activations grow from layer to layer and the first loss is very large (about 6e19 on T1 for seed 0); BFGS brings it down within a few hundred steps, but the start is far from the solution.
   The first loss grows with the dimension, since every layer reads all `d` inputs: at the defaults and seeds 0 to 2 it is 6e19 to 1e21 on T1 and T6 (2D), 2e26 to 3e28 on T9 (3D) and 2e33 to 3e36 on T10 (4D).
@@ -96,4 +99,5 @@ At the levels of ADR 0002, as [`benchmarks/icnn.md`](../../benchmarks/icnn.md) s
 | T12 | Caboussat-Peruso 2025, Table 2 | not compared: needs transport boundary conditions (0.2, #29) | |
 
 On T6 our errors are about 13 times the paper's, and on T1 the figure's top lies near the lower end of our band: the paper's runs trained further, and `benchmarks/icnn.md` records what we found about why (Findings 1 and 2).
+With a mean in place of the printed sum in the equation term, T6 reaches the statistical level (Finding 2); the preset and the level above stay with the print until #13 decides.
 No value is pinned in `tests/test_reproduction.py`: a figure-only level gives no number to pin, and a mismatch is not pinned.
