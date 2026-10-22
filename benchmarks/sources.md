@@ -21,6 +21,7 @@ None of the 2011 papers defines h in terms of N.
 The odd N values (21, 41, ...; 31, 63, 127, 255) suggest N points per side including the boundary, so h = 1/(N-1), but no paper says so.
 A useful check: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, and it should tell h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
 One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (`standard_fd.md`, Finding 3).
+Froese-Oberman 2013 (section 5 below) counts nodes too, in every table: its values match n = N - 1 cells (`filtered.md`, Finding 1).
 
 ## 1. Benamou, Froese, Oberman (2010)
 

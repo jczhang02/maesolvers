@@ -2,7 +2,7 @@
 
 Problems (Froese-Oberman 2013, Section 4.2, on `[0, 1]^2` with Dirichlet data from the exact solution, `x0 = (0.5, 0.5)`): the `C^2` example `u = exp(|x - x0|^2 / 2)`, which is T1 centred at `x0` and not in the catalogue (called C2 below, `C2-centred` in the receipts; Finding 1); T20 (`C^1`, `f = 0` on a disk); T2 (corner blow-up, uncentred); and the cone T21 with `f = 4/h^2` at the nodes within `h/2` of `x0`, built per grid by `run_monotone17.cone`.
 Published numbers: Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Table 4.1 (monotone and filtered, 9, 17 and 33 points) and Table 4.2 (17 points: filtered, its Newton iterations, and the standard scheme); `sources.md`, section 5, transcribes both, checked against the page images.
-The hybrid columns of Table 4.2 belong to the hybrid scheme (#11) and are not compared here.
+The hybrid columns of Table 4.2 belong to the hybrid scheme (`hybrid.md`) and are not compared here; `sources.md`, section 5, transcribes them.
 
 Ours, with `n = N - 1` cells (Finding 1):
 
@@ -176,5 +176,5 @@ CPU times are 2013 MATLAB hardware and are not compared; at `N = 361` a filtered
 
 ## Not compared
 
-- Table 4.2's hybrid columns: the hybrid scheme of FO 2011 JCP is #11.
+- Table 4.2's hybrid columns: a second published table for `FDHybrid` (`hybrid.md`), on the centred example and with `n = N - 1`.
 - Figures 4.2 and 4.3: Figure 4.3 shows where the filter chooses the monotone scheme; ours is `Result.info["monotone_fraction"]`, a share, not a map.

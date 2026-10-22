@@ -86,6 +86,7 @@ So in the band Newton is a quasi-Newton method, and where a node in the band att
 | `Filtered` | `monotone` | (required) | the monotone scheme |
 | `Filtered` | `epsilon` | None | the filter width; None is `sqrt(h) + dtheta / 10` from the monotone part |
 | `Newton` | `max_iter` | 50 (`FDFiltered`: 200) | most steps |
+| `Newton` | `start` | None (`FDFiltered`: None, fixed) | another iteration whose final unknowns Newton starts from; starts from the monotone or the standard root do not make it converge either (Known limits) |
 | `Newton` | `tol` | 1e-10 | largest residual, relative to `max(1, max \|f\|)` |
 
 The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boundary="interpolate", jacobian_floor=1e-12, epsilon=None, spline_degree=3)` is `Newton(scheme=Filtered(accurate=Standard9(n=126, spline_degree=3), monotone=Monotone17(n=126, stencil=33, boundary="interpolate", jacobian_floor=1e-12, spline_degree=3), epsilon=None), max_iter=200)`.
