@@ -1,21 +1,22 @@
 """Iterations: the half of a classical solver that solves a scheme's equations.
 
-An iteration is an :class:`~maesolvers.core.solver.IterativeSolver` with a
-``scheme`` part (ADR 0004): ``Newton(scheme=Standard9(n=64))``. The scheme
-decides which problems the solver supports; the iteration checks in
-:meth:`~maesolvers.core.solver.Solver.check` that the scheme provides the
-methods it calls, given by the protocols :class:`NewtonScheme` and
-:class:`PoissonScheme`. The same scheme under two iterations can reach
-different discrete solutions (``benchmarks/standard_fd.md``, Finding 2).
+An iteration is a :class:`SchemeIteration`, an
+:class:`~maesolvers.core.solver.IterativeSolver` with a
+:class:`~maesolvers.classical.schemes.Scheme` part (ADR 0004):
+``Newton(scheme=Standard9(n=64))``. The scheme decides which problems the
+solver supports; the iteration names in :attr:`SchemeIteration.requires` the
+methods it calls beyond the base four, and checks in
+:meth:`~maesolvers.core.solver.Solver.check` that the scheme provides them.
+The same scheme under two iterations can reach different discrete solutions
+(``benchmarks/standard_fd.md``, Finding 2).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol
+from dataclasses import dataclass, is_dataclass
+from typing import Any, ClassVar
 
 import numpy as np
-import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
 
 from maesolvers.classical.schemes import Scheme
@@ -30,52 +31,152 @@ _SUFFICIENT_DECREASE = 1e-4
 """Armijo constant: a step of length ``t`` must cut the max residual by ``1e-4 t``."""
 
 
-class NewtonScheme(Scheme, Protocol):
-    """A scheme :class:`Newton` can solve: a residual, its Jacobian, a Laplace solve."""
+@dataclass(frozen=True, kw_only=True)
+class SchemeIteration(IterativeSolver[Any, np.ndarray]):
+    """Base class of an iteration that solves a scheme's discrete equations.
 
-    def residual(self, grid: Any, v: np.ndarray) -> np.ndarray:
-        """The discrete equation's residual at the unknowns ``v``."""
-        ...
+    The plug-in point for a new iteration: a subclass is decorated with
+    ``@dataclass(frozen=True, kw_only=True)``, sets the class variables
+    ``measure`` and :attr:`requires`, gives ``tol`` a default, and implements
+    :meth:`~maesolvers.core.solver.IterativeSolver.initial_guess`,
+    :meth:`~maesolvers.core.solver.IterativeSolver.step` and
+    :meth:`~maesolvers.core.solver.IterativeSolver.converged`. The context of
+    every hook is the scheme's grid and the iterate is the vector of
+    unknowns; this class asks the scheme for the support, the grid and the
+    solution fields.
 
-    def jacobian(self, grid: Any, v: np.ndarray) -> sp.spmatrix:
-        """The Jacobian of :meth:`residual` at ``v``."""
-        ...
+    Parameters
+    ----------
+    scheme
+        The scheme whose equations the iteration solves, an instance of a
+        frozen-dataclass subclass of
+        :class:`~maesolvers.classical.schemes.Scheme`.
+    max_iter
+        Most steps, an integer of at least 1.
+    tol
+        Positive tolerance of the subclass's stopping criterion.
 
-    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray:
-        """The unknowns of ``laplace u = rhs`` with the boundary data."""
-        ...
+    Attributes
+    ----------
+    requires : tuple of str
+        Methods the iteration calls on the scheme beyond the four of
+        :class:`~maesolvers.classical.schemes.Scheme`.
+
+    Raises
+    ------
+    TypeError
+        On construction, if ``scheme`` is not an instance of a frozen
+        dataclass that subclasses :class:`~maesolvers.classical.schemes.Scheme`.
+    ValueError
+        On construction, if ``tol`` is not positive.
+    """
+
+    requires: ClassVar[tuple[str, ...]] = ()
+
+    scheme: Scheme
+    tol: float
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        _check_scheme(self, self.scheme)
+        object.__setattr__(self, "tol", positive("tol", self.tol))
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the scheme supports the problem.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        return self.scheme.supports(problem)
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the scheme lacks a required method or the problem.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        TypeError
+            If the scheme lacks a method named in :attr:`requires`.
+        UnsupportedProblemError
+            If the scheme does not support the problem.
+        """
+        missing = [
+            name
+            for name in self.requires
+            if not callable(getattr(self.scheme, name, None))
+        ]
+        if missing:
+            raise TypeError(
+                f"{type(self).__name__} needs a scheme with {', '.join(missing)}, "
+                f"which {type(self.scheme).__name__} does not have"
+            )
+        super().check(problem)
+
+    def setup(self, problem: Problem) -> Any:
+        """Discretise the problem with the scheme.
+
+        Parameters
+        ----------
+        problem
+            A problem that passed :meth:`check`.
+
+        Returns
+        -------
+        Any
+            The scheme's grid, the context of the other hooks.
+        """
+        return self.scheme.discretize(problem)
+
+    def finalize(self, problem: Problem, context: Any, state: np.ndarray) -> Solution:
+        """The scheme's solution fields for the final iterate.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        state
+            The final unknowns.
+
+        Returns
+        -------
+        Solution
+        """
+        return self.scheme.solution(context, state)
 
 
-class PoissonScheme(Scheme, Protocol):
-    """A scheme :class:`PoissonIteration` can solve: second differences, a Laplace solve."""
-
-    def second_derivatives(
-        self, grid: Any, v: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """``u_xx``, ``u_yy``, ``u_xy`` at the unknowns."""
-        ...
-
-    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray:
-        """The unknowns of ``laplace u = rhs`` with the boundary data."""
-        ...
-
-
-def _require(iteration: object, scheme: object, protocol: type) -> None:
-    """Raise TypeError naming the methods of ``protocol`` that ``scheme`` lacks."""
-    missing = [
-        name
-        for name in dir(protocol)
-        if not name.startswith("_") and not callable(getattr(scheme, name, None))
-    ]
-    if missing:
+def _check_scheme(iteration: object, scheme: object) -> None:
+    """Raise TypeError unless ``scheme`` is a frozen-dataclass Scheme instance."""
+    owner = f"{type(iteration).__name__}.scheme"
+    if isinstance(scheme, type):
         raise TypeError(
-            f"{type(iteration).__name__} needs a scheme with {', '.join(missing)}; "
-            f"{type(scheme).__name__} lacks them"
+            f"{owner} must be an instance, got the class {scheme.__name__}; "
+            f"write {scheme.__name__}(...)"
+        )
+    cls = type(scheme)
+    if not isinstance(scheme, Scheme):
+        raise TypeError(f"{owner} must subclass Scheme, got {cls.__name__}")
+    params = cls.__dict__.get("__dataclass_params__")
+    if not is_dataclass(scheme) or params is None or not params.frozen:
+        raise TypeError(
+            f"{owner} must be a frozen dataclass instance, got {cls.__name__}; "
+            "decorate it with @dataclass(frozen=True)"
         )
 
 
 @dataclass(frozen=True, kw_only=True)
-class Newton(IterativeSolver[Any, np.ndarray]):
+class Newton(SchemeIteration):
     """Damped Newton on a scheme's residual, from a Poisson start.
 
     Starts from ``laplace u = 2 sqrt(f)``, a lower bound for the Laplacian of
@@ -87,7 +188,8 @@ class Newton(IterativeSolver[Any, np.ndarray]):
     Parameters
     ----------
     scheme
-        A :class:`NewtonScheme`.
+        A scheme with ``residual(grid, v)``, its sparse ``jacobian(grid, v)``
+        and ``solve_laplace(grid, rhs)``.
     max_iter
         Most Newton steps.
     tol
@@ -95,38 +197,26 @@ class Newton(IterativeSolver[Any, np.ndarray]):
     """
 
     measure: ClassVar[str] = "residual"
+    requires: ClassVar[tuple[str, ...]] = ("residual", "jacobian", "solve_laplace")
 
-    scheme: NewtonScheme
     max_iter: int = 50
     tol: float = 1e-10
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        object.__setattr__(self, "tol", positive("tol", self.tol))
-
-    def supports(self, problem: Problem) -> bool:
-        """Whether the scheme supports the problem."""
-        return self.scheme.supports(problem)
-
-    def check(self, problem: Problem) -> None:
-        """Raise if the scheme lacks a Newton method or does not support the problem.
-
-        Raises
-        ------
-        TypeError
-            If the scheme is not a :class:`NewtonScheme`.
-        UnsupportedProblemError
-            If the scheme does not support the problem.
-        """
-        _require(self, self.scheme, NewtonScheme)
-        super().check(problem)
-
-    def setup(self, problem: Problem) -> Any:
-        """Discretise the problem with the scheme."""
-        return self.scheme.discretize(problem)
-
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = 2 sqrt(f)``, the convex branch's trace."""
+        """Solve ``laplace u = 2 sqrt(f)``, the convex branch's trace.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            The unknowns.
+        """
         return self.scheme.solve_laplace(
             context, 2.0 * np.sqrt(self.scheme.rhs(context))
         )
@@ -136,9 +226,21 @@ class Newton(IterativeSolver[Any, np.ndarray]):
     ) -> tuple[np.ndarray, float] | None:
         """One Newton step, halved until the max residual decreases.
 
-        An iterate that already meets the stopping criterion (a warm start)
-        is returned unchanged with its residual. Returns None when no step
-        length decreases the residual (rounding level).
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        iterate
+            The current unknowns.
+
+        Returns
+        -------
+        tuple or None
+            The next unknowns and their max residual. An iterate that already
+            meets the stopping criterion (a warm start) is returned unchanged.
+            None when no step length decreases the residual (rounding level).
         """
         r = self.scheme.residual(context, iterate)
         norm = float(np.max(np.abs(r)))
@@ -155,17 +257,27 @@ class Newton(IterativeSolver[Any, np.ndarray]):
         return None
 
     def converged(self, problem: Problem, context: Any, measure: float) -> bool:
-        """Max residual at most ``tol * max(1, max |f|)``."""
+        """Whether the max residual is at most ``tol * max(1, max |f|)``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        measure
+            The max residual.
+
+        Returns
+        -------
+        bool
+        """
         scale = max(1.0, float(np.max(np.abs(self.scheme.rhs(context)))))
         return measure <= self.tol * scale
 
-    def finalize(self, problem: Problem, context: Any, state: np.ndarray) -> Solution:
-        """The scheme's solution fields for the final iterate."""
-        return self.scheme.solution(context, state)
-
 
 @dataclass(frozen=True, kw_only=True)
-class PoissonIteration(IterativeSolver[Any, np.ndarray]):
+class PoissonIteration(SchemeIteration):
     """The Poisson iteration (M2) of Benamou, Froese and Oberman (2010).
 
     Iterates
@@ -180,7 +292,8 @@ class PoissonIteration(IterativeSolver[Any, np.ndarray]):
     Parameters
     ----------
     scheme
-        A :class:`PoissonScheme`.
+        A scheme with ``second_derivatives(grid, v)`` and
+        ``solve_laplace(grid, rhs)``.
     max_iter
         Most iterations.
     tol
@@ -188,38 +301,26 @@ class PoissonIteration(IterativeSolver[Any, np.ndarray]):
     """
 
     measure: ClassVar[str] = "update"
+    requires: ClassVar[tuple[str, ...]] = ("second_derivatives", "solve_laplace")
 
-    scheme: PoissonScheme
     max_iter: int = 10_000
     tol: float = 1e-12
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        object.__setattr__(self, "tol", positive("tol", self.tol))
-
-    def supports(self, problem: Problem) -> bool:
-        """Whether the scheme supports the problem."""
-        return self.scheme.supports(problem)
-
-    def check(self, problem: Problem) -> None:
-        """Raise if the scheme lacks a method the iteration calls or the problem.
-
-        Raises
-        ------
-        TypeError
-            If the scheme is not a :class:`PoissonScheme`.
-        UnsupportedProblemError
-            If the scheme does not support the problem.
-        """
-        _require(self, self.scheme, PoissonScheme)
-        super().check(problem)
-
-    def setup(self, problem: Problem) -> Any:
-        """Discretise the problem with the scheme."""
-        return self.scheme.discretize(problem)
-
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = sqrt(2 f)``."""
+        """Solve ``laplace u = sqrt(2 f)``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            The unknowns.
+        """
         return self.scheme.solve_laplace(
             context, np.sqrt(2.0 * self.scheme.rhs(context))
         )
@@ -227,7 +328,22 @@ class PoissonIteration(IterativeSolver[Any, np.ndarray]):
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
     ) -> tuple[np.ndarray, float]:
-        """One Poisson solve; the measure is the max change at the nodes."""
+        """One Poisson solve.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        iterate
+            The current unknowns.
+
+        Returns
+        -------
+        tuple
+            The next unknowns and the max change at the nodes.
+        """
         uxx, uyy, uxy = self.scheme.second_derivatives(context, iterate)
         f = self.scheme.rhs(context)
         new = self.scheme.solve_laplace(
@@ -236,9 +352,19 @@ class PoissonIteration(IterativeSolver[Any, np.ndarray]):
         return new, float(np.max(np.abs(new - iterate)))
 
     def converged(self, problem: Problem, context: Any, measure: float) -> bool:
-        """Successive iterates differ by at most ``tol``."""
-        return measure <= self.tol
+        """Whether successive iterates differ by at most ``tol``.
 
-    def finalize(self, problem: Problem, context: Any, state: np.ndarray) -> Solution:
-        """The scheme's solution fields for the final iterate."""
-        return self.scheme.solution(context, state)
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        measure
+            The max change at the nodes.
+
+        Returns
+        -------
+        bool
+        """
+        return measure <= self.tol

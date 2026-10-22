@@ -12,6 +12,8 @@ from maesolvers.classical import (
     FDPoisson,
     Newton,
     PoissonIteration,
+    Scheme,
+    SchemeIteration,
     Standard9,
 )
 from maesolvers.core import (
@@ -52,6 +54,8 @@ __all__ = [
     "PoissonIteration",
     "Problem",
     "Result",
+    "Scheme",
+    "SchemeIteration",
     "Solution",
     "Solver",
     "Standard9",

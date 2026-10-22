@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -15,10 +16,40 @@ from maesolvers import (
     FDPoisson,
     Newton,
     PoissonIteration,
+    Scheme,
+    SchemeIteration,
     Standard9,
     UnsupportedProblemError,
 )
 from maesolvers.metrics import evaluate
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class PoissonOnly(Scheme):
+    """A user scheme with what PoissonIteration needs, and no Jacobian."""
+
+    n: int = 8
+
+    def _inner(self):
+        return Standard9(n=self.n)
+
+    def supports(self, problem):
+        return self._inner().supports(problem)
+
+    def discretize(self, problem):
+        return self._inner().discretize(problem)
+
+    def rhs(self, grid):
+        return self._inner().rhs(grid)
+
+    def solution(self, grid, v):
+        return self._inner().solution(grid, v)
+
+    def second_derivatives(self, grid, v):
+        return self._inner().second_derivatives(grid, v)
+
+    def solve_laplace(self, grid, rhs):
+        return self._inner().solve_laplace(grid, rhs)
 
 
 @pytest.mark.parametrize(
@@ -73,24 +104,73 @@ def test_the_scheme_decides_what_is_supported():
 
 
 def test_an_iteration_needs_a_scheme_with_its_methods():
-    @dataclasses.dataclass(frozen=True)
-    class NoJacobian:
-        inner: Standard9 = Standard9(n=8)
-
-        def __getattr__(self, name):
-            if name == "jacobian":
-                raise AttributeError(name)
-            return getattr(self.inner, name)
-
-    with pytest.raises(TypeError, match="Newton needs a scheme with jacobian"):
-        Newton(scheme=NoJacobian()).solve(P4)
-    result = PoissonIteration(scheme=NoJacobian()).solve(P4)
+    with pytest.raises(
+        TypeError,
+        match="Newton needs a scheme with residual, jacobian, which PoissonOnly",
+    ):
+        Newton(scheme=PoissonOnly()).solve(P4)
+    result = PoissonIteration(scheme=PoissonOnly()).solve(P4)
     assert result.info["converged"]
 
 
-def test_a_scheme_without_its_methods_is_rejected_before_setup():
-    with pytest.raises(TypeError, match="discretize.*rhs"):
-        PoissonIteration(scheme=object()).solve(P4)
+def test_the_scheme_must_be_a_frozen_dataclass_scheme_instance():
+    class Plain(Scheme):
+        """Not a dataclass; the four methods are stand-ins."""
+
+        def supports(self, problem):
+            return True
+
+        discretize = rhs = solution = supports
+
+    @dataclasses.dataclass
+    class Mutable(Plain):
+        pass
+
+    @dataclasses.dataclass(frozen=True)
+    class Frozen(Plain):
+        pass
+
+    class Undecorated(PoissonOnly):
+        """Inherits the decoration, so a new field would miss from hparams."""
+
+    with pytest.raises(TypeError, match="instance, got the class Standard9"):
+        Newton(scheme=Standard9)
+    with pytest.raises(TypeError, match="PoissonIteration.scheme must subclass Scheme"):
+        PoissonIteration(scheme=object())
+    for bad in (Plain(), Mutable(), Undecorated()):
+        with pytest.raises(TypeError, match=f"frozen dataclass.*{type(bad).__name__}"):
+            Newton(scheme=bad)
+    assert Newton(scheme=Frozen()).scheme == Frozen()
+
+
+def test_a_new_iteration_writes_three_hooks():
+    @dataclasses.dataclass(frozen=True, kw_only=True)
+    class Jacobi(SchemeIteration):
+        """Poisson iteration with the update damped by one half."""
+
+        measure: ClassVar[str] = "update"
+        requires: ClassVar[tuple[str, ...]] = ("second_derivatives", "solve_laplace")
+        tol: float = 1e-10
+
+        def initial_guess(self, problem, context):
+            rhs = np.sqrt(2.0 * self.scheme.rhs(context))
+            return self.scheme.solve_laplace(context, rhs)
+
+        def step(self, problem, context, iterate):
+            uxx, uyy, uxy = self.scheme.second_derivatives(context, iterate)
+            lap = np.sqrt(uxx**2 + uyy**2 + 2 * uxy**2 + 2 * self.scheme.rhs(context))
+            new = 0.5 * (iterate + self.scheme.solve_laplace(context, lap))
+            return new, float(np.max(np.abs(new - iterate)))
+
+        def converged(self, problem, context, measure):
+            return measure <= self.tol
+
+    solver = Jacobi(scheme=Standard9(n=16), max_iter=500)
+    assert solver.supports(P4) and not solver.supports(P1)
+    ours = solver.solve(P4)
+    reference = PoissonIteration(scheme=Standard9(n=16)).solve(P4)
+    assert ours.info["converged"]
+    np.testing.assert_allclose(ours.values, reference.values, rtol=1e-8)
 
 
 @pytest.mark.parametrize("iteration", [Newton, PoissonIteration])
@@ -115,3 +195,45 @@ def test_the_registry_lists_the_presets_read_only():
     assert dict(SOLVERS) == {"FDNewton": FDNewton, "FDPoisson": FDPoisson}
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
+
+
+@pytest.mark.parametrize("solver", list(SOLVERS.values()))
+def test_registered_solvers_declare_their_support_on_the_class(solver):
+    assert (solver.domains, solver.boundaries, solver.dims) == (
+        Standard9.domains,
+        Standard9.boundaries,
+        Standard9.dims,
+    )
+    for problem in (P1, P4):
+        assert solver().supports(problem) == Standard9().supports(problem)
+
+
+@pytest.mark.parametrize("preset", [FDNewton, FDPoisson])
+def test_preset_scheme_defaults_are_the_schemes(preset):
+    assert preset().scheme == Standard9()
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        Newton(scheme=Standard9(n=8), max_iter=7),
+        PoissonIteration(scheme=PoissonOnly(n=12), tol=1e-9),
+        FDPoisson(n=10, spline_degree=2),
+    ],
+    ids=["Newton", "user scheme", "preset"],
+)
+def test_hparams_rebuild_the_solver_through_jsonargparse(solver):
+    jsonargparse = pytest.importorskip("jsonargparse")
+    parser = jsonargparse.ArgumentParser(exit_on_error=False)
+    parser.add_class_arguments(type(solver), "solver")
+    config = parser.parse_object({"solver": solver.hparams["init_args"]})
+    assert parser.instantiate(config).solver == solver
+
+
+def test_a_scheme_is_set_from_the_command_line():
+    jsonargparse = pytest.importorskip("jsonargparse")
+    parser = jsonargparse.ArgumentParser(exit_on_error=False)
+    parser.add_class_arguments(Newton, "solver")
+    args = ["--solver.scheme", "Standard9", "--solver.scheme.n", "16"]
+    solver = parser.instantiate(parser.parse_args(args)).solver
+    assert solver == Newton(scheme=Standard9(n=16))

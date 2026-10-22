@@ -2,26 +2,21 @@
 
 ``Newton(scheme=Standard9(n=64))`` and ``PoissonIteration(scheme=...)`` are
 the parts; :class:`FDNewton` and :class:`FDPoisson` are the presets for the
-standard 9-point scheme. Everything here needs numpy and scipy only.
+standard 9-point scheme. A new scheme subclasses :class:`Scheme`, a new
+iteration :class:`SchemeIteration`. Everything here needs numpy and scipy
+only.
 """
 
-from maesolvers.classical.iterations import (
-    Newton,
-    NewtonScheme,
-    PoissonIteration,
-    PoissonScheme,
-)
+from maesolvers.classical.iterations import Newton, PoissonIteration, SchemeIteration
 from maesolvers.classical.presets import FDNewton, FDPoisson
-from maesolvers.classical.schemes import Grid, Scheme, Standard9
+from maesolvers.classical.schemes import Scheme, Standard9
 
 __all__ = [
     "FDNewton",
     "FDPoisson",
-    "Grid",
     "Newton",
-    "NewtonScheme",
     "PoissonIteration",
-    "PoissonScheme",
     "Scheme",
+    "SchemeIteration",
     "Standard9",
 ]

@@ -2,9 +2,10 @@
 
 A scheme (ADR 0004) turns a problem into discrete equations on a grid and
 evaluates them; an iteration (:mod:`maesolvers.classical.iterations`) solves
-them. A scheme is a frozen dataclass whose fields are its hyperparameters.
-:meth:`Scheme.discretize` builds the grid of one problem, and every other
-method takes that grid and the unknowns and changes neither.
+them. A scheme subclasses :class:`Scheme` and is a frozen dataclass whose
+fields are its hyperparameters. :meth:`Scheme.discretize` builds the grid of
+one problem, and every other method takes that grid and the unknowns and
+changes neither.
 
 The difference operators and the Monge-Ampere operator are module-level pure
 functions, testable without a scheme.
@@ -12,9 +13,10 @@ functions, testable without a scheme.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar
 
 import numpy as np
 import scipy.sparse as sp
@@ -28,24 +30,79 @@ from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
 
 
-class Scheme(Protocol):
-    """What every scheme provides; iterations ask for more (ADR 0004)."""
+class Scheme(ABC):
+    """Base class of every scheme (ADR 0004).
 
+    A subclass is decorated with ``@dataclass(frozen=True, kw_only=True)``;
+    its fields are its hyperparameters, so a solver's
+    :attr:`~maesolvers.core.solver.Solver.hparams` record it and jsonargparse
+    builds it from a ``class_path`` (ADR 0005). It implements the four
+    methods below; an iteration names the further methods it calls in
+    :attr:`~maesolvers.classical.iterations.SchemeIteration.requires`, for
+    example ``residual`` and ``jacobian`` for :class:`Newton
+    <maesolvers.classical.iterations.Newton>`. The grid is whatever
+    :meth:`discretize` returns; iterations pass it back without looking
+    inside.
+    """
+
+    @abstractmethod
     def supports(self, problem: Problem) -> bool:
-        """Whether the scheme discretises the problem's domain and boundary."""
-        ...
+        """Whether the scheme discretises the problem's domain and boundary.
 
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+
+    @abstractmethod
     def discretize(self, problem: Problem) -> Any:
-        """The grid of one problem: nodes, operators and data."""
-        ...
+        """The grid of one problem: nodes, operators and data.
 
+        Parameters
+        ----------
+        problem
+            A problem the scheme supports.
+
+        Returns
+        -------
+        Any
+            Passed to every other method of the scheme.
+        """
+
+    @abstractmethod
     def rhs(self, grid: Any) -> np.ndarray:
-        """The right-hand side ``f`` at the unknowns."""
-        ...
+        """The right-hand side ``f`` at the unknowns.
 
+        Parameters
+        ----------
+        grid
+            From :meth:`discretize`.
+
+        Returns
+        -------
+        numpy.ndarray
+        """
+
+    @abstractmethod
     def solution(self, grid: Any, v: np.ndarray) -> Solution:
-        """The solution fields of the result for unknowns ``v``."""
-        ...
+        """The solution fields of the result for the unknowns ``v``.
+
+        Parameters
+        ----------
+        grid
+            From :meth:`discretize`.
+        v
+            The unknowns.
+
+        Returns
+        -------
+        Solution
+        """
 
 
 def difference_operators(
@@ -137,12 +194,13 @@ def _interior_mask(n: int) -> np.ndarray:
 
 @dataclass(frozen=True, eq=False)
 class Grid:
-    """One problem discretised by :class:`Standard9`.
+    """One problem discretised by :class:`Standard9`, its working context.
 
-    The unknowns are the values at the interior nodes; the boundary nodes
-    carry the Dirichlet data. Every difference operator is split into the
-    columns acting on the unknowns (``a*``) and on the boundary values
-    (``b*``).
+    Only :class:`Standard9` reads the fields; they are not a stable interface
+    and may change with the scheme. The unknowns are the values at the
+    interior nodes; the boundary nodes carry the Dirichlet data. Every
+    difference operator is split into the columns acting on the unknowns
+    (``a*``) and on the boundary values (``b*``).
 
     Attributes
     ----------
@@ -179,7 +237,7 @@ class Grid:
 
 
 @dataclass(frozen=True, kw_only=True)
-class Standard9:
+class Standard9(Scheme):
     """The standard 9-point scheme on a uniform grid over a 2D box.
 
     Centred second differences, Dirichlet data imposed at the boundary nodes
@@ -196,7 +254,20 @@ class Standard9:
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
         nodes, 1 to 5 and at most ``n``.
+
+    Attributes
+    ----------
+    domains : tuple of type
+        ``(Box,)``.
+    boundaries : tuple of type
+        ``(Dirichlet,)``.
+    dims : tuple of int
+        ``(2,)``.
     """
+
+    domains: ClassVar[tuple[type, ...]] = (Box,)
+    boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
+    dims: ClassVar[tuple[int, ...]] = (2,)
 
     n: int = 64
     spline_degree: int = 3
@@ -213,7 +284,7 @@ class Standard9:
         object.__setattr__(self, "spline_degree", spline_degree)
 
     def supports(self, problem: Problem) -> bool:
-        """Whether the problem is on a 2D box with a Dirichlet boundary.
+        """Whether the problem's domain, boundary and dimension are declared.
 
         Parameters
         ----------
@@ -223,11 +294,12 @@ class Standard9:
         Returns
         -------
         bool
+            True for a 2D :class:`Box` with a :class:`Dirichlet` boundary.
         """
         return (
-            isinstance(problem.domain, Box)
-            and isinstance(problem.boundary, Dirichlet)
-            and problem.dim == 2
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in self.dims
         )
 
     def discretize(self, problem: Problem) -> Grid:

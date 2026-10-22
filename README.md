@@ -105,7 +105,8 @@ The catalogue is provisional: the research repository has not fixed its test pro
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
 
 Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
-An iteration takes any scheme that provides the methods it calls (the protocols `NewtonScheme` and `PoissonScheme` in `maesolvers.classical`), so a new scheme runs under both iterations without a new solver class.
+A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
+A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
 `maesolvers.SOLVERS` lists the presets by name.
 
 ## Reproduction

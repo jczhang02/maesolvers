@@ -20,11 +20,15 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.metrics.summarize(results, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate of an `evaluate` field over seeds, a seed without a result (`None`) or with a NaN or infinite error counted as `+inf` (ADR 0007).
 - `maesolvers.metrics.shared_grid(domain, size=None)` takes a domain and picks 201, 51 or 21 points per axis by dimension.
 - `maesolvers.classical`: solvers composed of a scheme and an iteration (ADR 0004).
-  The scheme `Standard9(n, spline_degree)` discretises a problem (`discretize`) and evaluates the discrete equations on its `Grid` (`rhs`, `second_derivatives`, `residual`, `jacobian`, `solve_laplace`, `solution`); the difference operators are the pure functions `difference_operators`, `monge_ampere` and `monge_ampere_jacobian` in `maesolvers.classical.schemes`.
-  The iterations `Newton(scheme, max_iter=50, tol=1e-10)` and `PoissonIteration(scheme, max_iter=10_000, tol=1e-12)` take any scheme that provides the methods of the protocols `NewtonScheme` and `PoissonScheme`, checked in `check` with a `TypeError` that names what is missing; the scheme decides `supports`.
-  `Newton`, `PoissonIteration` and `Standard9` are exported at the top level.
+  A scheme subclasses the abstract base `Scheme` (`supports`, `discretize`, `rhs`, `solution`) and is a frozen dataclass, so jsonargparse builds it from a `class_path` (ADR 0005).
+  The scheme `Standard9(n, spline_degree)` declares `domains`, `boundaries` and `dims` on the class, discretises a problem (`discretize`) and evaluates the discrete equations on its grid (`rhs`, `second_derivatives`, `residual`, `jacobian`, `solve_laplace`, `solution`); the grid's fields are private to the scheme.
+  The difference operators are the pure functions `difference_operators`, `monge_ampere` and `monge_ampere_jacobian` in `maesolvers.classical.schemes`.
+  An iteration subclasses `SchemeIteration(scheme, max_iter, tol)`, which asks the scheme for `supports`, the grid (`setup`) and the solution fields (`finalize`), and names in the class variable `requires` the scheme methods it calls; `check` raises a `TypeError` that names the missing ones, and construction raises a `TypeError` for a scheme that is a class, not a `Scheme`, or not a frozen dataclass.
+  The iterations are `Newton(scheme, max_iter=50, tol=1e-10)` and `PoissonIteration(scheme, max_iter=10_000, tol=1e-12)`.
+  `Newton`, `PoissonIteration`, `Scheme`, `SchemeIteration` and `Standard9` are exported at the top level.
 - `maesolvers.SOLVERS` (`maesolvers.registry`): the presets by name, read-only.
-- `maesolvers.tracking.MLflowLogger`, a callback that logs a solve into the active MLflow run: git tags, the flattened `hparams` and the problem name as parameters, every step's metrics at its step, and the numeric fields of `evaluate` with `converged` at the end; it raises `RuntimeError` without an active run.
+- `maesolvers.tracking.MLflowLogger`, a callback that logs a solve into the active MLflow run: git tags, the flattened `hparams` and the problem name as parameters at the start; every step's metrics at its step, the numeric fields of `evaluate` and `converged` at the end, after the timed part of the solve; `MLflowLogger.evaluation` keeps that `evaluate`.
+  It raises `RuntimeError` without an active run.
   `tracking.flatten(config)` gives the dotted parameter names (`scheme.n`), and `tracking.git_tags()` the git state.
 
 ### Changed
@@ -38,7 +42,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   Convexity is taken at the interior nodes (`Result.interior`, else the nodes inside the domain) with the node Hessian, or on the shared grid with the callable Hessian, and a non-finite Hessian at any of these points gives NaN `nonconvex_fraction` and `eigmin`.
 - `FDNewton` and `FDPoisson` take keyword arguments only, validate them on construction (`TypeError` for a float `n` or a string `tol`, numpy scalars stored as plain numbers), and raise `UnsupportedProblemError` instead of `TypeError` or `ValueError` for an unsupported problem.
 - `FDNewton` reports a start that already meets `tol` as converged after one step instead of stalling.
-- `FDNewton` and `FDPoisson` are presets: `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))` and `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, with the same defaults, call style and numbers as before; their `hparams` stay flat and their `class_path` is now `maesolvers.classical.presets.FDNewton` (`.FDPoisson`).
+- `FDNewton` and `FDPoisson` are presets: `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))` and `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, with the same defaults, call style, numbers and class variables `domains`, `boundaries` and `dims` as before; their `hparams` stay flat and their `class_path` is now `maesolvers.classical.presets.FDNewton` (`.FDPoisson`).
 - `maesolvers.tracking` tags runs with the git checkout of the current working directory instead of the checkout that holds the package, and imports mlflow only when a run starts or a logger is used.
 - `Result.info` holds `time`, `iterations`, `converged`, `history`, `unknowns`, `h` and `residual_max` for both finite-difference solvers.
 
