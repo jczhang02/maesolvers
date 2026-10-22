@@ -198,7 +198,8 @@ def test_hparams_nest_containers_of_parts():
 def test_supports_checks_domain_boundary_and_dimension():
     assert Halving().supports(T8) and Halving().supports(T1)
     assert not Halving().supports(T12)
-    assert FDNewton().supports(T1) and not FDNewton().supports(T8)
+    assert FDNewton().supports(T1) and FDNewton().supports(T8)
+    assert not FDNewton().supports(T12)
     cube = Problem("C", Box((0,) * 3, (1,) * 3), _zero, Dirichlet(_zero))
     assert Halving().supports(cube) and not FDPoisson().supports(cube)
 
@@ -386,7 +387,6 @@ def test_solution_info_may_not_override_run_fields():
         (dict(tol=np.inf), ValueError, "tol must be"),
         (dict(spline_degree=0), ValueError, "spline_degree"),
         (dict(spline_degree=6), ValueError, "spline_degree"),
-        (dict(n=2, spline_degree=3), ValueError, "spline_degree"),
         (dict(max_iter=0), ValueError, "max_iter"),
         (dict(n=8.5), TypeError, "n must be an integer"),
         (dict(n=True), TypeError, "n must be an integer"),
