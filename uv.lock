@@ -1755,7 +1755,6 @@ neural = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "maesolvers", extra = ["cli"] },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -1774,7 +1773,6 @@ provides-extras = ["neural", "cli"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "maesolvers", extras = ["cli"] },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
 ]

@@ -31,9 +31,9 @@ fmt:
 
 # Check formatting, lint and tests, as CI does
 check:
-    uv run ruff format --check .
-    uv run ruff check --no-fix .
-    uv run pytest -q
+    uv run --extra cli ruff format --check .
+    uv run --extra cli ruff check --no-fix .
+    uv run --extra cli pytest -q
 
 # One-time a100server setup: bare repo, clone, data dirs, local remote
 server-init:

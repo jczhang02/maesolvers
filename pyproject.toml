@@ -17,7 +17,8 @@ classifiers = [
 [project.optional-dependencies]
 # Declared for the neural solvers to come; nothing in 0.0.x imports torch.
 neural = ["torch"]
-# Configs and the `maesolvers solve` command line (ADR 0005); imported only by maesolvers.cli.
+# Configs and the `maesolvers solve` command line (ADR 0005); imported only by
+# maesolvers.from_config and maesolvers.cli. CI and `just check` add it with --extra cli.
 cli = ["jsonargparse>=4.49"]
 
 [project.scripts]
@@ -27,7 +28,7 @@ maesolvers = "maesolvers.cli:main"
 Repository = "https://github.com/jczhang02/maesolvers"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "maesolvers[cli]"]
+dev = ["pytest>=8", "ruff>=0.6"]
 # Experiment logging on a100server (see CLAUDE.md, Experiments); not a library dependency.
 experiments = ["mlflow>=3.4"]
 
