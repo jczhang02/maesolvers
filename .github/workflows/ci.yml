@@ -2,11 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
 
 jobs:
-  test:
+  # Without extras (ADR 0006): `import maesolvers` and every classical solver
+  # need numpy and scipy only. Tests of an extra skip here. The `neural`
+  # marker is reserved for the tests of the neural job ADR 0006 adds.
+  core:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -17,6 +20,22 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --group dev
+      - run: uv run --exact python -c "import maesolvers"
+      - run: uv run --exact pytest -q -m "not neural"
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --group dev --extra cli --group experiments
       - run: uv run ruff format --check .
       - run: uv run ruff check .
+      # mlflow (experiments) is installed so pyright checks maesolvers.tracking.
+      - run: uv run pyright
       - run: uv run pytest -q

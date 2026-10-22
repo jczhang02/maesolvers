@@ -17,11 +17,12 @@
 
 ## Features
 
-- **One interface**: a `Problem` (domain, right-hand side, boundary condition, exact solution when known), any object with `solve(problem) -> Result`, and a `Result` that carries the solution as a callable plus the method's own nodes, values and discrete Hessian.
-- **One catalogue**: test problems `P1` to `P5`, provisional until the research programme fixes its test set, with numbers that are never reused so that tables from different methods line up.
-- **Shared metrics**: `evaluate(result)` reports solution errors at the method's nodes and on a common grid, the equation residual, convexity statistics and cost, the same way for every method.
+- **One interface**: a `Problem` (domain, right-hand side, a `Dirichlet` or `Transport` boundary condition, exact solution when known), a `Solver` whose `solve(problem) -> Result` runs one fixed lifecycle, and a `Result` that carries the solution as a callable plus, for grid methods, the nodes, values and discrete Hessian.
+- **One catalogue**: `CATALOGUE` holds every test problem under the T id of the research programme's literature survey, the shared test set among them; an id is never reused, so tables from different methods line up.
+- **Shared metrics**: `evaluate(result)` reports the max and RMS errors at the method's nodes (or on the shared grid for methods without nodes), the same errors on the shared grid, convexity statistics, cost and the problem's observables, the same way for every method; `summarize` aggregates seeds and counts failed ones.
 - **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
-- **Light dependencies**: numpy and scipy only; torch arrives with the `neural` extra and the neural solvers.
+- **Configs and a command line**: `from_config` and `maesolvers solve` build any solver, nested parts included, from a dict, a YAML file or command-line arguments, read against the constructors' signatures.
+- **Light dependencies**: numpy and scipy only; jsonargparse comes with the `cli` extra, and torch arrives with the `neural` extra and the neural solvers.
 
 ## Quick Start
 
@@ -35,48 +36,142 @@ pip install git+https://github.com/jczhang02/maesolvers   # or with pip
 Solve a catalogue problem and evaluate the result with the shared protocol.
 
 ```python
-from maesolvers import P4, FDNewton
+from maesolvers import T1, FDNewton
 from maesolvers.metrics import evaluate
 
-result = FDNewton(n=64).solve(P4)
-print(evaluate(result))
+result = FDNewton(n=64).solve(T1)
+for name, value in evaluate(result).items():
+    print(f"{name}: {value:.4g}")
 ```
 
 ```text
-rel_l2_nodes: 6.31e-06       # relative L2 error at the method's own nodes
-max_nodes: 1.68e-05          # max error at the nodes (the number papers print)
-rel_l2_grid: 6.39e-06        # the same two errors on the shared 201 x 201 grid
-max_grid: 1.68e-05
-residual_rms: 3.12e-12       # det D^2 u_h - f, RMS and max, with the method's own Hessian
-residual_max: 2.07e-11
-eigmin_min: 1                # smallest Hessian eigenvalue over the nodes
-nonconvex_fraction: 0        # share of nodes where it is negative
-time: 0.0809                 # seconds
+max: 1.678e-05               # max error at the method's own nodes (the number papers print)
+rms: 9.269e-06               # RMS error at the nodes
+max_grid: 1.678e-05          # the same two errors on the shared 201 x 201 grid, a secondary value
+rms_grid: 9.366e-06
+nonconvex_fraction: 0        # share of interior nodes with a negative Hessian eigenvalue
+eigmin: 1                    # smallest eigenvalue of the discrete Hessian there
+eigmin_exact: 1              # and of the exact solution's Hessian at the same nodes
+time: 0.05124                # seconds, varies from run to run
 iterations: 4
 unknowns: 3969
 ```
 
-Any object with a `solve(problem)` method that returns a `Result` plugs into the same `evaluate`, so a new method is one class away from the comparison table.
+`evaluate` returns a dict, so `print(evaluate(result))` shows the same values at full precision.
+
+The same solver comes from keyword arguments, from a dict or YAML file, or from the command line (ADR 0005); the last two need the `cli` extra (`pip install "maesolvers[cli] @ git+https://github.com/jczhang02/maesolvers"`).
+A solver configuration names the solver by its `class_path` with its `init_args`, nested parts in the same form; it is the form `Result.hparams` records.
+
+```yaml
+# newton.yaml
+class_path: Newton
+init_args:
+  scheme:
+    class_path: Standard9
+    init_args: {n: 64}
+```
+
+```python
+from maesolvers import T2, from_config
+
+solver = from_config("newton.yaml")  # Newton(scheme=Standard9(n=64))
+result = solver.solve(T2)
+rerun = from_config(result.hparams).solve(result.problem)  # any result reruns
+```
+
+On the command line, a configuration file holds the solver under `solver` and the problem's T id under `problem`.
+
+```yaml
+# exp.yaml
+solver:
+  class_path: Newton
+  init_args:
+    scheme:
+      class_path: Standard9
+      init_args: {n: 64}
+problem: T2
+```
+
+```sh
+maesolvers solve --config exp.yaml --solver.scheme.n 128 --problem T1 --output t1.json
+maesolvers solve --solver FDNewton --solver.n 64 --problem T1
+maesolvers solve --solver.help Newton  # the parameters of a solver
+```
+
+A `class_path` is the name of a class maesolvers ships or the dotted import path of any class, a solver of your own included, and a misspelt key is an error.
+An argument after `--config` overrides the file, and `--print_config` writes a file that `--config` reads back.
+`maesolvers solve` prints `evaluate` as a table, and `--output` writes the metrics, `Result.info` and, under `run`, a `--config` file that reruns the result, as strict JSON (NaN and infinity as `null`).
+
+A new method subclasses `Solver` (or `IterativeSolver`) and writes the hooks `setup`, `run` (or `initial_guess`, `step`, `converged`) and `finalize`; the base class times the solve, calls the callbacks, records the hyperparameters and builds the `Result`, so the method is one class away from the comparison table.
+The subclass carries its own `@dataclass(frozen=True, kw_only=True)` decorator (an inherited one does not count, and construction fails without it), declares `domains` and `boundaries` (and `measure` for an `IterativeSolver`), and every hook after `setup` takes the problem and the context first.
+
+```python
+from dataclasses import dataclass
+from typing import ClassVar
+
+from maesolvers import Box, Dirichlet, IterativeSolver, Solution
+
+
+@dataclass(frozen=True, kw_only=True)
+class MySolver(IterativeSolver):
+    domains: ClassVar = (Box,)
+    boundaries: ClassVar = (Dirichlet,)
+    measure: ClassVar = "residual"  # the key of the per-step metrics
+
+    n: int = 64  # a hyperparameter, recorded in Result.hparams
+    tol: float = 1e-10
+
+    def setup(self, problem): ...  # grid, operators: the context
+    def initial_guess(self, problem, context): ...  # the first iterate
+    def step(self, problem, context, iterate): ...  # (next iterate, measure), or None
+    def converged(self, problem, context, measure):
+        return measure <= self.tol
+
+    def finalize(self, problem, context, state):
+        return Solution(u=..., nodes=..., values=...)
+```
+
+[`docs/guide.md`](docs/guide.md) walks through solving, the three ways to pass parameters, and a complete solver of your own, with a new iteration and a new scheme as smaller plug-in points; a test runs every block of it.
 
 ## Test problems
 
-All five are two-dimensional.
-The catalogue is provisional: the research repository has not fixed its test problems yet, and the numbering will be aligned with it when it does.
+`maesolvers.catalogue` defines every problem, `CATALOGUE` maps each T id to it, and each is also importable by name (`from maesolvers import T1`).
+The ids are those of the research programme's literature survey; the P1 to P5 of 0.0.x are retired (P4 is T1, P5 is T2, P1 is T8 with `g = 0`, P3 is T12).
+`SHARED_TEST_SET` lists the rows of the comparison table: T1, T2, T20, T8, T12, T9, T10.
+Every Dirichlet problem with an exact solution takes its boundary data from it; `x0 = (0.5, 0.5)`.
 
-| Name | Domain | `f` | Boundary | Exact solution | Tests |
+| Id | Domain | `f` | Boundary | Exact solution | Tests |
 |---|---|---|---|---|---|
-| P1 | unit disk | 1 | Dirichlet, `g = 1/2` | `|x|^2 / 2` | branch selection: the concave `1 - |x|^2 / 2` also solves the equation |
-| P2 | `(-1, 1)^2` | `(1 + |x|^2)^-2` | Dirichlet | `sqrt(1 + |x|^2)` | smooth, non-quadratic |
-| P3 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition (Caboussat-Peruso 2025) |
-| P4 | `(0, 1)^2` | `(1 + |x|^2) exp(|x|^2)` | Dirichlet | `exp(|x|^2 / 2)` | smooth, the standard finite-difference example |
-| P5 | `(0, 1)^2` | `2 (2 - |x|^2)^-2` | Dirichlet | `-sqrt(2 - |x|^2)` | gradient blow-up at the corner `(1, 1)` |
+| T1 | `(0, 1)^2` | `(1 + \|x\|^2) exp(\|x\|^2)` | Dirichlet | `exp(\|x\|^2 / 2)` | smooth, the standard finite-difference example |
+| T2 | `(0, 1)^2` | `2 (2 - \|x\|^2)^-2` | Dirichlet | `-sqrt(2 - \|x\|^2)` | gradient blow-up at the corner `(1, 1)` |
+| T3 | `(0, 1)^2` | `\|x\|^-1` | Dirichlet | `(2 sqrt 2 / 3) \|x\|^(3/2)` | `f` blows up at `(0, 0)` but is integrable |
+| T4 | `(0, 1)^2` | 1 for `\|x - x0\| > 0.4`, else 0 | Dirichlet | 0.08 for `r <= 0.4`, `0.08 + (r s - 0.16 ln((r + s) / 0.4)) / 2` beyond, `r = \|x - x0\|`, `s = sqrt(r^2 - 0.16)` | discontinuous `f`, C^1 Alexandrov solution (not the source paper's `u`, see its note) |
+| T5 | `(0, 1.5)^2` | 4 for `\|x\| > 1`, else 0 | Dirichlet | 0 for `r <= 1`, `r sqrt(r^2 - 1) - ln(r + sqrt(r^2 - 1))` beyond | discontinuous `f`, C^1 Alexandrov solution |
+| T6 | quarter of the unit disk cut by `y > x - 1/2` (`CutQuarterDisk`) | from `u` | Dirichlet | `0.7 exp((x - 1/2)^2 / 2 + y^2) + x^2 - 1/2` | asymmetric domain |
+| T7 | `[-1, 1]^2` | 1 | Dirichlet, `g = 1` | none; observable `u_origin`, `u(0, 0)` (compare at even `n`) | no classical solution at the corners |
+| T8 | unit disk | 1 | Dirichlet, `g = 0` | `(\|x\|^2 - 1) / 2` | branch selection: the concave `(1 - \|x\|^2) / 2` also solves the equation |
+| T9 | `(0, 1)^3` | `(1 + \|x\|^2) exp(3 \|x\|^2 / 2)` | Dirichlet | `exp(\|x\|^2 / 2)` | T1 in 3D |
+| T10 | `(0, 1)^4` | `(1 + \|x\|^2) exp(2 \|x\|^2)` | Dirichlet | `exp(\|x\|^2 / 2)` | T1 in 4D |
+| T12 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition, linear map |
+| T16 | `(-1/2, 1/2)^2` | from `q(z)` (Benamou-Froese-Oberman 2014) | transport onto the same square | `\|x\|^2 / 2 + 4 q(x1) q(x2)` | transport with an oscillating density |
+| T20 | `(0, 1)^2` | `(1 - 0.2 / \|x - x0\|)^+` | Dirichlet | `((\|x - x0\| - 0.2)^+)^2 / 2` | C^1 solution, `f = 0` on a disk |
+| T22 | `(0, 1)^3` | `3 (3 - \|x\|^2)^(-5/2)` | Dirichlet | `-sqrt(3 - \|x\|^2)` | T2 in 3D |
+
+Each problem's `note` names its source paper.
+T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Problem.f` is a function and cannot hold a measure.
 
 ## Solvers
 
 | Solver | Method | Domains | Boundary | Convexity |
 |---|---|---|---|---|
-| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on P5 it converges to a non-convex discrete root |
+| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on T2 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
+
+Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
+A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
+A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
+`maesolvers.SOLVERS` lists the presets by name.
+[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations.
 
 ## Reproduction
 
@@ -85,14 +180,20 @@ A method counts as reproduced when it matches the source paper's own table, on t
 
 | Problem | N | Published | FDPoisson | FDNewton |
 |---|---|---|---|---|
-| P4 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
-| P4 | 361 | 0.05e-5 | | 5.276e-7 |
-| P5 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
-| P5 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
+| T1 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
+| T1 | 361 | 0.05e-5 | | 5.276e-7 |
+| T2 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
+| T2 | 361 | 5.41e-3 | 5.409e-3 | 22.25e-3 |
+| T7 | 21 | 0.2892 | 0.2892 | 0.2892 |
+| T7 | 141 | 0.2621 | 0.2621 | 0.3245 |
 
-Two things came out of this first comparison.
-The papers' grid convention, which none of them states, is `h = 1/N`.
-Newton on the standard scheme converges in the residual on P5 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
+For T1 and T2 the values are max errors at the nodes (Froese-Oberman 2011, Table 3), with `N` cells per side.
+For T7 they are `u_min`, the value at the origin (Benamou-Froese-Oberman 2010, Table 7), with `N` nodes per side, so `n = N - 1` cells.
+
+Three things came out of this first comparison.
+The papers' grid convention, which none of them states, is `h = 1/N`, except in the 2010 Table 7, where `N` counts nodes.
+Newton on the standard scheme converges in the residual on T2 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
+On T7 Newton does the same from `N = 41` on, while the Poisson iteration matches the 2010 table at every printed `N`.
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
@@ -117,15 +218,27 @@ The design behind 0.1 is recorded in `docs/adr/`.
 
 Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sample-based optimal transport, parabolic formulations.
 
+## Layout
+
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, and the parameter checks `integer` and `positive`.
+- `src/maesolvers/classical/`: the scheme `Standard9`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton` and `FDPoisson`.
+- `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
+- `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
+- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.
+- `docs/guide.md`: the user guide; `docs/methods/`: one page per method, or per scheme with its iterations (`standard9.md`); `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
+- `tests/`: the tests, among them the reproduction pins (`test_reproduction.py`) and the guide's code blocks (`test_guide.py`).
+
 ## Development
 
 ```sh
 uv sync --group dev
-uv run pytest
-uv run ruff format . && uv run ruff check .
+just check   # ruff format and lint, pyright on src/, pytest without extras, then with cli and mlflow
+just fmt     # format and fix
 ```
 
-Tests check that every catalogue problem's exact solution satisfies its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
+CI runs the same checks on Python 3.10 and 3.13, and its job without extras also checks that the package imports with numpy and scipy alone.
+The pytest marker `neural` is reserved for the tests that need the `neural` extra, which come with the neural solvers; no test carries it yet.
+Tests check every catalogue problem against the point values of the shared test-set specification and against its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
 
 ## License
 
