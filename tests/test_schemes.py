@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
-from maesolvers import T1, T8, T12, Box, Dirichlet, Problem, UnsupportedProblemError
+from maesolvers import T1, T6, T8, T12, Box, Dirichlet, Problem, UnsupportedProblemError
 from maesolvers.classical import Standard9
 from maesolvers.classical.schemes import (
     difference_operators,
@@ -128,16 +128,16 @@ def test_solution_fills_the_boundary_and_leaves_its_hessian_undefined():
     assert solution.u(point) == pytest.approx(_quadratic(point), abs=1e-12)
 
 
-def test_supports_a_2d_dirichlet_box_only():
+def test_supports_2d_dirichlet_problems_on_its_domains_only():
     scheme = Standard9()
-    assert scheme.supports(T1)
-    assert not scheme.supports(T8) and not scheme.supports(T12)
+    assert scheme.supports(T1) and scheme.supports(T6) and scheme.supports(T8)
+    assert not scheme.supports(T12)
     cube = Problem(
         "C", Box((0,) * 3, (1,) * 3), _constant(1.0), Dirichlet(_constant(0))
     )
     assert not scheme.supports(cube)
-    with pytest.raises(UnsupportedProblemError, match="T8"):
-        scheme.discretize(T8)
+    with pytest.raises(UnsupportedProblemError, match="T12: it needs a 2D Box, Disk"):
+        scheme.discretize(T12)
 
 
 @pytest.mark.parametrize(

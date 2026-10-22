@@ -14,6 +14,7 @@ from maesolvers import (
     T1,
     T2,
     T8,
+    T12,
     FDNewton,
     FDPoisson,
     Newton,
@@ -101,9 +102,11 @@ def test_composed_hparams_nest_the_scheme():
 
 def test_the_scheme_decides_what_is_supported():
     solver = Newton(scheme=Standard9(n=8))
-    assert solver.supports(T1) and not solver.supports(T8)
-    with pytest.raises(UnsupportedProblemError, match="Disk"):
-        solver.solve(T8)
+    assert solver.supports(T1) and not solver.supports(T12)
+    with pytest.raises(
+        UnsupportedProblemError, match="T12, a 2D Disk problem with a Transport"
+    ):
+        solver.solve(T12)
 
 
 def test_an_iteration_needs_a_scheme_with_its_methods():
@@ -179,7 +182,7 @@ def test_a_new_iteration_writes_three_hooks():
             return measure <= self.tol
 
     solver = Jacobi(scheme=Standard9(n=16), max_iter=500)
-    assert solver.supports(T1) and not solver.supports(T8)
+    assert solver.supports(T1) and not solver.supports(T12)
     ours = solver.solve(T1)
     reference = PoissonIteration(scheme=Standard9(n=16)).solve(T1)
     assert ours.info["converged"]
@@ -217,7 +220,7 @@ def test_registered_solvers_declare_their_support_on_the_class(solver):
         Standard9.boundaries,
         Standard9.dims,
     )
-    for problem in (T8, T1):
+    for problem in (T8, T12, T1):
         assert solver().supports(problem) == Standard9().supports(problem)
 
 

@@ -198,7 +198,8 @@ def test_hparams_nest_containers_of_parts():
 def test_supports_checks_domain_boundary_and_dimension():
     assert Halving().supports(T8) and Halving().supports(T1)
     assert not Halving().supports(T12)
-    assert FDNewton().supports(T1) and not FDNewton().supports(T8)
+    assert FDNewton().supports(T1) and FDNewton().supports(T8)
+    assert not FDNewton().supports(T12)
     cube = Problem("C", Box((0,) * 3, (1,) * 3), _zero, Dirichlet(_zero))
     assert Halving().supports(cube) and not FDPoisson().supports(cube)
 

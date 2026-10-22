@@ -20,12 +20,12 @@ from typing import Any, ClassVar
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import CloughTocher2DInterpolator, RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
-from maesolvers.core.domains import Box, Field
+from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Domain, Ellipse, Field
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
 
@@ -193,6 +193,156 @@ def _interior_mask(n: int) -> np.ndarray:
     return mask
 
 
+_SW_DIRECTIONS = ((1, 0), (0, 1), (1, 1), (1, -1))
+"""Grid directions of the Shortley-Weller second differences, in index steps."""
+
+_SNAP = 1e-6
+"""A node closer to the boundary than this many steps joins the boundary."""
+
+_BISECTIONS = 64
+"""Halvings that locate a boundary crossing on a grid segment, past float64 precision."""
+
+
+def shortley_weller_operators(
+    domain: Domain, n: int
+) -> tuple[
+    np.ndarray, np.ndarray, sp.csr_matrix, sp.csr_matrix, sp.csr_matrix, np.ndarray
+]:
+    """Second differences on a uniform grid cut by a curved boundary.
+
+    The grid has ``n`` cells per side over the domain's bounding box, and its
+    nodes in the open domain carry the unknowns. At each of them the second
+    difference along a grid direction ``v`` (the two axes and the two
+    diagonals, in index steps) uses the neighbour ``P +/- v`` when it lies in
+    the open domain, and otherwise the point ``P +/- t v``, ``0 < t <= 1``,
+    where the segment towards that neighbour leaves the domain, found by
+    bisection on ``domain.interior``. Through ``u_-``, ``u_P``, ``u_+`` at
+    ``-b v``, 0, ``a v`` the difference is the second derivative of the
+    interpolating parabola (Shortley-Weller 1938),
+
+        D_v u = 2 / (a b (a + b)) (b u_+ - (a + b) u_P + a u_-),
+
+    exact for quadratics; ``u_xx = D_(1,0) / hx^2``, ``u_yy = D_(0,1) / hy^2``
+    and ``u_xy = (D_(1,1) - D_(1,-1)) / (4 hx hy)``. Where ``a = b = 1`` these
+    are the stencils of :func:`difference_operators`.
+
+    The boundary points carry the Dirichlet data: the grid nodes on the
+    boundary (in the closed but not in the open domain), the nodes of the open
+    domain closer to the boundary than ``1e-6`` steps along a grid direction
+    (rounding puts nodes that lie on a circle in exact arithmetic, such as
+    ``(15/17, 8/17)`` on the unit circle, on either side of it), and the
+    crossings. A crossing is looked for on the segment to an outside
+    neighbour only, so a boundary that crosses a grid segment twice (a
+    non-convex domain with features finer than the grid) is not resolved.
+
+    Parameters
+    ----------
+    domain
+        A 2D domain.
+    n
+        Cells per side of the grid over ``domain.bbox``, at least 2.
+
+    Returns
+    -------
+    nodes : numpy.ndarray
+        Shape ``(k + m, 2)``: the ``k`` grid nodes that carry unknowns, in the
+        flat order of :func:`difference_operators`, then the ``m`` boundary
+        points.
+    interior : numpy.ndarray
+        Shape ``(k + m,)``, boolean: True at the first ``k``.
+    dxx, dyy, dxy : scipy.sparse.csr_matrix
+        Shape ``(k, k + m)``: from the values at ``nodes`` to the differences
+        at the ``k`` nodes.
+    min_step : numpy.ndarray
+        Shape ``(k,)``: the smallest step fraction (``a`` or ``b``) in the
+        stencil of each of the ``k`` nodes, 1 where every neighbour is in the
+        open domain. The weights grow like ``1 / min_step``.
+
+    Raises
+    ------
+    ValueError
+        If no grid node carries an unknown.
+    """
+    box = domain.bbox
+    x = np.linspace(box.lo[0], box.hi[0], n + 1)
+    y = np.linspace(box.lo[1], box.hi[1], n + 1)
+    h = np.array([x[1] - x[0], y[1] - y[0]])
+    grid = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
+    inside = domain.interior(grid)
+    on_boundary = domain.contains(grid) & ~inside
+    # The step fraction to the boundary along each half-direction, 1 where the
+    # neighbour is in the closed domain. A node of the open domain is never on
+    # the edge of the bounding box, so its neighbours exist.
+    halves = [(sign * di, sign * dj) for di, dj in _SW_DIRECTIONS for sign in (1, -1)]
+    ii, jj = np.nonzero(inside)
+    t = np.ones((len(halves), ii.size))
+    for d, (di, dj) in enumerate(halves):
+        cut = ~(inside | on_boundary)[ii + di, jj + dj]
+        t[d, cut] = _crossing(domain, grid[ii[cut], jj[cut]], np.array([di, dj]) * h)
+    near = np.min(t, axis=0) < _SNAP
+    inside[ii[near], jj[near]] = False
+    on_boundary[ii[near], jj[near]] = True
+    ii, jj, t = ii[~near], jj[~near], t[:, ~near]
+    k = ii.size
+    if k == 0:
+        raise ValueError(f"no node of the {n} x {n} grid lies in the open domain")
+
+    # Columns: the unknowns, then the boundary nodes, then the crossings in
+    # the order they are met.
+    column = np.full(inside.shape, -1)
+    column[ii, jj] = np.arange(k)
+    bi, bj = np.nonzero(on_boundary)
+    column[bi, bj] = k + np.arange(bi.size)
+    points = [grid[ii, jj], grid[bi, bj]]
+    m = bi.size
+    columns = np.empty((len(halves), k), dtype=int)
+    for d, (di, dj) in enumerate(halves):
+        columns[d] = column[ii + di, jj + dj]
+        cut = columns[d] < 0
+        start = grid[ii[cut], jj[cut]]
+        points.append(start + t[d, cut, None] * (np.array([di, dj]) * h))
+        columns[d, cut] = k + m + np.arange(start.shape[0])
+        m += start.shape[0]
+
+    def directional(index: int, scale: float) -> sp.csr_matrix:
+        """``scale * D_v`` for the direction ``_SW_DIRECTIONS[index]``."""
+        a, b = t[2 * index], t[2 * index + 1]
+        values = np.concatenate(
+            [2.0 / (a * (a + b)), -2.0 / (a * b), 2.0 / (b * (a + b))]
+        )
+        cols = np.concatenate(
+            [columns[2 * index], np.arange(k), columns[2 * index + 1]]
+        )
+        rows = np.tile(np.arange(k), 3)
+        return sp.csr_matrix((scale * values, (rows, cols)), shape=(k, k + m))
+
+    cross = 1.0 / (4.0 * h[0] * h[1])
+    dxx = directional(0, 1.0 / h[0] ** 2)
+    dyy = directional(1, 1.0 / h[1] ** 2)
+    dxy = (directional(2, cross) - directional(3, cross)).tocsr()
+    dxy.eliminate_zeros()  # the centre of D_xy cancels at a full stencil
+    interior = np.zeros(k + m, dtype=bool)
+    interior[:k] = True
+    return np.concatenate(points), interior, dxx, dyy, dxy, np.min(t, axis=0)
+
+
+def _crossing(domain: Domain, start: np.ndarray, step: np.ndarray) -> np.ndarray:
+    """Where each segment ``start + t step``, ``0 <= t <= 1``, leaves the open domain.
+
+    Each ``start`` lies in the open domain and ``start + step`` outside the
+    closed one; the returned ``t`` in ``(0, 1]`` is the upper end of the
+    bisection bracket, a point not in the open domain.
+    """
+    lo = np.zeros(len(start))
+    hi = np.ones(len(start))
+    for _ in range(_BISECTIONS):
+        mid = 0.5 * (lo + hi)
+        inner = domain.interior(start + mid[:, None] * step)
+        lo = np.where(inner, mid, lo)
+        hi = np.where(inner, hi, mid)
+    return hi
+
+
 @dataclass(frozen=True, eq=False)
 class Grid:
     """One problem discretised by :class:`Standard9`, its working context.
@@ -205,28 +355,36 @@ class Grid:
 
     Attributes
     ----------
-    x, y
-        Node coordinates along each axis, ``n + 1`` each.
+    h
+        Grid spacing ``(hx, hy)``.
     nodes
-        Shape ``((n + 1)^2, 2)``, node ``(i, j)`` at flat index
-        ``i * (n + 1) + j``.
+        On a box, shape ``((n + 1)^2, 2)``, node ``(i, j)`` at flat index
+        ``i * (n + 1) + j``; on a curved domain, the nodes and boundary points
+        of :func:`shortley_weller_operators`.
     interior
-        Shape ``((n + 1)^2,)``, boolean: the nodes that carry unknowns.
+        Boolean, one per node: the nodes that carry unknowns.
     f
         The right-hand side at the unknowns.
+    row_scale
+        The factor of each equation in :meth:`Standard9.residual`, one per
+        unknown: the ``min_step`` of :func:`shortley_weller_operators`, 1 on
+        a box.
     boundary_values
-        The Dirichlet data at the boundary nodes, in flat order.
+        The Dirichlet data at the boundary nodes, in their order in ``nodes``.
     axx, ayy, axy, bxx, byy, bxy
-        The blocks of :func:`difference_operators`.
+        The blocks of :func:`difference_operators` or
+        :func:`shortley_weller_operators`.
     laplace
         Solves ``(axx + ayy) v = rhs`` by a sparse LU factorisation.
+    interpolate
+        Builds the solution off the nodes from the values at ``nodes``.
     """
 
-    x: np.ndarray
-    y: np.ndarray
+    h: tuple[float, float]
     nodes: np.ndarray
     interior: np.ndarray
     f: np.ndarray
+    row_scale: np.ndarray
     boundary_values: np.ndarray
     axx: sp.csc_matrix
     ayy: sp.csc_matrix
@@ -235,38 +393,46 @@ class Grid:
     byy: sp.csc_matrix
     bxy: sp.csc_matrix
     laplace: Callable[[np.ndarray], np.ndarray]
+    interpolate: Callable[[np.ndarray], Field]
 
 
 @dataclass(frozen=True, kw_only=True)
 class Standard9(Scheme):
-    """The standard 9-point scheme on a uniform grid over a 2D box.
+    """The standard 9-point scheme on a uniform grid over a 2D domain.
 
     Centred second differences, Dirichlet data imposed at the boundary nodes
-    (Benamou-Froese-Oberman 2010). The scheme is consistent and second-order
-    but not monotone: its discrete equation has non-convex roots as well, and
-    which root a solve reaches depends on the iteration
+    (Benamou-Froese-Oberman 2010). On a curved domain the grid covers the
+    bounding box, the nodes in the open domain carry the unknowns, and next to
+    the boundary the differences take unequal steps to the points where the
+    grid lines and diagonals cross it, with the Dirichlet data there
+    (Shortley-Weller, :func:`shortley_weller_operators`). The scheme is
+    consistent but not monotone: its discrete equation has non-convex roots as
+    well, and which root a solve reaches depends on the iteration
     (``benchmarks/standard_fd.md``, Finding 2).
 
     Parameters
     ----------
     n
-        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
-        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+        Cells per side of the grid over the domain's bounding box
+        (``h = 1/n`` on the unit square, ADR 0001), at least 2; on a box
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
-        nodes, 1 to 5 and at most ``n``.
+        nodes on a box, 1 to 5 and at most ``n``. On a curved domain the
+        solution off the nodes is the piecewise cubic Clough-Tocher
+        interpolant, whatever the degree.
 
     Attributes
     ----------
     domains : tuple of type
-        ``(Box,)``.
+        ``(Box, Disk, Ellipse, CutQuarterDisk)``.
     boundaries : tuple of type
         ``(Dirichlet,)``.
     dims : tuple of int
         ``(2,)``.
     """
 
-    domains: ClassVar[tuple[type, ...]] = (Box,)
+    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse, CutQuarterDisk)
     boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
     dims: ClassVar[tuple[int, ...]] = (2,)
 
@@ -295,7 +461,8 @@ class Standard9(Scheme):
         Returns
         -------
         bool
-            True for a 2D :class:`Box` with a :class:`Dirichlet` boundary.
+            True for a 2D :class:`Box`, :class:`Disk`, :class:`Ellipse` or
+            :class:`CutQuarterDisk` with a :class:`Dirichlet` boundary.
         """
         return (
             isinstance(problem.domain, self.domains)
@@ -304,7 +471,7 @@ class Standard9(Scheme):
         )
 
     def discretize(self, problem: Problem) -> Grid:
-        """Build the grid with ``n`` cells per side over the problem's box.
+        """Build the grid with ``n`` cells per side over the problem's bounding box.
 
         Parameters
         ----------
@@ -322,25 +489,40 @@ class Standard9(Scheme):
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
-                f"Standard9 does not support {problem.name}: it needs a 2D Box "
-                "with a Dirichlet boundary"
+                f"Standard9 does not support {problem.name}: it needs a 2D Box, "
+                "Disk, Ellipse or CutQuarterDisk with a Dirichlet boundary"
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         n, box = self.n, problem.domain.bbox
         x = np.linspace(box.lo[0], box.hi[0], n + 1)
         y = np.linspace(box.lo[1], box.hi[1], n + 1)
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = _interior_mask(n).ravel()
-        dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
+        if isinstance(problem.domain, Box):
+            nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
+            interior = _interior_mask(n).ravel()
+            dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
+            row_scale = np.ones(np.count_nonzero(interior))
+            degree = self.spline_degree
+
+            def interpolate(values: np.ndarray) -> Field:
+                return _spline(x, y, values, degree)
+
+        else:
+            nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
+                problem.domain, n
+            )
+
+            def interpolate(values: np.ndarray) -> Field:
+                return _scattered(nodes, values)
+
         (axx, bxx), (ayy, byy), (axy, bxy) = (
             (d[:, interior].tocsc(), d[:, ~interior].tocsc()) for d in (dxx, dyy, dxy)
         )
         return Grid(
-            x=x,
-            y=y,
+            h=(float(x[1] - x[0]), float(y[1] - y[0])),
             nodes=nodes,
             interior=interior,
             f=problem.f(nodes[interior]),
+            row_scale=row_scale,
             boundary_values=problem.boundary.g(nodes[~interior]),
             axx=axx,
             ayy=ayy,
@@ -349,6 +531,7 @@ class Standard9(Scheme):
             byy=byy,
             bxy=bxy,
             laplace=factorized((axx + ayy).tocsc()),
+            interpolate=interpolate,
         )
 
     def rhs(self, grid: Grid) -> np.ndarray:
@@ -389,7 +572,14 @@ class Standard9(Scheme):
         )
 
     def residual(self, grid: Grid, v: np.ndarray) -> np.ndarray:
-        """``u_xx u_yy - u_xy^2 - f`` at the interior nodes.
+        """``t (u_xx u_yy - u_xy^2 - f)`` at the interior nodes.
+
+        ``t`` is 1 on a box and at every node whose stencil lies in the open
+        domain. Next to a curved boundary it is the smallest step fraction of
+        the node's Shortley-Weller stencil: the weights there grow like
+        ``1 / t``, and so does the rounding error of the equation, which would
+        otherwise keep a residual tolerance out of reach. Scaling an equation
+        changes neither its roots nor a Newton direction.
 
         Parameters
         ----------
@@ -402,7 +592,9 @@ class Standard9(Scheme):
         -------
         numpy.ndarray
         """
-        return monge_ampere(*self.second_derivatives(grid, v)) - grid.f
+        return grid.row_scale * (
+            monge_ampere(*self.second_derivatives(grid, v)) - grid.f
+        )
 
     def jacobian(self, grid: Grid, v: np.ndarray) -> sp.csc_matrix:
         """Jacobian of :meth:`residual` with respect to the unknowns.
@@ -418,8 +610,11 @@ class Standard9(Scheme):
         -------
         scipy.sparse.csc_matrix
         """
+        t = grid.row_scale
         uxx, uyy, uxy = self.second_derivatives(grid, v)
-        return monge_ampere_jacobian(uxx, uyy, uxy, grid.axx, grid.ayy, grid.axy)
+        return monge_ampere_jacobian(
+            t * uxx, t * uyy, t * uxy, grid.axx, grid.ayy, grid.axy
+        )
 
     def solve_laplace(self, grid: Grid, rhs: np.ndarray) -> np.ndarray:
         """Solve ``laplace u = rhs`` with the Dirichlet data for the unknowns.
@@ -462,16 +657,15 @@ class Standard9(Scheme):
         hess[grid.interior, 0, 0] = uxx
         hess[grid.interior, 1, 1] = uyy
         hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = uxy
-        h = (float(grid.x[1] - grid.x[0]), float(grid.y[1] - grid.y[0]))
         return Solution(
-            u=_spline(grid.x, grid.y, values, self.spline_degree),
+            u=grid.interpolate(values),
             nodes=grid.nodes,
             values=values,
             node_hessian=hess,
             interior=grid.interior,
             unknowns=int(np.count_nonzero(grid.interior)),
             info={
-                "h": h,
+                "h": grid.h,
                 "residual_max": float(np.max(np.abs(self.residual(grid, v)))),
             },
         )
@@ -486,6 +680,38 @@ def _spline(x: np.ndarray, y: np.ndarray, values: np.ndarray, degree: int) -> Fi
     def u(p: np.ndarray) -> np.ndarray:
         p = np.asarray(p, dtype=float)
         out = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
+        return out.reshape(p.shape[:-1])
+
+    return u
+
+
+def _scattered(nodes: np.ndarray, values: np.ndarray) -> Field:
+    """Clough-Tocher interpolant through values at scattered nodes in the plane.
+
+    The interpolant covers the convex hull of the nodes. Along a curved
+    boundary the domain reaches past it in slivers between consecutive
+    boundary points, of width ``O(h^2)``; a point there takes the linear
+    interpolant along the nearest hull edge at its projection onto that edge.
+    """
+    spline = CloughTocher2DInterpolator(nodes, values)
+    hull = spline.tri.convex_hull
+    start, edge = nodes[hull[:, 0]], nodes[hull[:, 1]] - nodes[hull[:, 0]]
+    v0, dv = values[hull[:, 0]], values[hull[:, 1]] - values[hull[:, 0]]
+
+    def u(p: np.ndarray) -> np.ndarray:
+        p = np.asarray(p, dtype=float)
+        flat = p.reshape(-1, 2)
+        out = spline(flat)
+        outside = spline.tri.find_simplex(flat) < 0
+        if np.any(outside):
+            q = flat[outside][:, None, :]
+            s = np.clip(
+                np.sum((q - start) * edge, axis=-1) / np.sum(edge**2, axis=-1), 0, 1
+            )
+            gap = np.sum((start + s[..., None] * edge - q) ** 2, axis=-1)
+            nearest = np.argmin(gap, axis=1)
+            along = s[np.arange(len(nearest)), nearest]
+            out[outside] = v0[nearest] + along * dv[nearest]
         return out.reshape(p.shape[:-1])
 
     return u
