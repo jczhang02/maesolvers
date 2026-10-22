@@ -58,7 +58,7 @@ This is a comparison of two methods, with no reproduction verdict.
 In every seed of both problems the max error at the boundary points is at least the max error at the 10^6 interior points, and at most 6% above it (the CSVs per seed): the error is largest on the boundary, and the interior points closest to it come near.
 On the boundary the ansatz `G + D N` is `G` up to the small misfit of `D`, so the max error is the misfit of `G`, the one-layer network of 20 tanh units fitted to `g`, and training `N` cannot reduce it.
 The fit stops where the paper's does, when the largest gradient component of the mean squared error is at most 1e-5 (SciPy's default); for the mean squared error of a fit to values of order 1, this is reached early.
-In a diagnostic outside the receipts, a tolerance of 1e-7 brought the max boundary misfit of `G` on T1 from 2.9e-3 to 1.3e-2 down to 1.3e-3 to 3.5e-3 over three seeds, at 20000 iterations; the preset keeps the paper's setting.
+In an exploratory check that is not in the receipts and not logged to MLflow (rerun it before relying on it), a tolerance of 1e-7 brought the max boundary misfit of `G` on T1 from 2.9e-3 to 1.3e-2 down to 1.3e-3 to 3.5e-3 over three seeds, at 20000 iterations; the preset keeps the paper's setting.
 The interior error is smaller: the mean error is about a tenth of the max (tables above).
 
 ## Finding 3: the penalty does not keep the network convex everywhere
