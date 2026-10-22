@@ -8,21 +8,21 @@ grid with h = 1 / N; see benchmarks/standard_fd.md for the convention.
 
 import pytest
 
-from maesolvers import P4, P5, FDNewton, FDPoisson
+from maesolvers import T1, T2, FDNewton, FDPoisson
 from maesolvers.metrics import evaluate
 
-PUBLISHED_P4 = {31: 7.14e-5, 63: 1.73e-5}
-PUBLISHED_P5 = {31: 17.15e-3, 63: 12.53e-3}
+PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
+PUBLISHED_T2 = {31: 17.15e-3, 63: 12.53e-3}
 
 
-@pytest.mark.parametrize("n,expected", sorted(PUBLISHED_P4.items()))
+@pytest.mark.parametrize("n,expected", sorted(PUBLISHED_T1.items()))
 @pytest.mark.parametrize("solver", [FDNewton, FDPoisson])
 def test_smooth_example_matches_froese_oberman(solver, n, expected):
-    err = evaluate(solver(n=n).solve(P4))["max"]
+    err = evaluate(solver(n=n).solve(T1))["max"]
     assert err == pytest.approx(expected, rel=5e-3)
 
 
-@pytest.mark.parametrize("n,expected", sorted(PUBLISHED_P5.items()))
+@pytest.mark.parametrize("n,expected", sorted(PUBLISHED_T2.items()))
 def test_blowup_example_matches_froese_oberman_with_poisson_iteration(n, expected):
-    err = evaluate(FDPoisson(n=n).solve(P5))["max"]
+    err = evaluate(FDPoisson(n=n).solve(T2))["max"]
     assert err == pytest.approx(expected, rel=5e-3)

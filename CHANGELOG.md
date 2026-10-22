@@ -19,6 +19,10 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `UnsupportedProblemError`, raised by `solve` for a problem outside the solver's declared support.
 - `maesolvers.metrics.summarize(results, threshold, key="max")` and `Summary`: median, 5% and 95% quantiles and success rate of an `evaluate` field over seeds, a seed without a result (`None`) or with a NaN or infinite error counted as `+inf` (ADR 0007).
 - `maesolvers.metrics.shared_grid(domain, size=None)` takes a domain and picks 201, 51 or 21 points per axis by dimension.
+- `maesolvers.catalogue`: every problem under its T id, `CATALOGUE` (a read-only mapping from id to `Problem`) and `SHARED_TEST_SET`, the ids of the comparison table's rows; each problem is also exported at the top level (`from maesolvers import T1`).
+  The shared test set T1, T2, T20, T8 (with `g = 0`), T12, T9, T10 follows the test-set specification and its point values; T3, T4, T5, T6, T7, T16 and T22 are catalogue-only, defined as their source papers print them (each `note` names the paper).
+  T7 has no exact solution and reports the observable `u(0,0)`.
+- `CutQuarterDisk`, the domain of T6: the quarter of the unit disk in the first quadrant cut by `y > x - 1/2`.
 
 ### Changed
 
@@ -39,3 +43,4 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.metrics.solution_errors`, `residual` and `convexity`; `evaluate` is the one entry point.
 - `boundary_points(n)` of `Box`, `Disk` and `Ellipse`: nothing in the library used it, and its `n` meant points per side for a box but points in total for a disk.
 - The bare `Solver` protocol of `maesolvers.solvers.base`, and `Result.info["solver"]`, `["residual_history"]`, `["update_history"]` and `["stalled"]`.
+- The catalogue `P1` to `P5` and the module `maesolvers.problems`, with no aliases (ADR 0007): P4 is now T1, P5 is T2, P1 is T8 with `g = 0` (its solution `(|x|^2 - 1)/2` differs by the constant 1/2), P3 is T12, and P2 left the catalogue.

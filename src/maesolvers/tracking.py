@@ -4,7 +4,7 @@ Use one run per experiment configuration::
 
     from maesolvers import tracking
 
-    with tracking.run("maesolvers-icnn-P4", params={"seed": 0, "steps": 2000}):
+    with tracking.run("maesolvers-icnn-T1", params={"seed": 0, "steps": 2000}):
         ...
         mlflow.log_metric("max_grid", err)
 
