@@ -40,21 +40,24 @@ from maesolvers import T1, FDNewton
 from maesolvers.metrics import evaluate
 
 result = FDNewton(n=64).solve(T1)
-print(evaluate(result))
+for name, value in evaluate(result).items():
+    print(f"{name}: {value:.4g}")
 ```
 
 ```text
-max: 1.68e-05                # max error at the method's own nodes (the number papers print)
-rms: 9.27e-06                # RMS error at the nodes
-max_grid: 1.68e-05           # the same two errors on the shared 201 x 201 grid, a secondary value
-rms_grid: 9.37e-06
+max: 1.678e-05               # max error at the method's own nodes (the number papers print)
+rms: 9.269e-06               # RMS error at the nodes
+max_grid: 1.678e-05          # the same two errors on the shared 201 x 201 grid, a secondary value
+rms_grid: 9.366e-06
 nonconvex_fraction: 0        # share of interior nodes with a negative Hessian eigenvalue
 eigmin: 1                    # smallest eigenvalue of the discrete Hessian there
 eigmin_exact: 1              # and of the exact solution's Hessian at the same nodes
-time: 0.06                   # seconds
+time: 0.05124                # seconds, varies from run to run
 iterations: 4
 unknowns: 3969
 ```
+
+`evaluate` returns a dict, so `print(evaluate(result))` shows the same values at full precision.
 
 The same solver comes from keyword arguments, from a dict or YAML file, or from the command line (ADR 0005); the last two need the `cli` extra (`pip install "maesolvers[cli] @ git+https://github.com/jczhang02/maesolvers"`).
 A solver configuration names the solver by its `class_path` with its `init_args`, nested parts in the same form; it is the form `Result.hparams` records.
@@ -214,6 +217,16 @@ The design behind 0.1 is recorded in `docs/adr/`.
 - **0.4**: Oliker-Prussner, MA-LBR, Froese 2017 point clouds, C-PINN, KAN, Deep Ritz splitting.
 
 Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sample-based optimal transport, parabolic formulations.
+
+## Layout
+
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, and the parameter checks `integer` and `positive`.
+- `src/maesolvers/classical/`: the scheme `Standard9`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton` and `FDPoisson`.
+- `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
+- `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
+- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.
+- `docs/guide.md`: the user guide; `docs/methods/`: one page per method; `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
+- `tests/`: the tests, among them the reproduction pins (`test_reproduction.py`) and the guide's code blocks (`test_guide.py`).
 
 ## Development
 
