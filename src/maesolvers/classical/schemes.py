@@ -36,7 +36,8 @@ class Scheme(ABC):
     A subclass is decorated with ``@dataclass(frozen=True, kw_only=True)``;
     its fields are its hyperparameters, so a solver's
     :attr:`~maesolvers.core.solver.Solver.hparams` record it and jsonargparse
-    builds it from a ``class_path`` (ADR 0005). It implements the four
+    builds it from a ``class_path`` (ADR 0005); an iteration checks this on
+    construction, as the solver base class checks a solver. It implements the four
     methods below; an iteration names the further methods it calls in
     :attr:`~maesolvers.classical.iterations.SchemeIteration.requires`, for
     example ``residual`` and ``jacobian`` for :class:`Newton

@@ -18,7 +18,7 @@ The same scheme under two iterations can reach different discrete solutions
 # FDPoisson, plain int and float included, Unvalidated. Guarded by
 # test_every_numeric_solver_parameter_is_checked_against_its_type.
 
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
@@ -28,7 +28,7 @@ from scipy.sparse.linalg import spsolve
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import positive
 from maesolvers.core.problem import Problem
-from maesolvers.core.solver import IterativeSolver, Solution
+from maesolvers.core.solver import IterativeSolver, Solution, _check_part_definition
 
 _BACKTRACKS = 40
 """Halvings of the Newton step before the line search gives up."""
@@ -71,8 +71,10 @@ class SchemeIteration(IterativeSolver[Any, np.ndarray]):
     Raises
     ------
     TypeError
-        On construction, if ``scheme`` is not an instance of a frozen
-        dataclass that subclasses :class:`~maesolvers.classical.schemes.Scheme`.
+        On construction, if ``scheme`` is not an instance of a subclass of
+        :class:`~maesolvers.classical.schemes.Scheme` that carries its own
+        ``@dataclass(frozen=True)`` decorator and takes keyword arguments
+        only.
     ValueError
         On construction, if ``tol`` is not positive.
     """
@@ -163,7 +165,11 @@ class SchemeIteration(IterativeSolver[Any, np.ndarray]):
 
 
 def _check_scheme(iteration: object, scheme: object) -> None:
-    """Raise TypeError unless ``scheme`` is a frozen-dataclass Scheme instance."""
+    """Raise TypeError unless ``scheme`` is an instance of a well-defined Scheme.
+
+    The scheme's class must pass the check a solver class passes: its own
+    frozen dataclass decorator and keyword-only fields.
+    """
     owner = f"{type(iteration).__name__}.scheme"
     if isinstance(scheme, type):
         raise TypeError(
@@ -173,12 +179,7 @@ def _check_scheme(iteration: object, scheme: object) -> None:
     cls = type(scheme)
     if not isinstance(scheme, Scheme):
         raise TypeError(f"{owner} must subclass Scheme, got {cls.__name__}")
-    params = cls.__dict__.get("__dataclass_params__")
-    if not is_dataclass(scheme) or params is None or not params.frozen:
-        raise TypeError(
-            f"{owner} must be a frozen dataclass instance, got {cls.__name__}; "
-            "decorate it with @dataclass(frozen=True)"
-        )
+    _check_part_definition(cls, f"{owner}: {cls.__name__}")
 
 
 class _NewtonScheme(Protocol):

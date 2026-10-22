@@ -32,8 +32,8 @@ def module() -> types.ModuleType:
         import jsonargparse
     except ImportError as error:
         raise ImportError(
-            "configurations need jsonargparse, in the cli extra: "
-            "pip install 'maesolvers[cli]'"
+            "configurations need jsonargparse, in the cli extra: pip install "
+            '"maesolvers[cli] @ git+https://github.com/jczhang02/maesolvers"'
         ) from error
     return jsonargparse
 

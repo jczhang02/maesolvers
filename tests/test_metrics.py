@@ -251,6 +251,13 @@ def test_summarize_counts_failed_seeds_as_infinite():
     assert not np.isnan([s.median, s.q05, s.q95]).any()
 
 
+def test_summarize_keeps_an_unconverged_seed_with_a_finite_error():
+    """The rule until #12/#14 settle it: not converging is not failing."""
+    unconverged = Result(T1, _shifted(T1, 1e-3), info={"converged": False})
+    s = summarize([unconverged, _seed(1e-1)], threshold=1e-2)
+    assert s.failed == 0 and s.success_rate == 0.5
+
+
 def test_summarize_median_fails_when_more_than_half_fail():
     results = [_seed(1e-3)] * 4 + [None] * 6
     s = summarize(results, threshold=1e-2)

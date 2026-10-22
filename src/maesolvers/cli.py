@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -127,11 +128,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     Raises
     ------
     SystemExit
-        With status 2 and a message on standard error for a wrong argument,
-        an ``--output`` path that cannot be created, a value a constructor
-        rejects with ValueError or a problem the solver does not support;
-        with status 0 after ``--help``.
+        With status 2 and a message on standard error without jsonargparse
+        (the ``cli`` extra), for a wrong argument, an ``--output`` path that
+        cannot be created, a value a constructor rejects with ValueError or a
+        problem the solver does not support; with status 0 after ``--help``.
     """
+    try:
+        _jsonargparse.module()
+    except ImportError as error:
+        print(f"maesolvers: {error}", file=sys.stderr)
+        raise SystemExit(2) from None
     parser = _parser()
     namespace = parser.parse_args(argv)
     try:
