@@ -13,98 +13,78 @@ on the same discretisation may not (Froese-Oberman 2011, Section 8.1).
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
-from scipy.sparse.linalg import factorized
 
-from maesolvers.domains import Box
-from maesolvers.problems import Problem
-from maesolvers.result import Result
-from maesolvers.solvers.fd_newton import _difference_operators, _eval
+from maesolvers.core.boundary import Dirichlet
+from maesolvers.core.domains import Box
+from maesolvers.core.problem import Problem
+from maesolvers.core.solver import IterativeSolver, Solution
+from maesolvers.solvers._grid import (
+    Grid,
+    build_grid,
+    grid_parameters,
+    grid_solution,
+)
 
 
-@dataclass
-class FDPoisson:
-    """``n`` cells per axis; stop when successive iterates differ by ``tol``."""
+@dataclass(frozen=True, kw_only=True)
+class FDPoisson(IterativeSolver[Grid, np.ndarray]):
+    """Standard 9-point finite differences solved by the Poisson iteration.
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001); at least 2.
+    max_iter
+        Most iterations.
+    tol
+        Stop when successive iterates differ by at most ``tol`` at every node.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the grid,
+        1 to 5 and at most ``n``.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = (Box,)
+    boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
+    dims: ClassVar[tuple[int, ...] | None] = (2,)
+    measure: ClassVar[str] = "update"
 
     n: int = 64
     max_iter: int = 10_000
     tol: float = 1e-12
     spline_degree: int = 3
-    """Degree of the tensor spline that evaluates the solution off the grid."""
 
-    def solve(self, problem: Problem) -> Result:
-        if problem.boundary != "dirichlet":
-            raise ValueError("FDPoisson handles Dirichlet boundary conditions only")
-        if not isinstance(problem.domain, Box):
-            raise TypeError("FDPoisson needs a Box domain")
-        t0 = time.perf_counter()
-        box, n = problem.domain, self.n
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
-        hx, hy = x[1] - x[0], y[1] - y[0]
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
-        m = n + 1
-        interior = np.zeros((m, m), dtype=bool)
-        interior[1:-1, 1:-1] = True
-        idx_int = np.flatnonzero(interior.ravel())
-        idx_bnd = np.flatnonzero(~interior.ravel())
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        n, tol, spline_degree = grid_parameters(self.n, self.tol, self.spline_degree)
+        object.__setattr__(self, "n", n)
+        object.__setattr__(self, "tol", tol)
+        object.__setattr__(self, "spline_degree", spline_degree)
 
-        dxx, dyy, dxy = _difference_operators(m, hx, hy, idx_int)
-        flat = nodes.reshape(-1, 2)
-        f_int = problem.f(flat[idx_int])
-        u = np.zeros(m * m)
-        u[idx_bnd] = problem.g(flat[idx_bnd])
-        ub = u[idx_bnd]
-        ops = [(d[:, idx_int].tocsc(), d[:, idx_bnd].tocsc()) for d in (dxx, dyy, dxy)]
-        (axx, bxx), (ayy, byy), (axy, bxy) = ops
-        solve_lap = factorized((axx + ayy).tocsc())
-        lap_b = (bxx + byy) @ ub
+    def setup(self, problem: Problem) -> Grid:
+        """Build the grid, the difference operators and the boundary data."""
+        return build_grid(problem, self.n)
 
-        v = solve_lap(np.sqrt(2.0 * f_int) - lap_b)
-        history = []
-        it = 0
-        diff = np.inf
-        while diff > self.tol and it < self.max_iter:
-            uxx = axx @ v + bxx @ ub
-            uyy = ayy @ v + byy @ ub
-            uxy = axy @ v + bxy @ ub
-            rhs = np.sqrt(uxx**2 + uyy**2 + 2.0 * uxy**2 + 2.0 * f_int)
-            v_new = solve_lap(rhs - lap_b)
-            diff = float(np.max(np.abs(v_new - v)))
-            history.append(diff)
-            v = v_new
-            it += 1
+    def initial_guess(self, problem: Problem, context: Grid) -> np.ndarray:
+        """Solve ``laplace u = sqrt(2 f)``."""
+        return context.solve_poisson(np.sqrt(2.0 * context.f))
 
-        uxx = axx @ v + bxx @ ub
-        uyy = ayy @ v + byy @ ub
-        uxy = axy @ v + bxy @ ub
-        u[idx_int] = v
-        hess = np.full((m * m, 2, 2), np.nan)
-        hess[idx_int, 0, 0] = uxx
-        hess[idx_int, 1, 1] = uyy
-        hess[idx_int, 0, 1] = hess[idx_int, 1, 0] = uxy
-        spline = RectBivariateSpline(
-            x, y, u.reshape(m, m), kx=self.spline_degree, ky=self.spline_degree
-        )
-        return Result(
-            problem=problem,
-            u=lambda p: _eval(spline, p),
-            nodes=flat,
-            values=u,
-            hessian=hess,
-            info={
-                "solver": "fd_poisson",
-                "n": n,
-                "h": (hx, hy),
-                "unknowns": idx_int.size,
-                "iterations": it,
-                "update_history": history,
-                "converged": bool(diff <= self.tol),
-                "residual_max": float(np.max(np.abs(uxx * uyy - uxy**2 - f_int))),
-                "time": time.perf_counter() - t0,
-            },
-        )
+    def step(
+        self, problem: Problem, context: Grid, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """One Poisson solve; the measure is the max change at the nodes."""
+        uxx, uyy, uxy = context.second_derivatives(iterate)
+        rhs = np.sqrt(uxx**2 + uyy**2 + 2.0 * uxy**2 + 2.0 * context.f)
+        new = context.solve_poisson(rhs)
+        return new, float(np.max(np.abs(new - iterate)))
+
+    def converged(self, problem: Problem, context: Grid, measure: float) -> bool:
+        """Successive iterates differ by at most ``tol``."""
+        return measure <= self.tol
+
+    def finalize(self, problem: Problem, context: Grid, state: np.ndarray) -> Solution:
+        """Node values, the discrete Hessian and the spline interpolant."""
+        return grid_solution(context, state, self.spline_degree)
