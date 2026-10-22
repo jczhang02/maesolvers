@@ -11,8 +11,9 @@ evidence; T1 itself (uncentred) runs at n = N, the catalogue's convention.
 
 With --checks it writes filtered_checks.csv instead, the evidence for the
 findings: the monotone part with kappa = 1 on T2; other filter widths on
-T20; and Newton on the filtered scheme from the monotone and the standard
-roots on T20.
+T20; Newton on the filtered scheme from the monotone and the standard
+roots on T20, and from the standard root on T2; and Newton on the standard
+scheme alone (FDNewton) on T20.
 
 Every solve is one MLflow run in maesolvers-filtered-<problem> unless
 --no-mlflow is given. The solves run in --processes worker processes
@@ -46,6 +47,7 @@ from maesolvers import (
     Dirichlet,
     FDFiltered,
     FDMonotone,
+    FDNewton,
     FDPoisson,
     Filtered,
     Monotone17,
@@ -297,7 +299,7 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
 
     ``task`` is (check, problem, N, variant, log), all at n = N - 1 with the
     17-point stencil: the variant is the filter width's name for "width",
-    the start for "start", unused for "kappa".
+    the start for "start", unused for "kappa" and "newton".
     """
     check, name, N, variant, log = task
     n = N - 1
@@ -317,6 +319,8 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
             "four_times": 4 * (math.sqrt(h) + dtheta / 10),
         }[variant]
         solver = FDFiltered(n=n, epsilon=epsilon)
+    elif check == "newton":
+        solver = FDNewton(n=n)
     else:  # "start"
         scheme = Filtered(accurate=Standard9(n=n), monotone=Monotone17(n=n))
         solver = StartFrom(scheme=scheme, max_iter=200, start=variant)
@@ -334,8 +338,9 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         "iterations": m["iterations"],
         "converged": m["converged"],
         "residual_max": m["residual_max"],
-        "monotone_fraction": m["monotone_fraction"],
-        "filter_width": m["filter_width"],
+        "monotone_fraction": m.get("monotone_fraction", ""),
+        "filter_width": m.get("filter_width", ""),
+        "nonconvex_fraction": m["nonconvex_fraction"],
         "time_s": f"{m['time']:.2f}",
     }
 
@@ -352,6 +357,8 @@ CHECK_TASKS: list[tuple[str, str, int, Any]] = [
         for N in (63, 127)
         for start in ("monotone", "standard")
     ),
+    *(("start", "T2", N, "standard") for N in (63, 127)),
+    *(("newton", "T20", N, "") for N in (63, 127)),
 ]
 """(check, problem, N, variant) of every row of filtered_checks.csv."""
 
