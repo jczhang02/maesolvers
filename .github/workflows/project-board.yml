@@ -1,0 +1,74 @@
+# Put every issue on the "MAE research flows" board of the research programme
+# (github.com/users/jczhang02/projects/3) with Flow = flow3; this library is flow3.
+# Needs the secret ADD_TO_PROJECT_PAT: a classic PAT with the `project` and `repo` scopes
+# (the board is user-owned and also holds a private repository).
+name: Project board
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions: {}
+
+concurrency:
+  group: project-board-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add the issue to the board
+        uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
+        with:
+          project-url: https://github.com/users/jczhang02/projects/3
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
+
+      - name: Set Flow to flow3
+        env:
+          GH_TOKEN: ${{ secrets.ADD_TO_PROJECT_PAT }}
+          ISSUE_ID: ${{ github.event.issue.node_id }}
+          OWNER: jczhang02
+          NUMBER: 3
+          FLOW: flow3
+        run: |
+          set -euo pipefail
+          gh api graphql -f issue="$ISSUE_ID" -f query='
+            query($issue: ID!) {
+              node(id: $issue) { ... on Issue { projectItems(first: 20) { nodes {
+                id
+                project { number }
+                fieldValueByName(name: "Flow") {
+                  ... on ProjectV2ItemFieldSingleSelectValue { name }
+                }
+              } } } } }' > items.json
+          item=$(jq -r --arg n "$NUMBER" '.data.node.projectItems.nodes[]
+              | select(.project.number == ($n | tonumber))
+              | "\(.id) \(.fieldValueByName.name // "")"' items.json)
+          item_id=${item%% *}
+          current=${item#* }
+          [ -n "$item_id" ] || { echo "issue is not on project $NUMBER" >&2; exit 1; }
+          if [ "$current" = "$FLOW" ]; then
+            echo "Flow already '$FLOW'"; exit 0
+          fi
+
+          gh api graphql -f owner="$OWNER" -F number="$NUMBER" -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) { projectV2(number: $number) {
+                id
+                field(name: "Flow") { ... on ProjectV2SingleSelectField { id options { id name } } }
+              } } }' > project.json
+          project_id=$(jq -r '.data.user.projectV2.id' project.json)
+          field_id=$(jq -r '.data.user.projectV2.field.id' project.json)
+          option_id=$(jq -r --arg f "$FLOW" \
+            '.data.user.projectV2.field.options[] | select(.name == $f) | .id' project.json)
+          [ -n "$option_id" ] || { echo "Flow has no option '$FLOW'" >&2; exit 1; }
+
+          gh api graphql -f project="$project_id" -f item="$item_id" -f field="$field_id" \
+            -f option="$option_id" -f query='
+            mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $project, itemId: $item, fieldId: $field,
+                value: { singleSelectOptionId: $option }
+              }) { projectV2Item { id } } }' > /dev/null
+          echo "Flow set to '$FLOW' (was '${current:-empty}')"
