@@ -2,6 +2,20 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `Standard9` discretises 2D Dirichlet problems on a `Disk`, an `Ellipse` and the `CutQuarterDisk` of T6, with Shortley-Weller stencils next to the boundary, so `FDNewton` and `FDPoisson` solve T8 and T6 (issue #1); its `domains` (and the presets') are `(Box, Disk, Ellipse, CutQuarterDisk)`.
+  On these domains `n` counts cells per side of the grid over the bounding box, `Result.nodes` lists the nodes with unknowns and then the boundary points, and the solution off the nodes is the Clough-Tocher interpolant (`spline_degree` applies to a box only).
+- `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes`: the pure function behind it, returning the nodes, the mask of the nodes with unknowns, the operators `D_xx`, `D_yy`, `D_xy` and the smallest step fraction at each node.
+
+### Changed
+
+- `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
+- `Standard9`'s `UnsupportedProblemError` message lists the four domains.
+- The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale` and `interpolate` are new.
+
 ## 0.0.2 (2026-10-22)
 
 ### Added
