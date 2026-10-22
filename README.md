@@ -118,7 +118,7 @@ A method counts as reproduced when it matches the source paper's own table, on t
 | P4 | 31 | 7.14e-5 | 7.144e-5 | 7.144e-5 |
 | P4 | 361 | 0.05e-5 | | 5.276e-7 |
 | P5 | 31 | 17.15e-3 | 17.15e-3 | 17.45e-3 |
-| P5 | 361 | 5.41e-3 | 5.409e-3 | 21.94e-3 |
+| P5 | 361 | 5.41e-3 | 5.409e-3 | 22.25e-3 |
 
 Two things came out of this first comparison.
 The papers' grid convention, which none of them states, is `h = 1/N`.
