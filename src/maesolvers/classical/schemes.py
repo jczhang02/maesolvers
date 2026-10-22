@@ -251,15 +251,17 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     are the stencils of :func:`difference_operators`.
 
     The boundary points carry the Dirichlet data: the grid nodes on the
-    boundary (in the closed but not in the open domain), the nodes of the open
-    domain closer to the boundary than ``1e-6`` steps along a grid direction
-    (rounding puts nodes that lie on a circle in exact arithmetic, such as
-    ``(15/17, 8/17)`` on the unit circle, on either side of it), the nodes on
-    the edges of the bounding box that the closed domain contains (the box
-    touches the domain there, and rounding may put such a node in the open
-    domain), and the crossings. A crossing is looked for on the segment to an outside
-    neighbour only, so a boundary that crosses a grid segment twice (a
-    non-convex domain with features finer than the grid) is not resolved.
+    boundary (in the closed but not in the open domain), the nodes on either
+    side of the boundary closer to it than ``1e-6`` steps along a grid
+    direction (rounding puts nodes that lie on a circle in exact arithmetic,
+    such as ``(15/17, 8/17)`` or ``(0.6, 0.8)`` on the unit circle, on either
+    side of it; a node outside would otherwise come back as a crossing from
+    each of its neighbours), the nodes on the edges of the bounding box that
+    the closed domain contains (the box touches the domain there, and rounding
+    may put such a node in the open domain), and the crossings. A crossing is
+    looked for on the segment to an outside neighbour only, so a boundary that
+    crosses a grid segment twice (a non-convex domain with features finer than
+    the grid) is not resolved.
 
     Parameters
     ----------
@@ -301,6 +303,11 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     for d, (di, dj) in enumerate(halves):
         cut = ~(inside | on_boundary)[ii + di, jj + dj]
         t[d, cut] = _crossing(domain, grid[ii[cut], jj[cut]], np.array([di, dj]) * h)
+        # A neighbour outside by rounding only joins the boundary, so that its
+        # other neighbours in the open domain do not add copies of it.
+        far = cut & (t[d] > 1.0 - _SNAP)
+        on_boundary[ii[far] + di, jj[far] + dj] = True
+        t[d, far] = 1.0
     near = np.min(t, axis=0) < _SNAP
     inside[ii[near], jj[near]] = False
     on_boundary[ii[near], jj[near]] = True

@@ -48,11 +48,12 @@ u_xy = (D_(1,1) u - D_(1,-1) u) / (4 hx hy)
 With `a = b = 1` these are the nine-point stencils above, so away from the boundary nothing changes, and on a `Box` the code path is the one of the section above, bit for bit.
 Next to the boundary the differences are first-order consistent but exact for quadratics, and the error at the nodes stays second order (`benchmarks/shortley_weller.md`).
 
-Five details make the stencils robust:
+Six details make the stencils robust:
 
 - The crossings are found by bisection on `domain.interior`, so the scheme needs only the `Domain` protocol; `g` is evaluated at the end of the bisection bracket, a point on the boundary to rounding.
 - A node of the open domain closer than `1e-6` steps to the boundary along a grid direction joins the boundary and takes the data `g` at itself.
   Rounding puts nodes that lie on the boundary in exact arithmetic, such as `(15/17, 8/17)` on the unit circle at `n = 34`, on either side of it, and such a node would otherwise get weights of order `1e15 / h^2`.
+- A node outside the closed domain closer than `1e-6` steps to it along a grid direction joins the boundary too, such as `(0.6, 0.8)` on the unit circle at `n = 10`; each of its neighbours in the open domain would otherwise add a copy of it as a crossing.
 - A node on an edge of the bounding box joins the boundary if the closed domain contains it, even when rounding puts it in the open domain: the box only touches the domain there, and such a node would otherwise have no neighbour on one side.
 - The weights grow like `1 / t`, `t` the smallest of the node's step fractions `a` and `b`, and the rounding error of its equation grows with them.
   `Standard9.residual` therefore returns `t ((D_xx u)(D_yy u) - (D_xy u)^2 - f)`, with `t = 1` on a box and at every node whose stencil is full.

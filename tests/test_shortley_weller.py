@@ -5,6 +5,7 @@ import tracemalloc
 
 import numpy as np
 import pytest
+from scipy.interpolate import CloughTocher2DInterpolator
 from scipy.spatial import Delaunay
 
 from maesolvers import (
@@ -114,6 +115,36 @@ def test_a_node_on_the_circle_joins_the_boundary():
     np.testing.assert_allclose(on_grid, point)
     at = np.flatnonzero(np.all(nodes == on_grid, axis=1))
     assert at.size == 1 and not interior[at[0]]
+
+
+def test_a_node_outside_the_circle_by_rounding_joins_the_boundary_once():
+    """(0.6, 0.8) lies on the unit circle; rounding puts it outside."""
+    nodes, interior, *_ = shortley_weller_operators(Disk((0, 0), 1), 10)
+    on_grid = np.linspace(-1.0, 1.0, 11)[[8, 9]]
+    assert not Disk((0, 0), 1).contains(on_grid)
+    np.testing.assert_allclose(on_grid, [0.6, 0.8])
+    near = np.flatnonzero(np.linalg.norm(nodes - on_grid, axis=1) < 1e-12)
+    assert near.size == 1 and not interior[near[0]]
+
+
+@pytest.mark.parametrize(
+    ("domain", "n"),
+    [
+        (Disk((0, 0), 1), 10),
+        (Disk((0, 0), 1), 34),
+        (Disk((0, 0), 1), 170),
+        (Ellipse((0.2, -0.1), (0.7, 0.4)), 34),
+        (Ellipse((0, 0), (1, 0.05)), 26),
+        (Ellipse((0.5, 0.5), (0.5, 0.3)), 16),  # (0.5, 0.8) outside by rounding
+    ],
+    ids=lambda c: str(c),
+)
+def test_boundary_points_are_distinct_and_the_interpolant_has_gradients(domain, n):
+    nodes = shortley_weller_operators(domain, n).nodes
+    gaps = Delaunay(nodes).coplanar
+    assert len(np.unique(nodes, axis=0)) == len(nodes) and gaps.size == 0
+    grad = CloughTocher2DInterpolator(nodes, np.sum(nodes**2, axis=1)).grad
+    assert np.isfinite(grad).all()
 
 
 EDGE_CASES = [

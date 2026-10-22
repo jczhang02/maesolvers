@@ -66,7 +66,9 @@ The first-order extrapolation with the estimated gradient (`docs/methods/standar
 Nodes that lie on the boundary in exact arithmetic, such as `(15/17, 8/17)` on the unit circle at `n = 34`, can test as inside the open domain by rounding, with a crossing at a step fraction near `1e-15`.
 In a first version their weights were of order `1e15 / h^2`, and their discrete Hessian was noise: `FDNewton` on T8 reported a non-convex fraction of 0.4 percent at `n = 34` while its values matched the exact solution to `1e-15`.
 A node closer than `1e-6` steps to the boundary now joins the boundary and takes the data at itself, which moves the problem by at most `1e-6 h |grad u|`; the smallest step fraction in this file is `5.5e-5` (T6, `n = 256`).
-`test_a_node_on_the_circle_joins_the_boundary` pins this.
+A node outside the closed domain by rounding, such as `(0.6, 0.8)` on the unit circle at `n = 10`, came back as a crossing at a step fraction near 1 from each of its neighbours in the open domain: repeated boundary points, which Qhull drops as coplanar, leaving NaN in the Clough-Tocher gradients at their rows.
+A crossing closer than `1e-6` steps to an outside neighbour now makes that neighbour a boundary node, so it appears once.
+`test_a_node_on_the_circle_joins_the_boundary`, `test_a_node_outside_the_circle_by_rounding_joins_the_boundary_once` and `test_boundary_points_are_distinct_and_the_interpolant_has_gradients` pin this.
 
 ## Finding 2: equations scaled by their smallest step
 
