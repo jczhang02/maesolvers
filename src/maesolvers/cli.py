@@ -134,10 +134,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         problem the solver does not support; with status 0 after ``--help``.
     """
     try:
-        parser = _parser()
+        _jsonargparse.module()
     except ImportError as error:
         print(f"maesolvers: {error}", file=sys.stderr)
         raise SystemExit(2) from None
+    parser = _parser()
     namespace = parser.parse_args(argv)
     try:
         run = parser.instantiate(namespace).solve
