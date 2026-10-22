@@ -16,7 +16,7 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 
 import pytest
 
-from maesolvers import T1, T2, T7, FDNewton, FDPoisson
+from maesolvers import T1, T2, T7, FDMonotone, FDNewton, FDPoisson
 from maesolvers.metrics import evaluate
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
@@ -41,3 +41,48 @@ def test_blowup_example_matches_froese_oberman_with_poisson_iteration(n, expecte
 def test_t7_minimum_matches_benamou_froese_oberman_with_poisson_iteration(n, expected):
     # Table 7 prints four decimals; n = 60 gives 0.268153, so compare rounded.
     assert round(evaluate(FDPoisson(n=n).solve(T7))["u_origin"], 4) == expected
+
+
+# Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 3, columns "9 Point",
+# "17 Point", "33 Point": max error at the nodes of the monotone scheme, h = 1/N.
+# Matched to the printed digits on T2 at every printed N and on T1 from N = 127
+# on (benchmarks/monotone17.md); the cheap ones are pinned here.
+SINUM_T2 = {  # N: (9, 17, 33 points), in units of 1e-3
+    31: (1.7, 1.7, 1.7),
+    63: (0.9, 0.6, 0.6),
+}
+SINUM_T1_127 = {9: 15.9, 17: 4.6, 33: 1.8}  # units of 1e-4
+
+
+@pytest.mark.parametrize("n", sorted(SINUM_T2))
+@pytest.mark.parametrize("column", range(3))
+def test_monotone_blowup_example_matches_the_sinum_table(n, column):
+    stencil = (9, 17, 33)[column]
+    err = evaluate(FDMonotone(n=n, stencil=stencil).solve(T2))["max"]
+    assert round(err / 1e-3, 1) == SINUM_T2[n][column]
+
+
+@pytest.mark.parametrize("stencil", sorted(SINUM_T1_127))
+def test_monotone_smooth_example_matches_the_sinum_table_at_127(stencil):
+    err = evaluate(FDMonotone(n=127, stencil=stencil).solve(T1))["max"]
+    assert round(err / 1e-4, 1) == SINUM_T1_127[stencil]
+
+
+# Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column "Monotone"
+# (17 points). On T1 ours agrees to three of the four printed digits at N = 63
+# and 127 and to all four from N = 181 on; on T2 to the printed digits from
+# N = 89 on (benchmarks/monotone17.md).
+JCP_T1 = {63: 50.88e-5, 127: 45.53e-5}
+JCP_T2 = {89: 0.37, 127: 0.35}  # units of 1e-3
+
+
+@pytest.mark.parametrize("n,expected", sorted(JCP_T1.items()))
+def test_monotone_smooth_example_is_close_to_the_jcp_table(n, expected):
+    err = evaluate(FDMonotone(n=n).solve(T1))["max"]
+    assert err == pytest.approx(expected, rel=1e-3)
+
+
+@pytest.mark.parametrize("n,expected", sorted(JCP_T2.items()))
+def test_monotone_blowup_example_matches_the_jcp_table(n, expected):
+    err = evaluate(FDMonotone(n=n).solve(T2))["max"]
+    assert round(err / 1e-3, 2) == expected
