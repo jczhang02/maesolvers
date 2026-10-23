@@ -12,8 +12,9 @@ differ by more than ``2 eps``, near a singularity, ``F_H = F_M``. As
 ``|F_H - F_M| <= eps``, the scheme is nearly monotone, and its solutions
 converge to the viscosity solution as ``eps`` goes to zero (their Theorem 1).
 
-The kernels :func:`filter_function`, :func:`filter_slope` and
-:func:`filter_width` are module-level pure functions. :class:`Filtered`
+The kernels :func:`filter_function`, :func:`filter_slope`,
+:func:`filter_width`, :func:`filtered_value` and :func:`filtered_jacobian` are
+module-level pure functions. :class:`Filtered`
 composes any accurate and any monotone
 :class:`~maesolvers.classical.schemes.Scheme` that share their unknowns into
 a scheme that :class:`~maesolvers.classical.iterations.Newton` solves.
@@ -78,13 +79,16 @@ def filter_slope(x: np.ndarray) -> np.ndarray:
     return np.where(a <= 1.0, 1.0, np.where(a < 2.0, -1.0, 0.0))
 
 
-def filter_width(h: float, dtheta: float) -> float:
-    """Return Froese and Oberman's filter width ``eps = sqrt(h) + dtheta / 10``.
+def filter_width(h: float, dtheta: float, divisor: float = 10.0) -> float:
+    """Return the filter width ``eps = sqrt(h) + dtheta / divisor``.
 
-    Their choice for the computations of Section 4 (Froese-Oberman 2013,
-    p. 439). It goes to zero with ``h`` and ``dtheta``, more slowly than the
-    accurate scheme's error, so the filter keeps the accurate scheme on a
-    smooth solution (their Lemma 4).
+    With the default ``divisor = 10``, Froese and Oberman's choice for the
+    computations of Section 4 (Froese-Oberman 2013, p. 439); with
+    ``divisor = 1``, Benamou-Froese-Oberman's (2014, Section 5.2.1), which
+    :class:`~maesolvers.classical.second_boundary.SecondBoundary` takes. It
+    goes to zero with ``h`` and ``dtheta``, more slowly than the accurate
+    scheme's error, so the filter keeps the accurate scheme on a smooth
+    solution (Froese-Oberman 2013, Lemma 4).
 
     Parameters
     ----------
@@ -92,14 +96,67 @@ def filter_width(h: float, dtheta: float) -> float:
         Grid spacing, positive.
     dtheta
         Angular resolution of the monotone scheme's stencil, nonnegative,
-        in radians. The paper gives it no value; :class:`Filtered` passes
-        the largest angle between neighbouring stencil directions.
+        in radians. The papers give it no general value; :class:`Filtered`
+        passes the largest angle between neighbouring stencil directions.
+    divisor
+        Positive.
 
     Returns
     -------
     float
     """
-    return float(np.sqrt(h) + dtheta / 10.0)
+    return float(np.sqrt(h) + dtheta / divisor)
+
+
+def filtered_value(fa: np.ndarray, fm: np.ndarray, eps: float) -> np.ndarray:
+    """Return the filtered combination ``fm + eps S((fa - fm) / eps)``.
+
+    Froese-Oberman (2013), Section 4.1, with ``S`` :func:`filter_function`:
+    ``fa`` where ``|fa - fm| <= eps``, ``fm`` where ``|fa - fm| >= 2 eps``.
+
+    Parameters
+    ----------
+    fa, fm
+        The accurate and the monotone operator (or residual), same shape.
+    eps
+        The filter width, positive.
+
+    Returns
+    -------
+    numpy.ndarray
+        Same shape.
+    """
+    return fm + eps * filter_function((fa - fm) / eps)
+
+
+def filtered_jacobian(
+    slope: np.ndarray, jm: sp.spmatrix, ja: sp.spmatrix
+) -> sp.csr_matrix:
+    """Return Froese and Oberman's approximate Jacobian of :func:`filtered_value`.
+
+    ``diag(1 - S') J_M + diag(max(S', 0)) J_A`` (Froese-Oberman 2013,
+    p. 438): the exact derivative where ``S' = 1`` (the accurate scheme's
+    Jacobian) or ``S' = 0`` (the monotone scheme's), and ``2 J_M`` instead
+    of ``2 J_M - J_A`` in the band ``1 < |fa - fm| / eps < 2``, which they
+    choose because a negative weight on ``J_A`` can make the linear systems
+    ill-posed.
+
+    Parameters
+    ----------
+    slope
+        Shape ``(m,)``: :func:`filter_slope` of ``(fa - fm) / eps``.
+    jm, ja
+        Shape ``(m, k)``: the Jacobians of the monotone and the accurate
+        operator.
+
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        Shape ``(m, k)``.
+    """
+    return sp.csr_matrix(
+        sp.diags(1.0 - slope) @ jm + sp.diags(np.maximum(slope, 0.0)) @ ja
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -340,8 +397,8 @@ class Filtered(Scheme):
         -------
         numpy.ndarray
         """
-        _, fm, x = self._residuals(grid, v)
-        return fm + grid.width * filter_function(x)
+        fa, fm, _ = self._residuals(grid, v)
+        return filtered_value(fa, fm, grid.width)
 
     def jacobian(self, grid: FilteredGrid, v: np.ndarray) -> sp.csc_matrix:
         """Froese and Oberman's approximate Jacobian of :meth:`residual`.
@@ -373,9 +430,7 @@ class Filtered(Scheme):
         slope = filter_slope(self._residuals(grid, v)[2])
         ja = accurate.jacobian(grid.accurate, v)
         jm = monotone.jacobian(grid.monotone, v)
-        return sp.csc_matrix(
-            sp.diags(1.0 - slope) @ jm + sp.diags(np.maximum(slope, 0.0)) @ ja
-        )
+        return sp.csc_matrix(filtered_jacobian(slope, jm, ja))
 
     def solve_laplace(self, grid: FilteredGrid, rhs: np.ndarray) -> np.ndarray:
         """Solve ``laplace u = rhs`` with the Dirichlet data, by the monotone part.
@@ -414,8 +469,8 @@ class Filtered(Scheme):
             departs from the accurate scheme (Froese-Oberman 2013, Fig. 4.3).
         """
         solution = self.accurate.solution(grid.accurate, v)
-        _, fm, x = self._residuals(grid, v)
-        residual = fm + grid.width * filter_function(x)
+        fa, fm, x = self._residuals(grid, v)
+        residual = filtered_value(fa, fm, grid.width)
         info = {
             **solution.info,
             "residual_max": float(np.max(np.abs(residual))),

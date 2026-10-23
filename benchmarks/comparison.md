@@ -6,7 +6,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (187 runs and 36 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (188 runs and 42 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
@@ -22,7 +22,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
 
 ## Settings
 
-- Classical presets: one run on `n = 361` cells per side, the largest `N` the papers print in 2D (test-set specification, Section 2; ADR 0001), so `h = 1/361` on the unit square and `h = 2/361` on the disk of T8.
+- Classical presets: one run on `n = 361` cells per side, the largest `N` the papers print in 2D (test-set specification, Section 2; ADR 0001), so `h = 1/361` on the unit square and `h = 2/361` on the disk of T8 and on the square `[-1, 1]^2` in which `FDTransport` embeds the disk of T12.
   The error is taken at the preset's own nodes, the literature's practice.
 - Neural presets: seeds 0 to 9 with every other setting at the preset's default (ADR 0008); the error is taken on the shared evaluation grid (201 x 201 in 2D, 51^3 for T9, 21^4 for T10).
   A cell gives the median and the 5% to 95% band of the max error over the seeds, then the number of successful seeds.
@@ -33,7 +33,8 @@ README's section "Comparison" shows the tables; this file says how they were mad
   No run of this receipt failed.
 - A classical run whose iteration stops before its tolerance (`converged` False) is kept at its last iterate and marked `\*`; a neural seed that stops at its step budget or stalls is a normal seed.
 - Unsupported pairs: `unsupported_reason` in `comparison.py` names the first of the boundary condition, the dimension and the domain that the preset does not declare.
-  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); `TransportICNN`, the first transport preset (0.2), takes only transport problems (`Transport only` on the other rows), as `TransportQSPINN` does.
+  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); in 0.2 two presets take only transport problems (`Transport only` on the other rows), `FDTransport` (#28) and `TransportICNN` (#29), and later `TransportQSPINN` (#33); the other presets, finite-difference and neural, stay `Dirichlet only`.
+  `FDTransport`'s rows were added from a run at 2ba8083 (`run_comparison.py --solvers FDTransport`), the other rows are unchanged; on T12 its monotone start stalls (no step decreases its residual; the `RuntimeWarning` "FDTransport.start did not converge on T12" in that run's log, `/jczhang02/maesolvers-data/logs/comparison-bfo2014.log` on a100server, as `comparison.csv` has no column for it) and its Newton iteration on the filtered scheme stops at step 142 of 200, where no step decreases the max residual, so the cell is marked `\*` (`bfo2014.md`, Finding 2, and #56); it supports no other problem of the set (`Transport only`).
   For a preset on the QS form it also names the reference point when that is what fails: `DirichletQSPINN` on T20 gives `f(x0) = 0`, since T20's `f` vanishes at the centre of its box (`docs/methods/qs_pinn.md`, Known limits).
 - Orientation: the problems are the rows and the presets the columns, as GLOSSARY (共用集) and the test-set specification say; the scope comment of #14 calls T12 a "column".
 

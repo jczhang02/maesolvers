@@ -26,9 +26,11 @@ from maesolvers import (
     UnsupportedProblemError,
 )
 from maesolvers.core import (
+    can_check_mass_balance,
     check_mass_balance,
     closest_boundary_point,
     integrate,
+    knows_support_function,
     signed_distance,
     support_function,
     volume,
@@ -252,6 +254,61 @@ def test_the_helpers_refuse_another_target_and_a_wrong_shape():
             function(Disk((0.0, 0.0), 1.0), np.zeros((3, 3)))
     with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
         volume(CutQuarterDisk())
+
+
+@dataclass(frozen=True)
+class _Rotated:
+    """A target of one's own: the ellipse ``M B_1``, ``M`` symmetric, by its support."""
+
+    matrix: tuple = ((0.6, 0.2), (0.2, 0.8))
+    width: int = 0  # extra trailing axis in the output, to test the shape check
+
+    dim: ClassVar[int] = 2
+    bbox: ClassVar[Box] = Box((-1.0, -1.0), (1.0, 1.0))
+
+    def contains(self, x):
+        return np.ones(np.shape(x)[:-1], dtype=bool)
+
+    def interior(self, x):
+        return self.contains(x)
+
+    def support_function(self, n):
+        out = np.linalg.norm(np.asarray(n) @ np.asarray(self.matrix).T, axis=-1)
+        return out[..., None].repeat(self.width, -1) if self.width else out
+
+
+def test_support_function_asks_a_target_of_ones_own():
+    from maesolvers.core import SupportFunction
+
+    target = _Rotated()
+    assert isinstance(target, SupportFunction)
+    theta = np.linspace(0.0, 2.0 * np.pi, 7)
+    n = np.stack([np.cos(theta), np.sin(theta)], axis=-1)
+    # The boundary points M (cos t, sin t); the largest projection on n.
+    t = np.linspace(0.0, 2.0 * np.pi, 20001)
+    boundary = np.stack([np.cos(t), np.sin(t)], axis=-1) @ np.asarray(target.matrix).T
+    assert np.allclose(
+        support_function(target, n), np.max(n @ boundary.T, axis=1), atol=1e-7
+    )
+    with pytest.raises(ValueError, match="returned shape"):
+        support_function(_Rotated(width=2), n)
+    # The other helpers keep to the shapes they know.
+    with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
+        signed_distance(target, n)
+
+
+def test_the_predicates_name_what_the_helpers_know():
+    target = _Rotated()
+    for known in (*TARGETS, target):
+        assert knows_support_function(known)
+    assert not knows_support_function(CutQuarterDisk())
+    assert can_check_mass_balance(T12) and can_check_mass_balance(T16)
+    assert not can_check_mass_balance(T1)  # Dirichlet
+    square = Box((-1.0, -1.0), (1.0, 1.0))
+    own_target = Problem("t", square, lambda x: x[..., 0], Transport(target))
+    own_domain = Problem("d", CutQuarterDisk(), lambda x: x[..., 0], Transport(square))
+    assert not can_check_mass_balance(own_target)
+    assert not can_check_mass_balance(own_domain)
 
 
 # volume, integrate and the mass balance

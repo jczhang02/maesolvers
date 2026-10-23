@@ -5,6 +5,13 @@ Source: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column
 Table 3, column "Standard F.D."). Max error at the grid nodes on an N x N
 grid with h = 1 / N; see benchmarks/standard_fd.md for the convention.
 
+Benamou-Froese-Oberman, J. Comput. Phys. 260 (2014), Table 1: max error of
+the gradient map on T16. The paper states its N as nodes per side, "the
+spatial step size dx coming from the number of grid points N_X along each
+dimension" (Section 5.2.1, p. 117), so h = 1/(N - 1); FDTransport prints the
+column at every N there, which confirms it (benchmarks/bfo2014.md, Finding 1).
+N = 32 and 64 are pinned.
+
 Benamou-Froese-Oberman, ESAIM: M2AN 44 (2010), Table 7, column "(M1), (M2)":
 u_min of T7 on [-1, 1]^2, where N counts nodes per side, so N = 21 is n = 20
 cells and the origin is a node (benchmarks/standard_fd.md, Finding 3).
@@ -33,16 +40,18 @@ from maesolvers import (
     T2,
     T7,
     T9,
+    T16,
     T20,
     FDFiltered,
     FDHybrid,
     FDMonotone,
     FDNewton,
     FDPoisson,
+    FDTransport,
     Newton,
     Problem,
 )
-from maesolvers.metrics import evaluate
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
 PUBLISHED_T2 = {31: 17.15e-3, 63: 12.53e-3}
@@ -212,6 +221,20 @@ def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
     result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
     assert result.info["converged"]
     assert round(evaluate(result)["max"] / 1e-3, 2) == expected
+
+
+BFO2014_T16 = {32: 0.0220, 64: 0.0110}  # Table 1, max error; key: N nodes per side
+
+
+@pytest.mark.parametrize(("N", "expected"), sorted(BFO2014_T16.items()))
+def test_transport_scheme_matches_bfo_2014_table_1(N, expected):
+    result = FDTransport(n=N - 1).solve(T16)
+    assert result.info["converged"]
+    points, h = result.nodes[result.interior], result.info["h"][0]
+    error = gradient_map_error(
+        gradient_fd(result.u, points, step=h), gradient_fd(T16.exact, points)
+    )
+    assert round(error["gradient_max"], 4) == expected
 
 
 # Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 4: max error of the

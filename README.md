@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is alpha (0.1): `Problem`, `Result` and `evaluate` are frozen (ADR 0007), and the rest of the interface may still change in 0.x, never without a line in the [CHANGELOG](CHANGELOG.md); five finite-difference solvers and two neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
+> It is alpha (0.1): `Problem`, `Result` and `evaluate` are frozen (ADR 0007), and the rest of the interface may still change in 0.x, never without a line in the [CHANGELOG](CHANGELOG.md); six finite-difference solvers and five neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -169,17 +169,18 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 | `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points in 2D; 19 points in 3D with `stencil=19`), semi-smooth Newton | `Box` with equal sides, in the stencil's dimension | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
 | `FDHybrid` | the hybrid scheme of Froese-Oberman 2011: the standard scheme where the data are regular, the monotone one near the boundary and where `f` is near 0 or infinite; Newton from the monotone root | `Box` with equal sides | Dirichlet | monotone near the possible singularities; the start puts Newton on the convex root |
 | `FDFiltered` | the filtered scheme of Froese-Oberman 2013: the standard 9-point scheme where it nearly agrees with the monotone one, the monotone scheme where they differ; Newton with the paper's approximate Jacobian | `Box` with equal sides | Dirichlet | nearly monotone; where the filter keeps the standard scheme it shares its non-convex roots (T20); its damped Newton often stalls (`converged` False on T1, T2, T4, T5, T7 and T20 at `n = 64`, on the cone), where on T2 the paper's undamped step converges with 9 points at every printed `N` (#56) |
+| `FDTransport` | the second boundary value problem by the method of Benamou-Froese-Oberman 2014: the transport condition as an upwind Hamilton-Jacobi equation on the boundary ring, the filtered compact scheme inside; Newton from the monotone root | any 2D domain embedded in a square grid (`box`); target `Box`, `Disk`, `Ellipse` or one with `support_function` | Transport | nearly monotone; Newton stalls on the filtered scheme where the domain is embedded, as `FDFiltered`'s does (#56) |
 | `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
 | `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by dense BFGS (SciPy's) on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `Ellipse`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
 | `TransportICNN` | the convex PINN of Caboussat-Peruso 2025: a 4 x 10 softplus ICNN fitted to `grad u = x`, then trained by Adam and L-BFGS on the mean residual plus a Hausdorff-type distance between `grad u` of the boundary and the target's boundary (needs the `neural` extra) | `Box` in any dimension, `Disk`, `Ellipse`, onto a `Box`, `Disk` or `Ellipse` | Transport | convex by construction |
 | `DirichletQSPINN` | QS-PINN (JC Zhang's note): `u = (x - x0)^T A^T A (x - x0) + b . x + c` with `A = alpha (I + B)`, `B` from a 5 x 10 tanh network, trained as `DirichletICNN` (needs the `neural` extra) | `Box` in any dimension, `Disk`, `Ellipse`, `CutQuarterDisk`, with `f > 0` at the centre of the bounding box | Dirichlet | above its tangent plane at `x0`, Hessian positive definite there; convex elsewhere only under the note's sufficient conditions |
 | `TransportQSPINN` | the same form with a 4 x 10 network, trained as `TransportICNN`, with no fit to the identity map (needs the `neural` extra) | `Box` in any dimension, `Disk`, `Ellipse`, onto a `Box`, `Disk` or `Ellipse` | Transport | as `DirichletQSPINN` |
 
-Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`, `FDMonotone(n=64)` is `Newton(scheme=Monotone17(n=64), max_iter=200)`, `FDHybrid(n=64)` is `Newton(scheme=Hybrid(n=64), start=FDMonotone(n=64), max_iter=200)`, Newton from the root of `FDMonotone`, and `FDFiltered(n=64)` is `Newton(scheme=Filtered(accurate=Standard9(n=64), monotone=Monotone17(n=64)), max_iter=200)`, a scheme made of two schemes.
+Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`, `FDMonotone(n=64)` is `Newton(scheme=Monotone17(n=64), max_iter=200)`, `FDHybrid(n=64)` is `Newton(scheme=Hybrid(n=64), start=FDMonotone(n=64), max_iter=200)`, Newton from the root of `FDMonotone`, `FDFiltered(n=64)` is `Newton(scheme=Filtered(accurate=Standard9(n=64), monotone=Monotone17(n=64)), max_iter=200)`, a scheme made of two schemes, and `FDTransport(n=64)` is `Newton(scheme=SecondBoundary(n=64), start=Newton(scheme=SecondBoundary(n=64, interior="monotone"), max_iter=200), max_iter=200)`.
 A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
 A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
 `maesolvers.SOLVERS` lists the presets by name.
-[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations, [`docs/methods/monotone17.md`](docs/methods/monotone17.md) those of the monotone scheme, [`docs/methods/hybrid.md`](docs/methods/hybrid.md) those of the hybrid scheme, [`docs/methods/filtered.md`](docs/methods/filtered.md) those of the filtered scheme.
+[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations, [`docs/methods/monotone17.md`](docs/methods/monotone17.md) those of the monotone scheme, [`docs/methods/hybrid.md`](docs/methods/hybrid.md) those of the hybrid scheme, [`docs/methods/filtered.md`](docs/methods/filtered.md) those of the filtered scheme, [`docs/methods/bfo2014.md`](docs/methods/bfo2014.md) those of the transport scheme.
 
 A neural solver is a network, a loss, a sampler and an optimizer (ADR 0004) on one training loop, a Lightning `Trainer` in float64 (ADR 0008): `PenaltyMLP()` is `NeuralSolver(network=HardDirichlet(network=MLP()), loss=PenaltyLoss(), sampler=UniformSampler(), optimizer=LBFGS(), max_steps=5000)`.
 A new part subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural` as a frozen dataclass; `docs/guide.md` writes one of each.
@@ -198,46 +199,46 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 <!-- comparison table: written by benchmarks/comparison.py, do not edit -->
 **Max error at the primary points**
 
-| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 7.06e-3 [4.57e-3, 1.66e-2], 9/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 | Transport only | 5.94e-5 [2.95e-5, 1.66e-4], 10/10 | Transport only |
-| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 | Transport only | 2.21e0 [7.21e-1, 2.28e1], 0/10 | Transport only |
-| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 | Transport only | f(x0) = 0 | Transport only |
-| T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 | Transport only | 4.65e-8 [8.45e-9, 3.93e-7], 10/10 | Transport only |
-| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 1.72e-3 [1.33e-3, 4.14e-3], 10/10 | Dirichlet only | 1.52e-3 [1.01e-3, 3.92e-3], 10/10 |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 | Transport only | 1.23e-2 [4.41e-3, 2.23e-2], 10/10 | Transport only |
-| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 | Transport only | 1.12e0 [6.46e-1, 1.31e0], 0/10 | Transport only |
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDTransport` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | Transport only | 7.06e-3 [4.57e-3, 1.66e-2], 9/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 | Transport only | 5.94e-5 [2.95e-5, 1.66e-4], 10/10 | Transport only |
+| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | Transport only | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 | Transport only | 2.21e0 [7.21e-1, 2.28e1], 0/10 | Transport only |
+| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | Transport only | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 | Transport only | f(x0) = 0 | Transport only |
+| T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | Transport only | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 | Transport only | 4.65e-8 [8.45e-9, 3.93e-7], 10/10 | Transport only |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 5.38e-3 (361) \* | Dirichlet only | Dirichlet only | 1.72e-3 [1.33e-3, 4.14e-3], 10/10 | Dirichlet only | 1.52e-3 [1.01e-3, 3.92e-3], 10/10 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | Transport only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 | Transport only | 1.23e-2 [4.41e-3, 2.23e-2], 10/10 | Transport only |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | Transport only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 | Transport only | 1.12e0 [6.46e-1, 1.31e0], 0/10 | Transport only |
 
 **Non-convex fraction**
 
-| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 0 | 0 | 0 | 0 | 0 \* | 0.00124% | 0 | Transport only | 0 | Transport only |
-| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 7.39% | 0 | Transport only | 12.8% | Transport only |
-| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 | Transport only | f(x0) = 0 | Transport only |
-| T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 | Transport only | 0 | Transport only |
-| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 0 | Dirichlet only | 0 |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 0 | Transport only | 0 | Transport only |
-| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 0 | Transport only | 0.00257% | Transport only |
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDTransport` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 0 | 0 | 0 | 0 | 0 \* | Transport only | 0.00124% | 0 | Transport only | 0 | Transport only |
+| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | Transport only | 7.39% | 0 | Transport only | 12.8% | Transport only |
+| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | Transport only | 2.52% | 0 | Transport only | f(x0) = 0 | Transport only |
+| T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | Transport only | 0 | 0 | Transport only | 0 | Transport only |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 0 \* | Dirichlet only | Dirichlet only | 0 | Dirichlet only | 0 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | Transport only | 2D only | 0 | Transport only | 0 | Transport only |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | Transport only | 2D only | 0 | Transport only | 0.00257% | Transport only |
 
 **Time in seconds**
 
-| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 418 | 991 | Transport only | 324 | Transport only |
-| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 419 | 550 | Transport only | 29.6 | Transport only |
-| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 416 | 1009 | Transport only | f(x0) = 0 | Transport only |
-| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | 416 | 797 | Transport only | 51.7 | Transport only |
-| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 281 | Dirichlet only | 191 |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 1450 | Transport only | 404 | Transport only |
-| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 155 | Transport only | 224 | Transport only |
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDTransport` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | Transport only | 418 | 991 | Transport only | 324 | Transport only |
+| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | Transport only | 419 | 550 | Transport only | 29.6 | Transport only |
+| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | Transport only | 416 | 1009 | Transport only | f(x0) = 0 | Transport only |
+| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | Transport only | 416 | 797 | Transport only | 51.7 | Transport only |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 376 \* | Dirichlet only | Dirichlet only | 281 | Dirichlet only | 191 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | Transport only | 2D only | 1450 | Transport only | 404 | Transport only |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | Transport only | 2D only | 155 | Transport only | 224 | Transport only |
 
-A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
+A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 and T12 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
 A cell with a reason marks a preset that does not support the problem: `Transport only` on T1, T2, T20, T8, T9 and T10; `f(x0) = 0` on T20; `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; `3D: stencil=19` on T9; `2D/3D only` on T10.
-The roadmap's 0.2 gives the finite-difference presets transport boundary conditions (T12) and n-dimensional boxes (T9 and T10).
+The roadmap's 0.2 gives the finite-difference presets n-dimensional boxes (T9 and T10).
 <!-- comparison table end -->
 
 ## Reproduction
@@ -269,6 +270,8 @@ The hybrid scheme (`FDHybrid`) matches the column "Hybrid" of Froese-Oberman 201
 On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](benchmarks/hybrid.md) records the findings.
 
 The filtered scheme (`FDFiltered`) matches Froese-Oberman 2013, Table 4.2, on its centred smooth example at every printed `N`, with `N` nodes per side; on T2 the preset's damped Newton stalls, while the paper's undamped Newton step on the same scheme makes the 9-point column of its Table 4.1 exact; the 17- and 33-point columns and Table 4.2's filtered column are a mismatch, because neither iteration converges there from `N = 127`; on T20 `FDFiltered` reaches a non-convex root of the standard scheme, so T20 and the cone are a mismatch ([`benchmarks/filtered.md`](benchmarks/filtered.md)).
+
+The transport scheme of Benamou-Froese-Oberman 2014 (`FDTransport`) matches the max column of their Table 1 (T16) at every printed `N` once `N` counts nodes per side, and its L2 column to within 3%; on the ellipse and the half-disks of their Tables 2 and 3, embedded in a square with zero density around them, Newton on the filtered scheme stalls from `N = 64` or 128 on and the error stops falling, a mismatch that [`benchmarks/bfo2014.md`](benchmarks/bfo2014.md) records with its findings.
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
@@ -305,7 +308,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 ## Layout
 
 - `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, the part check `check_part`, and in `transport.py` the target geometry and mass balance of transport problems.
-- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` (2D, and 3D with 19 points), `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
+- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` (2D, and 3D with 19 points), `Hybrid`, `Filtered` and `SecondBoundary` (transport problems, `second_boundary.py`), the iterations `Newton` and `PoissonIteration`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid`, `FDFiltered` and `FDTransport`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP`, `DirichletICNN` and `TransportICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate`, `summarize` and the gradient-map error of transport problems; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.

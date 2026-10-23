@@ -35,6 +35,7 @@ from maesolvers.classical import (
     FDMonotone,
     FDNewton,
     FDPoisson,
+    FDTransport,
     Filtered,
     Hybrid,
     Monotone17,
@@ -42,6 +43,7 @@ from maesolvers.classical import (
     PoissonIteration,
     Scheme,
     SchemeIteration,
+    SecondBoundary,
     Standard9,
 )
 from maesolvers.config import from_config
@@ -121,6 +123,7 @@ __all__ = [
     "FDMonotone",
     "FDNewton",
     "FDPoisson",
+    "FDTransport",
     "Filtered",
     "HardDirichlet",
     "HausdorffLoss",
@@ -138,6 +141,7 @@ __all__ = [
     "Result",
     "Scheme",
     "SchemeIteration",
+    "SecondBoundary",
     "Solution",
     "Solver",
     "Standard9",
