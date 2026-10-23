@@ -19,7 +19,7 @@ classifiers = [
 neural = ["torch", "lightning>=2"]
 # Configs and the `maesolvers solve` command line (ADR 0005); imported only by
 # maesolvers.from_config and maesolvers.cli. CI and `just check` add it with --extra cli.
-cli = ["jsonargparse>=4.49"]
+cli = ["jsonargparse[signatures]>=4.49"]
 
 [project.scripts]
 maesolvers = "maesolvers.cli:main"

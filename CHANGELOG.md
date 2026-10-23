@@ -78,6 +78,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
 - The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale`, `interpolate` and `interpolant` are new.
 - The `neural` extra is torch and lightning >= 2 (it was torch alone).
+- The `cli` extra is `jsonargparse[signatures]` (it was `jsonargparse`), which adds docstring-parser, so `maesolvers solve --solver.help <class>` shows each parameter's description from the numpy docstring next to its type and default.
 - CI's `test` job installs the `neural-cpu` group and runs the neural tests on CPU; it fails if a CUDA wheel is installed.
 - The development Python is 3.12 (`.python-version`): torch 2.7.1 has no wheel for 3.14.
 

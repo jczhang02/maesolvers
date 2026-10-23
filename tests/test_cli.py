@@ -50,6 +50,15 @@ def test_solve_prints_evaluate_as_a_table(capsys):
     assert int(rows["unknowns"]) == metrics["unknowns"]
 
 
+def test_solver_help_shows_the_docstring_descriptions(capsys):
+    # The cli extra is jsonargparse[signatures]: docstring-parser reads the
+    # numpy docstrings, so each parameter has its description, not only its type.
+    with pytest.raises(SystemExit):
+        main(["solve", "--solver.help", "FDNewton"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "Most Newton steps. (type: int, default: 50)" in help_text
+
+
 def test_solve_writes_the_rerun_config_metrics_and_info(tmp_path):
     record = _solve(
         tmp_path, "--solver", "FDNewton", "--solver.n", "8", "--problem", "T1"
