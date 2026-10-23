@@ -12,9 +12,11 @@ One row per table, ordering and N. The FMG-FAS columns are
 ``FDMultigrid(n=N, ordering=...)`` with its defaults (the paper's: 2 + 2
 sweeps, 1 on the coarsest grid, relative residual 1e-6); ``error`` is the
 max error at the nodes, as ``evaluate`` reports it. ``error_converged`` is
-the error of the discrete solution itself, the same solver with
-``tol=1e-12``. In 3D a red-black row is ours alone (the paper sweeps
-lexicographically there). For N <= 32 in 3D the Gauss-Seidel columns
+the error of the discrete solution itself: the FMG cycle and 9 more
+V-cycles, red-black, whatever the relative residual (its reference grows
+like ``N^5`` in 3D, so no fixed tolerance means the same at every N). In
+3D a red-black row is ours alone (the paper sweeps lexicographically
+there). For N <= 32 in 3D the Gauss-Seidel columns
 repeat the paper's stand-alone solver: lexicographic sweeps from
 ``1.01 u`` at the unknowns until the residual's discrete L2 norm is 1e-6
 times that of the start.
@@ -67,6 +69,10 @@ GS_TOL = 1e-6
 GS_MAX_SWEEPS = 5000
 GS_LARGEST_N = 32
 """The paper runs its stand-alone Gauss-Seidel solver up to N = 32."""
+CONVERGED_CYCLES = 10
+"""Cycles for the discrete solution: each V-cycle cuts the residual some tenfold."""
+CONVERGED_TOL = 1e-30
+"""Below any relative residual, so that the discrete solution takes every cycle."""
 
 TWO_D = (128, 256, 512, 1024, 2048, 4096, 8192)
 THREE_D = (8, 16, 32, 64, 128)
@@ -158,7 +164,7 @@ FIELDS = (
     "published_time_s",
     "error_after_fmg",
     "error_converged",
-    "iterations_converged",
+    "relres_converged",
     "gs_relres",
     "gs_error",
     "gs_iterations",
@@ -267,10 +273,12 @@ def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
             assert fmg.values is not None and fmg.nodes is not None
             row["error_after_fmg"] = _error(problem, fmg.values, fmg.nodes)
             del fmg
-        tight = FDMultigrid(n=n, ordering="red-black", tol=1e-12).solve(problem)
+        tight = FDMultigrid(
+            n=n, ordering="red-black", tol=CONVERGED_TOL, max_iter=CONVERGED_CYCLES
+        ).solve(problem)
         assert tight.values is not None and tight.nodes is not None
         row["error_converged"] = _error(problem, tight.values, tight.nodes)
-        row["iterations_converged"] = tight.info["iterations"]
+        row["relres_converged"] = tight.info["history"][-1]
         del tight
         if problem.dim == 3 and ordering == "lexicographic" and n <= GS_LARGEST_N:
             row.update(gauss_seidel(problem, n))
@@ -293,7 +301,7 @@ def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
                 {
                     k: float(v)
                     for k, v in row.items()
-                    if k.startswith(("error_", "gs_", "iterations_")) and v != ""
+                    if k.startswith(("error_", "gs_", "relres_")) and v != ""
                 }
             )
     else:
