@@ -153,7 +153,7 @@ Level: mismatch (Finding 4), since the ratio at `N = 32` is 0.25; at the other f
 | 32 | 1.1e-03 | 1.102e-03 | 854, 851 |
 
 Level: exact.
-At `N = 128` the cycles do not settle on a discrete solution (Finding 4); the "converged" value in parentheses is the tenth iterate of a periodic sequence.
+At `N = 128` the cycles do not settle on a discrete solution (Finding 4); the "converged" value in parentheses is the tenth red-black cycle, not a limit.
 
 ## Finding 1: on the smooth 3D examples one published FMG cycle lands below the discrete solution's error
 
@@ -203,8 +203,10 @@ So Table 7 is a mismatch; the paper prints nothing that would explain it.
 
 At `N = 64` and 128 our FMG cycle stops above the discrete solution's error too (2.36e-3 against 8.37e-4 at 64), with a residual of order `10^3` to `10^4` at the nodes next to the corner `(1, 1, 1)`, where `f` grows like `h^-5`, and a few nodes with an indefinite discrete Hessian there (non-convex fraction 7.2e-5 at 64, 1.1e-5 at 128); the relative residual meets `1e-6` because its reference is dominated by the ring.
 `multigrid_checks.csv` runs more cycles: at `N = 64` they converge (the error 8.3671e-4 from cycle 10 on, the residual's max 1e-9 from cycle 20), at `N = 128` they do not.
-There the iterates repeat: with red-black sweeps cycle 20 equals cycle 5 and cycle 30 cycle 15, with lexicographic ones cycle 30 equals cycle 10, to all digits, and the error moves between 6.4e-4 and 2.0e-3 while the residual's max stays between 3e2 and 1e5.
-So at `N = 128` the multigrid iteration has no limit near the corner, and the published 1.6e-3 and our 1.99e-3 are both points on such a path; the "converged" value of Table 7 at 128 is the tenth red-black cycle.
+There, at the sampled cycles 5, 10, 15, 20 and 30, the error moves between 6.4e-4 and 2.0e-3 and the residual's max stays between 3e2 and 1.2e5, with no downward trend in either ordering.
+Some samples come back close to an earlier one: with red-black sweeps cycles 15 and 30 agree to about 6 digits (error 1.839861e-3 and 1.839860e-3, residual max 940.9755 and 940.9756), with lexicographic ones cycles 10 and 30 (1.120648e-3 and 1.120645e-3, 9109.566 and 9109.572); red-black cycles 5 and 20 do not (1.80e-3 and 1.89e-3).
+Five samples cannot tell whether the iterates are periodic, nearly periodic or wander.
+So at `N = 128` the multigrid iteration does not converge near the corner within 30 cycles, and the published 1.6e-3 and our 1.99e-3 are both points on such a path; the "converged" value of Table 7 at 128 is the tenth red-black cycle.
 `FDMultigrid`'s own stopping rule sees this: at `N = 128` it runs its 50 cycles and reports `converged = False` in both orderings, while at `N = 64` it stops after 5 (red-black) or 6 (lexicographic) cycles at the discrete solution's error, 8.367e-4 (Finding 5).
 Whether a smaller stopping step near the corner, more sweeps there, or another coarse-grid treatment would converge is not tested here.
 
@@ -212,7 +214,7 @@ T2, the 2D version, converges (10 cycles bring the relative residual to `1e-11`)
 
 ## Finding 5: the paper's stopping rule against `FDMultigrid`'s
 
-The paper's rule tests the relative residual, whose reference grows like `N^(2d)` (Finding 2), so on fine grids it holds after the FMG cycle whatever the iterate: on T22 at `N = 128` it holds while the residual is `10^3` to `10^5` near the corner and the cycles have no limit (Finding 4), and the earlier generation of `FDMultigrid`, which stopped by it, reported `converged = True` there.
+The paper's rule tests the relative residual, whose reference grows like `N^(2d)` (Finding 2), so on fine grids it holds after the FMG cycle whatever the iterate: on T22 at `N = 128` it holds while the residual is `10^3` to `10^5` near the corner and the cycles do not converge (Finding 4), and the earlier generation of `FDMultigrid`, which stopped by it, reported `converged = True` there.
 `FDMultigrid` now stops when the RMS of the residual over the unknowns is at most `tol * max(1, max |f|)` with `tol = 1e-6`, and reports the relative residual in its history only (`docs/methods/multigrid.md`, Stopping rule).
 On the paper's examples (the `default_*` columns; error change against the paper's rule, which takes 1 or 2 cycles):
 
