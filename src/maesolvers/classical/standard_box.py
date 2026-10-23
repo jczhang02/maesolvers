@@ -211,11 +211,13 @@ def smallest_root(
         raise ValueError(f"d must be 2 or 3, got {d}")
     t = np.empty_like(c)
     positive = c > 0.0
-    for mask, solve in ((positive, _root_below_spectrum), (~positive, _cubic_root)):
-        if np.any(mask):
-            sub = {key: value[mask] for key, value in a.items()}
-            guess = None if start is None else np.asarray(start, dtype=float)[mask]
-            t[mask] = solve(sub, c[mask], guess)
+    if np.any(positive):
+        guess = None if start is None else np.asarray(start, dtype=float)[positive]
+        sub = {key: value[positive] for key, value in a.items()}
+        t[positive] = _root_below_spectrum(sub, c[positive], guess)
+    if not np.all(positive):
+        sub = {key: value[~positive] for key, value in a.items()}
+        t[~positive] = _cubic_root(sub, c[~positive])
     return t
 
 
@@ -251,7 +253,7 @@ def _root_below_spectrum(
     return t
 
 
-def _cubic_root(a: Entries, c: np.ndarray, start: np.ndarray | None) -> np.ndarray:
+def _cubic_root(a: Entries, c: np.ndarray) -> np.ndarray:
     """Solve the 3D case of :func:`smallest_root` for ``c <= 0`` by the closed form.
 
     ``det(A - t I) = c`` is ``t^3 - p1 t^2 + p2 t - (p3 - c) = 0`` with the
