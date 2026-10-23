@@ -29,6 +29,7 @@ penalty_mlp.md). Run it on a100server from the repository root::
 
     python benchmarks/run_penalty_mlp.py T6
     python benchmarks/run_penalty_mlp.py T1 --fit-tol 1e-7 --out /tmp/t1-fit.csv
+    python benchmarks/run_penalty_mlp.py T1 --optimizer bfgs --out /tmp/t1-bfgs.csv
     CUDA_VISIBLE_DEVICES=0 python benchmarks/run_penalty_mlp.py T6 --accelerator gpu --out t6.csv
 """
 
@@ -43,10 +44,11 @@ from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
+from comparison import with_parts
 
 from maesolvers import CATALOGUE, PenaltyMLP, tracking
 from maesolvers.metrics import evaluate, seed_error, summarize_errors
-from maesolvers.neural import sample_interior
+from maesolvers.neural import BFGS, sample_interior
 
 HERE = Path(__file__).parent
 POINTS = 10**6
@@ -55,6 +57,9 @@ POINTS_SEED = 2023
 
 OPTIONS = ("max_steps", "fit_steps", "fit_tol", "accelerator")
 """Preset settings the command line can change; a change needs --out."""
+
+OPTIMIZERS = ("lbfgs", "bfgs")
+"""--optimizer: the preset's L-BFGS, or SciPy's dense BFGS of DirichletICNN."""
 
 FIELDS = (
     "problem",
@@ -115,11 +120,15 @@ def boundary_split(solver, result, n: int = POINTS // 10) -> dict[str, float]:
     }
 
 
-def run_seed(problem_id: str, seed: int, options: dict, label: str) -> dict:
+def run_seed(
+    problem_id: str, seed: int, options: dict, label: str, optimizer: str = "lbfgs"
+) -> dict:
     """Train one seed, log it to MLflow, and return its CSV row.
 
-    The row also holds ``failed``, not a CSV column: whether the seed failed
-    by the rule of :func:`~maesolvers.metrics.seed_error`.
+    With ``optimizer="bfgs"`` the preset trains with :class:`BFGS` (the fits
+    of ``G`` and ``D`` keep their L-BFGS). The row also holds ``failed``, not
+    a CSV column: whether the seed failed by the rule of
+    :func:`~maesolvers.metrics.seed_error`.
     """
     import mlflow
     import torch
@@ -127,6 +136,8 @@ def run_seed(problem_id: str, seed: int, options: dict, label: str) -> dict:
     torch.set_num_threads(int(os.environ.get("THREADS_PER_SEED", "1")))
     problem = CATALOGUE[problem_id]
     solver = PenaltyMLP(seed=seed, **options)
+    if optimizer == "bfgs":
+        solver = with_parts(solver, optimizer=BFGS())
     logger = tracking.MLflowLogger()
     with tracking.run(
         f"maesolvers-penalty-mlp-{problem_id}", run_name=f"seed={seed} {label}"
@@ -184,11 +195,14 @@ def main() -> None:
     parser.add_argument("--fit-steps", type=int, default=PenaltyMLP.fit_steps)
     parser.add_argument("--fit-tol", type=float, default=PenaltyMLP.fit_tol)
     parser.add_argument("--accelerator", default=PenaltyMLP.accelerator)
+    parser.add_argument("--optimizer", choices=OPTIMIZERS, default="lbfgs")
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     options = {name: getattr(args, name) for name in OPTIONS}
     changed = {k: v for k, v in options.items() if v != getattr(PenaltyMLP, k)}
+    if args.optimizer != "lbfgs":
+        changed["optimizer"] = args.optimizer
     if changed and args.out is None:
         parser.error(f"{', '.join(changed)} differ from the preset: give --out")
     label = " ".join(f"{k}={v}" for k, v in changed.items()) or "preset"
@@ -197,7 +211,8 @@ def main() -> None:
     context = get_context("spawn")  # CUDA cannot be forked
     with ProcessPoolExecutor(args.workers, mp_context=context) as pool:
         futures = [
-            pool.submit(run_seed, args.problem, s, options, label) for s in args.seeds
+            pool.submit(run_seed, args.problem, s, options, label, args.optimizer)
+            for s in args.seeds
         ]
         rows = sorted((f.result() for f in futures), key=lambda r: r["seed"])
     with out.open("w", newline="") as file:

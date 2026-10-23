@@ -1,6 +1,6 @@
 [project]
 name = "maesolvers"
-version = "0.0.2"
+version = "0.1.0"
 description = "Solvers for the Monge-Ampere equation: classical and neural methods behind one interface"
 readme = "README.md"
 license = "MIT"
@@ -8,7 +8,7 @@ authors = [{ name = "JC Zhang" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Mathematics",
@@ -19,7 +19,7 @@ classifiers = [
 neural = ["torch", "lightning>=2"]
 # Configs and the `maesolvers solve` command line (ADR 0005); imported only by
 # maesolvers.from_config and maesolvers.cli. CI and `just check` add it with --extra cli.
-cli = ["jsonargparse>=4.49"]
+cli = ["jsonargparse[signatures]>=4.49"]
 
 [project.scripts]
 maesolvers = "maesolvers.cli:main"

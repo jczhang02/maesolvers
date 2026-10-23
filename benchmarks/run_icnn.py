@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from comparison import with_parts
 from run_penalty_mlp import POINTS, POINTS_SEED, band, paper_measure
 
 from maesolvers import CATALOGUE, DirichletICNN, tracking
@@ -99,20 +100,12 @@ class MeanEquationLoss(PenaltyLoss):
 
 def mean_equation(preset: DirichletICNN) -> NeuralSolver:
     """The preset with its loss replaced by :class:`MeanEquationLoss`, same weights."""
-    return NeuralSolver(
-        network=preset.network,
-        loss=MeanEquationLoss(
-            convexity_weight=0.0,
-            boundary_weight=preset.boundary_weight,
-            equation_at_boundary=True,
-        ),
-        sampler=preset.sampler,
-        optimizer=preset.optimizer,
-        max_steps=preset.max_steps,
-        tol=preset.tol,
-        seed=preset.seed,
-        accelerator=preset.accelerator,
+    loss = MeanEquationLoss(
+        convexity_weight=0.0,
+        boundary_weight=preset.boundary_weight,
+        equation_at_boundary=True,
     )
+    return with_parts(preset, loss=loss)
 
 
 def boundary_max(result, n: int = POINTS // 10) -> float:

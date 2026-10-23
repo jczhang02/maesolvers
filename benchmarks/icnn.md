@@ -6,6 +6,7 @@ The T6 mismatch holds under either reading of the equation term, which eq. (3.3)
 The ICNN table of Caboussat and Peruso (2025) is not compared: it needs the transport boundary condition of 0.2 (Not compared, below).
 
 Receipts: `icnn_t1.csv` and `icnn_t6.csv`, written by `run_icnn.py` on a100server at commit 08a29b7, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-icnn-T1` and `maesolvers-icnn-T6`, with its training curve and the device and thread count as parameters.
+The commits this file cites are on the branch of PR #55, which was squash-merged into `next` as 02a6ab6, so they are not in its history; GitHub keeps them under `refs/pull/55/head`.
 The experiments also hold runs of the same names from earlier commits of this branch (Finding 1); the tag `mlflow.source.git.commit` tells them apart.
 Bands are the median and the 5% and 95% quantiles over the ten seeds, computed by `maesolvers.metrics.summarize_errors` with ADR 0007's failed-seed rule; no seed failed.
 

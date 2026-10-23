@@ -23,9 +23,11 @@ from maesolvers import (
     T20,
     Box,
     NeuralSolver,
+    PenaltyMLP,
     Problem,
 )
 from maesolvers.catalogue import SHARED_TEST_SET
+from maesolvers.neural import BFGS
 
 ROOT = Path(__file__).parent.parent
 
@@ -135,6 +137,21 @@ def test_preset_options_go_to_the_presets_that_take_them():
     }
 
 
+def test_with_parts_swaps_the_named_part_and_keeps_every_other_field():
+    preset = PenaltyMLP(seed=3, max_steps=7, tol=1e-6)
+    solver = comparison.with_parts(preset, optimizer=BFGS())
+    assert type(solver) is NeuralSolver
+    assert solver.optimizer == BFGS()
+    for field in dataclasses.fields(NeuralSolver):
+        if field.name != "optimizer":
+            assert getattr(solver, field.name) is getattr(preset, field.name)
+
+
+def test_with_parts_refuses_a_name_that_is_not_a_field():
+    with pytest.raises(TypeError, match="not fields of NeuralSolver: optimiser"):
+        comparison.with_parts(PenaltyMLP(), optimiser=BFGS())
+
+
 def test_threshold_is_a_share_of_the_exact_oscillation():
     # exp(|x|^2 / 2) on the unit square runs from 1 at 0 to e at (1, 1)
     assert comparison.threshold(T1) == pytest.approx(1e-2 * (math.e - 1))
@@ -220,6 +237,12 @@ def test_notes_derive_from_the_rows():
         _row(solver="FDNewton", problem="T9", status="unsupported", reason="2D only"),
         _row(solver="FDNewton", problem="T10", status="unsupported", reason="2D only"),
         _row(solver="FDMonotone", problem="T8", status="unsupported", reason="r"),
+        _row(
+            solver="FDNewton",
+            problem="T12",
+            status="unsupported",
+            reason="Dirichlet only",
+        ),
     ]
     notes = comparison.notes(comparison.group(map(_machine, rows)))
     assert "`h = 1/n` on T1, `h = 2/n` on T8 (ADR 0001)" in notes[0]
@@ -227,7 +250,14 @@ def test_notes_derive_from_the_rows():
     assert notes[3] == (
         "Every run took 1 CPU thread and ran on the device `cpu`; CPU: Some CPU."
     )
-    assert notes[4].endswith(": `r` on T8; `2D only` on T9 and T10.")
+    assert notes[4].endswith(
+        ": `r` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10."
+    )
+    assert notes[5] == (
+        "The roadmap's 0.2 gives the finite-difference presets transport boundary "
+        "conditions (T12) and n-dimensional boxes (T9 and T10)."
+    )
+    assert len(comparison.notes(comparison.group(map(_machine, rows[:-4])))) == 5
 
 
 def test_notes_need_one_machine():

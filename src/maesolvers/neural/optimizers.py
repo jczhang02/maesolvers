@@ -47,7 +47,11 @@ class Optimizer(ABC):
         Returns
         -------
         torch.optim.Optimizer
-            One call of its ``step(closure)`` is one training step.
+            One call of its ``step(closure)`` is one training step and must
+            make one update: the training loop counts steps by the calls.
+            ``torch.optim.LBFGS`` makes up to ``max_iter`` iterations per
+            call, so :meth:`LBFGS.build` sets ``max_iter=1`` and turns its
+            own tolerances off.
         """
 
 

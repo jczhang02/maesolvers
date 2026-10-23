@@ -11,7 +11,10 @@ Values keep the printed scaling (for example "24.45 x 10^-5", not 2.445e-4).
 A "--" means the paper printed a dash: the run was not done, or it was too slow to report.
 The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network).
 
-## Grid convention (unresolved)
+## Grid convention (settled by ADR 0001)
+
+ADR 0001 settles the convention at `h = 1/N`, `N` cells per side: on T1 at N = 31 only `h = 1/N` matches the published 7.14 x 10^-5 (`standard_fd.md`, Finding 1).
+The quotes below are what the papers say; the last two lines list the tables that count nodes instead.
 
 Benamou-Froese-Oberman 2010, Section 3.3, says verbatim: "The solutions are computed on an N x N grid ... By convention, h is the spatial discretization parameter h = L/N where L is the length of one side of the square domain."
 Froese-Oberman JCP 2011, Section 8, says only: "These computations are performed on an N x N grid on the square [0, 1]^2."
@@ -19,7 +22,7 @@ Froese-Oberman SIAM 2011, Section 6, says only: "We perform the computations usi
 SIAM Table 2 adds: "Here M = N^2 is the total number of grid points."
 None of the 2011 papers defines h in terms of N.
 The odd N values (21, 41, ...; 31, 63, 127, 255) suggest N points per side including the boundary, so h = 1/(N-1), but no paper says so.
-A useful check: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, and it should tell h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
+The check that decided it: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, which tells h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
 One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (`standard_fd.md`, Finding 3).
 Froese-Oberman 2013 (section 5 below) counts nodes too, in every table: its values match n = N - 1 cells (`filtered.md`, Finding 1).
 

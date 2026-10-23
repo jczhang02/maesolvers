@@ -27,7 +27,6 @@ repository root::
 from __future__ import annotations
 
 import argparse
-import os
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -244,20 +243,6 @@ CHECK_TASKS: list[tuple[str, str, int, Any]] = [
 """(check, problem, N, variant) of every row of hybrid_checks.csv."""
 
 
-def create_experiments(names: list[str]) -> None:
-    """Create the MLflow experiments before the worker processes start.
-
-    Workers that call ``mlflow.set_experiment`` on a missing experiment at
-    the same time race to create it, and the losers log to ``Default``.
-    """
-    import mlflow
-
-    uri = os.environ.get("MLFLOW_TRACKING_URI", tracking.DEFAULT_URI)
-    mlflow.set_tracking_uri(uri)
-    for name in names:
-        mlflow.set_experiment(name)
-
-
 def main() -> None:
     """Parse the command line, run the solves, write the CSV."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -268,10 +253,6 @@ def main() -> None:
     )
     args = parser.parse_args()
     log = not args.no_mlflow
-    if log:
-        create_experiments(
-            [f"maesolvers-hybrid-{name}" for name in ("T1", "T2", "T20", "T21")]
-        )
     if args.checks:
         with Pool(args.processes) as pool:
             rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)

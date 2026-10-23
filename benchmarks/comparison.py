@@ -9,7 +9,9 @@ how rerun rows merge into it) and turns the rows into three tables, the max
 error, the non-convex fraction and the time, with the problems as rows and the
 presets as columns in the order of ``SOLVERS``, and their notes, which it
 derives from the rows. It writes them into README.md between the two marker
-lines. It needs numpy and maesolvers only, so its tests
+lines. It also holds :func:`with_parts`, which the diagnostic runs of the
+neural receipts use to swap one part of a preset. It needs numpy and
+maesolvers only, so its tests
 (tests/test_comparison.py) run without extras. From the repository root::
 
     python benchmarks/comparison.py          # rewrite the README block
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import inspect
 import math
 import sys
@@ -32,6 +35,7 @@ import numpy as np
 from maesolvers import CATALOGUE, SOLVERS, Problem, Solver
 from maesolvers.catalogue import SHARED_TEST_SET
 from maesolvers.metrics import shared_grid, summarize_errors
+from maesolvers.neural import NeuralSolver
 
 HERE = Path(__file__).parent
 CSV = HERE / "comparison.csv"
@@ -84,6 +88,17 @@ oscillation ``max u - min u`` of the exact solution on the shared evaluation
 grid, which a constant added to ``u`` does not change."""
 
 
+PLANNED = {
+    "Dirichlet only": "transport boundary conditions",
+    "2D only": "n-dimensional boxes",
+}
+"""The unsupported reasons that the roadmap's 0.2 removes for the
+finite-difference presets, by the feature that removes them (README, Roadmap;
+the scope of issue #14). The neural presets keep them: 0.2 plans no neural
+transport preset, and ``PenaltyMLP`` stays 2D only, as its penalty makes the
+network convex only in 2D."""
+
+
 def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
     """Those of ``options`` that the constructor of the preset ``name`` takes.
 
@@ -93,6 +108,36 @@ def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
     """
     parameters = inspect.signature(SOLVERS[name]).parameters
     return {k: v for k, v in options.items() if k in parameters and v is not None}
+
+
+def with_parts(solver: NeuralSolver, **parts: Any) -> NeuralSolver:
+    """A :class:`NeuralSolver` with the parts and settings of ``solver``, but ``parts``.
+
+    A preset's parts are fields with ``init=False``, so
+    ``dataclasses.replace(preset, optimizer=BFGS())`` cannot swap one; this
+    copies every field of :class:`NeuralSolver` from ``solver`` and overrides
+    those named in ``parts`` (``optimizer=BFGS()``, say).
+
+    Parameters
+    ----------
+    solver
+        The neural solver to copy, usually a preset.
+    **parts
+        The fields to replace, by name.
+
+    Returns
+    -------
+    NeuralSolver
+
+    Raises
+    ------
+    TypeError
+        For a name in ``parts`` that is not a field of :class:`NeuralSolver`.
+    """
+    fields = {f.name for f in dataclasses.fields(NeuralSolver) if f.init}
+    if unknown := sorted(set(parts) - fields):
+        raise TypeError(f"not fields of NeuralSolver: {', '.join(unknown)}")
+    return NeuralSolver(**{name: getattr(solver, name) for name in fields} | parts)
 
 
 def unsupported_reason(solver: Solver, problem: Problem) -> str:
@@ -290,6 +335,11 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
             problems = reasons.setdefault(rows[0]["reason"], [])
             if problem not in problems:
                 problems.append(problem)
+    planned = [
+        f"{PLANNED[reason]} ({_listing(problems)})"
+        for reason, problems in reasons.items()
+        if reason in PLANNED
+    ]
     return [
         "A classical cell is one run on the grid `n` in parentheses, the largest "
         "`N` of the papers, with "
@@ -308,7 +358,11 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
         "A cell with a reason marks a preset that does not support the problem: "
         + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
         + ".",
-    ]
+    ] + (
+        [f"The roadmap's 0.2 gives the finite-difference presets {_listing(planned)}."]
+        if planned
+        else []
+    )
 
 
 def replace_block(text: str, block: str) -> str:

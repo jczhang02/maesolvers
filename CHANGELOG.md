@@ -2,7 +2,10 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## Unreleased
+## 0.1.0 (2026-10-23)
+
+This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.
+The rest of the interface (solvers, schemes, iterations, the neural parts and the presets) may still change in 0.x, never silently.
 
 ### Added
 
@@ -10,6 +13,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   `discretize` raises `ValueError` for an `f` that is negative or not finite at an interior node.
   `spline_degree` is 1 to 5 whatever `n`; with fewer than `spline_degree` cells per side the spline takes degree `n`, as for `Standard9`.
   It provides `residual`, `jacobian` (a generalised Jacobian, so `Newton` on it is a semi-smooth Newton method) and `solve_laplace`, so `Newton(scheme=Monotone17(...))` solves it; `PoissonIteration` refuses it, as it has no `second_derivatives`.
+  `directional_differences(grid, v)` returns the second differences of every pair at the interior nodes, shape `(pairs, 2, m)` in the order of `stencil_pairs`, for code that inspects a solution pair by pair.
   Below zero each pair's product continues with the slope `kappa = sqrt(max(f, mean f, 1))`, so a root has no negative second difference in a pair that enters the minimum, and Newton's stopping rule cannot accept a non-convex iterate that is not a root; `boundary` chooses between leaving the wide pairs out next to the boundary (`"narrow"`, which matches the published tables) and shortening their arms to the boundary (`"interpolate"`, which the papers describe).
   The pure kernels `stencil_pairs`, `directional_difference`, `pair_values` and `pair_jacobian_coefficients` are in `maesolvers.classical.monotone`, with `MonotoneGrid`, the context `Monotone17.discretize` returns, whose fields may change with the scheme.
 - The preset `FDMonotone(n, stencil, boundary, jacobian_floor, spline_degree, max_iter=200, tol=1e-10)`, `Newton` on `Monotone17`, registered in `SOLVERS`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides.
@@ -78,8 +82,13 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
 - The fields of `Grid`, private to `Standard9`: `x` and `y` are gone; `h`, `row_scale`, `interpolate` and `interpolant` are new.
 - The `neural` extra is torch and lightning >= 2 (it was torch alone).
+- The `cli` extra is `jsonargparse[signatures]` (it was `jsonargparse`), which adds docstring-parser, so `maesolvers solve --solver.help <class>` shows each parameter's description from the numpy docstring next to its type and default.
 - CI's `test` job installs the `neural-cpu` group and runs the neural tests on CPU; it fails if a CUDA wheel is installed.
 - The development Python is 3.12 (`.python-version`): torch 2.7.1 has no wheel for 3.14.
+
+### Fixed
+
+- `tracking.run` starts its run in the experiment it names, by id: worker processes that opened runs in the same new experiment at once could log to `Default`, because `mlflow.set_experiment` does not make the experiment active when it loses the race to create it (#54).
 
 ## 0.0.2 (2026-10-22)
 
