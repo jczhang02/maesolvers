@@ -169,7 +169,7 @@ The levels stand, but on T9 at `N = 64` only just (ratio 1.99).
 The paper stops at `||r_l||_2 / ||r_0||_2 <= 1e-6` and does not say what `r_0` is for the FMG-FAS method, which has no initial guess on the finest grid.
 Ours is the residual of the node values that are 0 inside, with the Dirichlet data on the ring (the iterate from which the coarsest grid starts), a residual that grows like `N^5` in 3D at the nodes next to the ring.
 With it the iteration counts on T2 match Table 1 in all seven cells and Table 2 in five (ours 2 against 3 at `N = 128`, 2 against 1 at 512), and every other example takes one cycle, as published, except T46 at `N = 8` (ours 1, published 2).
-The relative residuals after the cycle do not match: in 3D ours are 1.2 to 230 times smaller than the printed ones, the gap growing with `N`, so the paper's reference grows more slowly with `N` than ours.
+The relative residuals after the cycle do not match: in 3D the printed value divided by ours runs from 0.1 (T46, `N = 8`, where the paper takes a second cycle) to 220 (T9, `N = 128`); it grows with `N` on T9 (3.7 to 220) and T46 (3.0 to 60 from `N = 16`), stays at 3 to 4 on T28 and between 0.9 and 11 on T22, so on the smooth examples the paper's reference grows more slowly with `N` than ours.
 For the stand-alone Gauss-Seidel solver the natural reference, the residual of the start `1.01 u`, reproduces the published sweep counts exactly, so the norm itself (the plain L2 norm over the unknowns) is the paper's.
 The stopping rule decides only whether a second cycle runs; where it does (T2 at `N = 128` and 256, and 512 lexicographic), the error changes by 0.4 to 1.7 percent.
 
