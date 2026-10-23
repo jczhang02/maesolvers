@@ -103,5 +103,5 @@ The default `m = 4` is the paper's best `m` on T39 around 5,000 nodes; on a nons
 - Convex 2D domains only (`Box`, `Disk`, `Ellipse`, `CutQuarterDisk`, `DiskUnionSquare`) with a Dirichlet boundary.
 - The accuracy depends on `stencil_factor`, and the best value depends on the grid and the problem; the error at a fixed `m` levels off as `h` falls.
 - Memory and setup grow with `directions`: the scheme stores 7 entries per unknown and direction, and locates `2 directions` stencil ends per unknown in the triangulation; a solve at `n = 1280` with 64 directions holds about 10 GB.
-- Time grows with `n` at a fixed `stencil_factor`, since the Krylov methods need more steps the smaller `k / diam`: on a100server, one thread, a solve of the turned T40 at `m = 2` took 91 s at `n = 320` and 1900 s at `n = 640` (25 and 27 Howard steps).
+- Time grows with `n` at a fixed `stencil_factor`, since the Krylov methods need more steps the smaller `k / diam`: on a100server, one thread, a solve of T40 turned off the grid at `m = 2` took 82 s at `n = 320` and 1767 s at `n = 640` (25 and 27 Howard steps), and more than 13 hours at `n = 1280` (`benchmarks/feng_jensen2017.md`, Rerun).
 - `node_hessian` is a fit, and where `k < h` next to the boundary the second differences behind it are not consistent.

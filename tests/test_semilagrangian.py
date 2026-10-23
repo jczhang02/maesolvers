@@ -379,7 +379,7 @@ def test_t40_is_exact_at_the_nodes_because_its_kink_follows_the_grid(n):
     ids=["T39", "T40 turned"],
 )
 def test_the_receipt_rows_at_n_20_rerun(problem, error, steps):
-    """benchmarks/feng_jensen2017.csv at dde1578, m = 4, n = 20: the max error."""
+    """benchmarks/feng_jensen2017.csv (cf16a7c; dde1578 too), n = 20, m = 4."""
     result = FDSemiLagrangian(n=20, stencil_factor=4.0).solve(problem)
     assert result.info["iterations"] == steps
     assert evaluate(result)["max"] == pytest.approx(error, rel=1e-9)
