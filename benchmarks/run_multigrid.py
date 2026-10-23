@@ -1,0 +1,779 @@
+"""Regenerate multigrid.csv: the tables of Liu, Froese, Oberman and Xiao (2017).
+
+J. Liu, B. D. Froese, A. M. Oberman, M. Xiao, "A multigrid scheme for 3D
+Monge-Ampere equations", Int. J. Comput. Math. 94 (2017) 1850-1866: Tables 1
+and 2 (Examples 4.1 to 4.3, T1, T3 and T2 on (0, 1)^2, N = 128 to 8192,
+red-black and lexicographic Gauss-Seidel), Table 3 (Example 4.4, T9 on
+(0, 1)^3), Table 5 (Example 4.5, T46 on (0, pi)^3), Table 6 (Example 4.6, T28)
+and Table 7 (Example 4.7, T22), N = 8 to 128, lexicographic. The published
+values below were checked against the page images.
+
+One row per table, ordering and N. The FMG-FAS columns ``relres``,
+``error``, ``iterations`` and ``time_s`` stop as the paper does, at the
+first cycle whose relative residual is at most 1e-6: :class:`PaperStop`,
+``Multigrid(scheme=StandardBox(n=N), ordering=...)`` with that stopping rule
+and the paper's settings, which are the defaults (2 + 2 sweeps, 1 on the
+coarsest grid); ``error`` is the max error at the nodes, as ``evaluate``
+reports it. The ``default_*`` columns are the preset
+``FDMultigrid(n=N, ordering=...)`` with its own stopping rule, the residual's
+RMS at most ``1e-6 max(1, max |f|)``: its cycles, whether it converged
+within 50, its error and its max residual. ``error_converged`` is
+the error of the discrete solution itself: the FMG cycle and 9 more
+V-cycles, red-black, whatever the relative residual (its reference grows
+like ``N^5`` in 3D, so no fixed tolerance means the same at every N). In
+3D a red-black row is ours alone (the paper sweeps lexicographically
+there). For N <= 32 in 3D the Gauss-Seidel columns
+repeat the paper's stand-alone solver: lexicographic sweeps from
+``1.01 u`` at the unknowns until the residual's discrete L2 norm is 1e-6
+times that of the start.
+
+Every row is one MLflow run in maesolvers-multigrid-<problem>, named
+``table<k>-<ordering>-n<N>``, unless --no-mlflow is given. The cases run in
+--workers processes (default 8), one thread each, the largest first; the
+CSV is written after the last run. Run it on a100server from the
+repository root, writing outside the checkout so the runs see it clean::
+
+    just remote-bg multigrid env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
+        python benchmarks/run_multigrid.py \\
+        --out /jczhang02/maesolvers-data/data/multigrid.csv
+
+``--checks`` writes multigrid_checks.csv instead (Findings 1, 3 and 4 and
+the Conventions of ``benchmarks/multigrid.md``), one row per variant of the
+method: T2 at N = 128 to 1024 with the paper's root selection and with a
+smoother that takes a right-hand side ``b <= 0`` as 0 (:class:`ClampedBox`),
+both orderings, up to 50 cycles each at the paper's stopping rule; T22 at
+N = 64 and 128 after 5, 10, 15, 20 and 30 cycles; one FMG cycle,
+lexicographic, with our FMG interpolation and with the 4-point cubic one
+(:class:`KeysFMG`) on T9, T46 and T28 (N = 8 to 128) and T1 and T3
+(N = 128 to 1024); and one FMG cycle, and ten cycles at N = 256, on T1 and
+at N = 64 on T9, from the half-weighted coarse start that Algorithm 1
+step (4) prints (:class:`HalfWeightedStart`).
+
+``--table4`` writes multigrid_table4.csv instead: T9 on the grids of
+Table 4 (N = 8, 12, 16, 22, 32 cells, so that the unknowns are the printed
+DOFs), with the 19-point monotone scheme ``FDMonotone(n=N, stencil=19)`` of
+issue #27 and with ``FDMultigrid(n=N)``, next to the "Wide-stencil FD"
+column the paper reprints from Froese-Oberman (J. Comput. Phys. 2011).
+
+``--report`` prints the markdown tables of ``benchmarks/multigrid.md`` from
+the CSV instead: ours next to the published values, the ratios and the
+least-squares orders.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import platform
+import resource
+import time
+from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from maesolvers import (
+    CATALOGUE,
+    FDMonotone,
+    FDMultigrid,
+    Multigrid,
+    Problem,
+    StandardBox,
+    tracking,
+)
+from maesolvers.classical.multigrid import (
+    MultigridContext,
+    _operator,
+    _sweep,
+    _with_ring,
+    half_weighting,
+    resample,
+    sweep_groups,
+)
+from maesolvers.metrics import evaluate
+
+HERE = Path(__file__).parent
+CSV = HERE / "multigrid.csv"
+CHECKS_CSV = HERE / "multigrid_checks.csv"
+TABLE4_CSV = HERE / "multigrid_table4.csv"
+
+PAPER_TOL = 1e-6
+"""The paper's relative residual, for FMG-FAS and the Gauss-Seidel solver."""
+GS_MAX_SWEEPS = 5000
+GS_LARGEST_N = 32
+"""The paper runs its stand-alone Gauss-Seidel solver up to N = 32."""
+CONVERGED_CYCLES = 10
+"""Cycles for the discrete solution: each V-cycle cuts the residual some tenfold."""
+CONVERGED_TOL = 1e-30
+"""Below any relative residual, so that the discrete solution takes every cycle."""
+
+TWO_D = (128, 256, 512, 1024, 2048, 4096, 8192)
+THREE_D = (8, 16, 32, 64, 128)
+
+# Published values as printed, by (table, problem): one tuple per N of
+# (relative residual, error, iterations, CPU seconds); None where not printed.
+P = None
+PUBLISHED: dict[tuple[int, str], dict[int, tuple[Any, ...]]] = {
+    (1, "T1"): dict(zip(TWO_D, [
+        (P, "4.5e-06", 1, "0.1"), (P, "1.1e-06", 1, "0.1"), (P, "2.8e-07", 1, "0.3"),
+        (P, "7.0e-08", 1, "1.0"), (P, "1.7e-08", 1, "3.6"), (P, "4.3e-09", 1, "16.2"),
+        (P, "1.0e-09", 1, "67.1"),
+    ], strict=True)),
+    (1, "T3"): dict(zip(TWO_D, [
+        (P, "3.8e-05", 1, "0.1"), (P, "1.3e-05", 1, "0.1"), (P, "4.7e-06", 1, "0.3"),
+        (P, "1.7e-06", 1, "1.1"), (P, "5.9e-07", 1, "4.0"), (P, "2.1e-07", 1, "16.5"),
+        (P, "7.4e-08", 1, "69.1"),
+    ], strict=True)),
+    (1, "T2"): dict(zip(TWO_D, [
+        (P, "8.9e-03", 2, "0.1"), (P, "6.4e-03", 2, "0.2"), (P, "4.5e-03", 1, "0.3"),
+        (P, "3.2e-03", 1, "1.1"), (P, "2.3e-03", 1, "3.8"), (P, "1.6e-03", 1, "18.0"),
+        (P, "1.1e-03", 1, "70.3"),
+    ], strict=True)),
+    (2, "T1"): dict(zip(TWO_D, [
+        (P, "5.1e-06", 1, "0.1"), (P, "1.3e-06", 1, "0.2"), (P, "3.3e-07", 1, "0.8"),
+        (P, "8.2e-08", 1, "3.2"), (P, "2.1e-08", 1, "12.7"), (P, "5.1e-09", 1, "53.2"),
+        (P, "1.3e-09", 1, "245.6"),
+    ], strict=True)),
+    (2, "T3"): dict(zip(TWO_D, [
+        (P, "4.3e-05", 1, "0.1"), (P, "1.5e-05", 1, "0.3"), (P, "5.4e-06", 1, "0.9"),
+        (P, "1.9e-06", 1, "3.27"), (P, "6.8e-07", 1, "12.9"), (P, "2.4e-07", 1, "54.6"),
+        (P, "8.5e-08", 1, "259.4"),
+    ], strict=True)),
+    (2, "T2"): dict(zip(TWO_D, [
+        (P, "8.9e-03", 3, "0.1"), (P, "6.3e-03", 2, "0.2"), (P, "4.4e-03", 1, "0.8"),
+        (P, "3.2e-03", 1, "3.1"), (P, "2.2e-03", 1, "12.6"), (P, "1.6e-03", 1, "53.5"),
+        (P, "1.1e-03", 1, "250.7"),
+    ], strict=True)),
+    (3, "T9"): dict(zip(THREE_D, [
+        ("3.1e-07", "1.2e-03", 1, "0.1"), ("9.5e-09", "2.7e-04", 1, "0.2"),
+        ("2.1e-10", "5.7e-05", 1, "2.0"), ("4.1e-12", "1.4e-05", 1, "16.9"),
+        ("5.2e-13", "6.2e-06", 1, "136.9"),
+    ], strict=True)),
+    (5, "T46"): dict(zip(THREE_D, [
+        ("6.8e-08", "1.7e-02", 2, "0.1"), ("2.1e-08", "3.3e-03", 1, "0.2"),
+        ("2.7e-10", "8.1e-04", 1, "2.0"), ("3.7e-12", "2.1e-04", 1, "16.4"),
+        ("4.8e-13", "5.2e-05", 1, "134.1"),
+    ], strict=True)),
+    (6, "T28"): dict(zip(THREE_D, [
+        ("2.7e-07", "5.3e-04", 1, "0.1"), ("1.1e-08", "2.1e-04", 1, "0.2"),
+        ("4.8e-10", "7.4e-05", 1, "2.0"), ("2.0e-11", "2.6e-05", 1, "16.4"),
+        ("1.2e-12", "9.3e-06", 1, "133.9"),
+    ], strict=True)),
+    (7, "T22"): dict(zip(THREE_D, [
+        ("1.7e-07", "1.4e-03", 1, "0.1"), ("2.1e-08", "1.4e-03", 1, "0.2"),
+        ("2.7e-08", "4.3e-03", 1, "2.0"), ("4.9e-09", "2.2e-03", 1, "16.3"),
+        ("1.7e-09", "1.6e-03", 1, "133.1"),
+    ], strict=True)),
+}  # fmt: skip
+
+PUBLISHED_GS: dict[int, dict[int, tuple[str, str, int, str]]] = {
+    3: {8: ("9.3e-07", "1.2e-03", 72, "0.4"), 16: ("9.9e-07", "3.0e-04", 270, "11.5"),
+        32: ("1.0e-06", "8.1e-05", 867, "324.6")},
+    5: {8: ("9.2e-07", "1.7e-02", 82, "0.4"), 16: ("9.8e-07", "4.3e-03", 296, "12.9"),
+        32: ("1.0e-06", "1.1e-03", 954, "356.2")},
+    6: {8: ("9.7e-07", "4.0e-04", 86, "0.4"), 16: ("9.9e-07", "1.4e-04", 312, "13.2"),
+        32: ("9.9e-07", "5.1e-05", 925, "345.8")},
+    7: {8: ("8.9e-07", "1.4e-03", 75, "0.4"), 16: ("9.7e-07", "1.4e-03", 266, "12.2"),
+        32: ("9.9e-07", "1.1e-03", 854, "320.2")},
+}  # fmt: skip
+"""The stand-alone Gauss-Seidel columns of Tables 3 and 5 to 7, by table and N."""
+
+EXAMPLE = {"T1": "4.1", "T3": "4.2", "T2": "4.3", "T9": "4.4", "T46": "4.5"}
+EXAMPLE |= {"T28": "4.6", "T22": "4.7"}
+
+FIELDS = (
+    "table",
+    "example",
+    "problem",
+    "ordering",
+    "n",
+    "relres",
+    "error",
+    "iterations",
+    "time_s",
+    "published_relres",
+    "published_error",
+    "published_iterations",
+    "published_time_s",
+    "error_after_fmg",
+    "default_iterations",
+    "default_converged",
+    "default_error",
+    "default_residual_max",
+    "default_time_s",
+    "error_converged",
+    "relres_converged",
+    "gs_relres",
+    "gs_error",
+    "gs_iterations",
+    "gs_time_s",
+    "published_gs_relres",
+    "published_gs_error",
+    "published_gs_iterations",
+    "published_gs_time_s",
+    "max_grid",
+    "nonconvex_fraction",
+    "residual_max",
+    "peak_rss_mb",
+    "commit",
+    "cpu",
+)
+
+
+def cases() -> list[tuple[int, str, str, int]]:
+    """Every (table, problem, ordering, N), the largest grids first."""
+    out = []
+    for (table, problem), rows in PUBLISHED.items():
+        orderings = (
+            ("red-black",)
+            if table == 1
+            else ("lexicographic",)
+            if table == 2
+            else ("lexicographic", "red-black")
+        )
+        out += [(table, problem, o, n) for o in orderings for n in rows]
+    return sorted(out, key=lambda c: -(c[3] ** CATALOGUE[c[1]].dim))
+
+
+@dataclass(frozen=True, kw_only=True)
+class PaperStop(Multigrid):
+    """Multigrid that stops as the paper does: the relative residual at most ``tol``.
+
+    The relative residual is the measure :class:`Multigrid` reports, the
+    residual's RMS over that of the node values that are 0 inside, whose
+    reference grows like ``N^(2d)`` (Finding 2); ``tol`` is the paper's
+    ``1e-6`` by default.
+    """
+
+    def converged(
+        self, problem: Problem, context: MultigridContext, measure: float
+    ) -> bool:
+        """Whether the relative residual is at most ``tol``."""
+        return measure <= self.tol
+
+
+def gauss_seidel(
+    problem: Problem, n: int, max_sweeps: int = GS_MAX_SWEEPS
+) -> dict[str, float]:
+    """The paper's stand-alone solver: lexicographic sweeps from 1.01 u.
+
+    Sweeps of ``StandardBox.relax`` in the lexicographic order until the
+    residual's L2 norm over the unknowns is at most ``PAPER_TOL`` times that
+    of the start, or ``max_sweeps`` sweeps; ``gs_relres`` above ``PAPER_TOL``
+    means it stopped at ``max_sweeps``. ``tests/test_reproduction.py`` pins
+    it.
+    """
+    assert problem.exact is not None
+    scheme = StandardBox(n=n)
+    grid = scheme.discretize(problem)
+    box = grid.grid
+    u = scheme.values(grid, 1.01 * problem.exact(box.nodes[box.interior]))
+    f = np.zeros(len(u))
+    f[box.interior] = grid.f
+    groups = sweep_groups(n, box.dim, "lexicographic")
+
+    def residual() -> float:
+        return float(np.linalg.norm(scheme.residual(grid, u[box.interior])))
+
+    start, reference, sweeps = time.perf_counter(), residual(), 0
+    relres = 1.0
+    while relres > PAPER_TOL and sweeps < max_sweeps:
+        for nodes in groups:
+            u[nodes] = scheme.relax(grid, u, f[nodes], nodes)
+        sweeps += 1
+        relres = residual() / reference
+    return {
+        "gs_relres": relres,
+        "gs_error": float(np.max(np.abs(u - problem.exact(box.nodes)))),
+        "gs_iterations": sweeps,
+        "gs_time_s": time.perf_counter() - start,
+    }
+
+
+def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
+    """Run one row of multigrid.csv."""
+    table, name, ordering, n = case
+    problem = CATALOGUE[name]
+    solver = PaperStop(scheme=StandardBox(n=n), ordering=ordering)
+    published = PUBLISHED[table, name][n] if ordering == _paper_ordering(table) else ()
+    row: dict[str, Any] = {
+        "table": table,
+        "example": EXAMPLE[name],
+        "problem": name,
+        "ordering": ordering,
+        "n": n,
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+        "cpu": platform.processor() or platform.machine(),
+    }
+    for key, value in zip(
+        (
+            "published_relres",
+            "published_error",
+            "published_iterations",
+            "published_time_s",
+        ),
+        published,
+        strict=False,
+    ):
+        row[key] = "" if value is None else value
+
+    def solve() -> None:
+        callbacks = [tracking.MLflowLogger()] if log else []
+        result = solver.solve(problem, callbacks=callbacks)
+        metrics = evaluate(result)
+        row.update(
+            relres=result.info["history"][-1],
+            error=metrics["max"],
+            iterations=result.info["iterations"],
+            time_s=result.info["time"],
+            error_after_fmg=metrics["max"],
+            max_grid=metrics["max_grid"],
+            nonconvex_fraction=metrics["nonconvex_fraction"],
+            residual_max=result.info["residual_max"],
+        )
+        del result
+        if row["iterations"] > 1:
+            fmg = FDMultigrid(n=n, ordering=ordering, max_iter=1).solve(problem)
+            assert fmg.values is not None and fmg.nodes is not None
+            row["error_after_fmg"] = _error(problem, fmg.values, fmg.nodes)
+            del fmg
+        default = FDMultigrid(n=n, ordering=ordering).solve(problem)
+        assert default.values is not None and default.nodes is not None
+        row.update(
+            default_iterations=default.info["iterations"],
+            default_converged=default.info["converged"],
+            default_error=_error(problem, default.values, default.nodes),
+            default_residual_max=default.info["residual_max"],
+            default_time_s=default.info["time"],
+        )
+        del default
+        tight = FDMultigrid(
+            n=n, ordering="red-black", tol=CONVERGED_TOL, max_iter=CONVERGED_CYCLES
+        ).solve(problem)
+        assert tight.values is not None and tight.nodes is not None
+        row["error_converged"] = _error(problem, tight.values, tight.nodes)
+        row["relres_converged"] = tight.info["history"][-1]
+        del tight
+        if problem.dim == 3 and ordering == "lexicographic" and n <= GS_LARGEST_N:
+            row.update(gauss_seidel(problem, n))
+            for key, value in zip(
+                ("relres", "error", "iterations", "time_s"),
+                PUBLISHED_GS[table][n],
+                strict=True,
+            ):
+                row[f"published_gs_{key}"] = value
+        row["peak_rss_mb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+
+    if log:
+        import mlflow
+
+        experiment = f"maesolvers-multigrid-{name}"
+        params = {"table": table, "example": EXAMPLE[name]}
+        with tracking.run(experiment, params, run_name=f"table{table}-{ordering}-n{n}"):
+            solve()
+            mlflow.log_metrics(
+                {
+                    k: float(v)
+                    for k, v in row.items()
+                    if k.startswith(("error_", "gs_", "relres_", "default_"))
+                    and v != ""
+                }
+            )
+    else:
+        solve()
+    print(", ".join(f"{k} {row.get(k, '')}" for k in FIELDS[:9]), flush=True)
+    return row
+
+
+def _error(problem: Problem, values: np.ndarray, nodes: np.ndarray) -> float:
+    """The max error at the nodes, evaluate's ``max``."""
+    assert problem.exact is not None
+    return float(np.max(np.abs(values - problem.exact(nodes))))
+
+
+def _paper_ordering(table: int) -> str:
+    return "red-black" if table == 1 else "lexicographic"
+
+
+def _work(args: tuple[tuple[int, str, str, int], bool]) -> dict[str, Any]:
+    return run_case(*args)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ClampedBox(StandardBox):
+    """StandardBox whose relax takes a right-hand side ``b <= 0`` as 0."""
+
+    def relax(
+        self, grid: Any, u: np.ndarray, b: np.ndarray, nodes: np.ndarray
+    ) -> np.ndarray:
+        """The update of :meth:`StandardBox.relax` for ``max(b, 0)``."""
+        return super().relax(grid, u, np.maximum(b, 0.0), nodes)
+
+
+def keys_resample(u: np.ndarray, n_to: int) -> np.ndarray:
+    """Interpolate node values onto the grid of twice the cells, 4 points at a time.
+
+    Along each axis the new node at ``x`` (in coarse cells) takes the cubic
+    through the 4 coarse nodes nearest to it, the first of them clamped to
+    ``[0, n - 3]``: the coarse nodes keep their values, an inner midpoint
+    takes ``(-1, 9, 9, -1) / 16`` (Keys' cubic convolution, ``a = -1/2``),
+    the midpoint next to an end ``(5, 15, -5, 1) / 16``. A grid of fewer than
+    3 cells takes the polynomial through all its nodes.
+    """
+    out = np.asarray(u, dtype=float)
+    for k in range(out.ndim):
+        n = out.shape[k] - 1
+        if n_to != 2 * n:
+            raise ValueError(f"keys_resample doubles the cells, {n} to {n_to}")
+        m = min(3, n) + 1  # nodes per stencil
+        x = np.arange(n_to + 1) / 2.0
+        first = np.clip(np.floor(x).astype(int) - 1, 0, n + 1 - m)
+        nodes = first[:, None] + np.arange(m)
+        weights = np.ones((len(x), m))
+        for a in range(m):
+            for b in range(m):
+                if a != b:
+                    weights[:, a] *= (x - nodes[:, b]) / (nodes[:, a] - nodes[:, b])
+        moved = np.moveaxis(out, k, 0)
+        out = np.moveaxis(np.einsum("tm,tm...->t...", weights, moved[nodes]), 0, k)
+    return np.ascontiguousarray(out)
+
+
+@dataclass(frozen=True, kw_only=True)
+class KeysFMG(PaperStop):
+    """PaperStop with :func:`keys_resample` as the FMG interpolation."""
+
+    def interpolate_fmg(self, u: np.ndarray, n_to: int) -> np.ndarray:
+        """:func:`keys_resample` of the coarse solution."""
+        return keys_resample(u, n_to)
+
+
+@dataclass(frozen=True, kw_only=True)
+class HalfWeightedStart(PaperStop):
+    """PaperStop whose coarse problem starts from the half-weighted iterate.
+
+    Algorithm 1, step (4), as printed: ``u_H := I w_h`` (half-weighting) is
+    the start of the coarse cycle, ``w_H := I~ w_h`` (injection) the shift of
+    the FAS right-hand side and of the correction. :class:`Multigrid` starts
+    from ``w_H``. The cycle below is :meth:`Multigrid._cycle` with that one
+    line changed; it uses the module's private helpers.
+    """
+
+    def _cycle(
+        self, levels: Any, index: int, u: np.ndarray, b: np.ndarray
+    ) -> np.ndarray:
+        level = levels[index]
+        if index == len(levels) - 1:
+            _sweep(level, u, b, self.coarsest_sweeps)
+            return u
+        _sweep(level, u, b, self.pre_sweeps)
+        coarse = levels[index + 1]
+        shape, n_coarse = level.grid.shape, coarse.grid.n
+        residual = resample(
+            half_weighting((b - _operator(level, u)).reshape(shape)), n_coarse
+        ).ravel()
+        residual[~coarse.grid.interior] = 0.0
+        w = _with_ring(coarse, resample(u.reshape(shape), n_coarse).ravel())
+        start = resample(half_weighting(u.reshape(shape)), n_coarse).ravel()
+        corrected = self._cycle(
+            levels,
+            index + 1,
+            _with_ring(coarse, start),
+            _operator(coarse, w) + residual,
+        )
+        u += resample((corrected - w).reshape(coarse.grid.shape), level.grid.n).ravel()
+        _sweep(level, u, b, self.post_sweeps)
+        return u
+
+
+VARIANTS: dict[str, Any] = {
+    "paper": PaperStop,
+    "clamped": PaperStop,
+    "keys": KeysFMG,
+    "half-weighted-start": HalfWeightedStart,
+}
+"""The solver class of each variant of multigrid_checks.csv; "clamped" runs on ClampedBox."""
+
+CHECK_FIELDS = (
+    "problem",
+    "ordering",
+    "n",
+    "variant",
+    "cycles",
+    "error",
+    "iterations",
+    "converged",
+    "relres",
+    "residual_max",
+    "commit",
+)
+
+CheckCase = tuple[str, str, int, str, int | None]
+"""(problem, ordering, N, variant, cycles or None for the paper's stopping rule)."""
+
+
+def checks() -> list[CheckCase]:
+    """Every row of multigrid_checks.csv.
+
+    T2 at N = 128 to 1024, the paper's method and the smoother that clamps
+    b at 0, at the paper's stopping rule (Finding 3); T22 at N = 64 and 128
+    after a fixed number of cycles (Finding 4); one FMG cycle with the
+    paper's and the 4-point cubic FMG interpolation (Finding 1); the
+    half-weighted coarse start (Conventions).
+    """
+    roots: list[CheckCase] = [
+        ("T2", o, n, v, None)
+        for o in ("red-black", "lexicographic")
+        for n in (128, 256, 512, 1024)
+        for v in ("paper", "clamped")
+    ]
+    cycles: list[CheckCase] = [
+        ("T22", o, n, "paper", k)
+        for o in ("red-black", "lexicographic")
+        for n in (64, 128)
+        for k in (5, 10, 15, 20, 30)
+    ]
+    sizes = {"T9": THREE_D, "T46": THREE_D, "T28": THREE_D}
+    sizes |= {"T1": TWO_D[:4], "T3": TWO_D[:4]}
+    interpolation: list[CheckCase] = [
+        (name, "lexicographic", n, v, 1)
+        for name, ns in sizes.items()
+        for n in ns
+        for v in ("paper", "keys")
+    ]
+    start: list[CheckCase] = [
+        (name, "lexicographic", n, "half-weighted-start", k)
+        for name, ns in (("T1", (128, 256, 512)), ("T9", (64,)))
+        for n in ns
+        for k in (1, 10)
+        if k == 1 or n in (256, 64)
+    ]
+    return roots + cycles + interpolation + start
+
+
+def run_check(case: CheckCase, log: bool) -> dict[str, Any]:
+    """Run one row of multigrid_checks.csv."""
+    name, ordering, n, variant, cycles = case
+    problem = CATALOGUE[name]
+    scheme = ClampedBox(n=n) if variant == "clamped" else StandardBox(n=n)
+    budget = {"max_iter": 50} if cycles is None else {"max_iter": cycles}
+    if cycles is not None:
+        budget["tol"] = CONVERGED_TOL
+    solver = VARIANTS[variant](scheme=scheme, ordering=ordering, **budget)
+    result = solver.solve(problem)
+    assert result.values is not None and result.nodes is not None
+    row = {
+        "problem": name,
+        "ordering": ordering,
+        "n": n,
+        "variant": variant,
+        "cycles": "" if cycles is None else cycles,
+        "error": _error(problem, result.values, result.nodes),
+        "iterations": result.info["iterations"],
+        "converged": result.info["converged"],
+        "relres": result.info["history"][-1],
+        "residual_max": result.info["residual_max"],
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+    }
+    if log:
+        import mlflow
+
+        run_name = f"check-{variant}-{ordering}-n{n}" + (
+            "" if cycles is None else f"-cycles{cycles}"
+        )
+        with tracking.run(
+            f"maesolvers-multigrid-{name}", {"variant": variant}, run_name=run_name
+        ):
+            mlflow.log_metrics(
+                {k: float(row[k]) for k in ("error", "iterations", "relres")}
+            )
+    print(", ".join(f"{k} {row[k]}" for k in CHECK_FIELDS[:-1]), flush=True)
+    return row
+
+
+def _check_work(args: tuple[CheckCase, bool]) -> dict[str, Any]:
+    return run_check(*args)
+
+
+TABLE4: dict[int, tuple[int, str, str]] = {
+    8: (343, "1.51e-02", "0.04"),
+    12: (1331, "1.40e-02", "0.10"),
+    16: (3375, "1.29e-02", "0.71"),
+    22: (9261, "1.21e-02", "6.72"),
+    32: (29791, "1.11e-02", "86.63"),
+}
+"""Table 4, column "Wide-stencil FD [19]": N, DOFs, max error and CPU s on T9."""
+
+TABLE4_FIELDS = (
+    "n",
+    "published_dofs",
+    "published_error",
+    "published_time_s",
+    "unknowns",
+    "monotone19_error",
+    "monotone19_iterations",
+    "monotone19_converged",
+    "monotone19_time_s",
+    "multigrid_error",
+    "multigrid_iterations",
+    "multigrid_time_s",
+    "commit",
+)
+
+
+def run_table4(n: int, log: bool) -> dict[str, Any]:
+    """One row of multigrid_table4.csv: T9 on n cells, monotone and multigrid."""
+    problem = CATALOGUE["T9"]
+    monotone = FDMonotone(n=n, stencil=19).solve(problem)
+    multigrid = FDMultigrid(n=n).solve(problem)
+    dofs, error, cpu = TABLE4[n]
+    row = {
+        "n": n,
+        "published_dofs": dofs,
+        "published_error": error,
+        "published_time_s": cpu,
+        "unknowns": multigrid.info["unknowns"],
+        "monotone19_error": evaluate(monotone)["max"],
+        "monotone19_iterations": monotone.info["iterations"],
+        "monotone19_converged": monotone.info["converged"],
+        "monotone19_time_s": monotone.info["time"],
+        "multigrid_error": evaluate(multigrid)["max"],
+        "multigrid_iterations": multigrid.info["iterations"],
+        "multigrid_time_s": multigrid.info["time"],
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+    }
+    if log:
+        import mlflow
+
+        with tracking.run(
+            "maesolvers-multigrid-T9", {"table": 4}, run_name=f"table4-n{n}"
+        ):
+            mlflow.log_metrics(
+                {
+                    k: float(v)
+                    for k, v in row.items()
+                    if k.startswith(("monotone19", "multigrid"))
+                }
+            )
+    print(", ".join(f"{k} {row[k]}" for k in TABLE4_FIELDS[:-1]), flush=True)
+    return row
+
+
+def _table4_work(args: tuple[int, bool]) -> dict[str, Any]:
+    return run_table4(*args)
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    """Parse the command line; run the cases, or print the report."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--largest", type=int, default=None, help="skip larger N")
+    parser.add_argument("--out", type=Path, default=CSV)
+    parser.add_argument("--report", action="store_true", help="print the md tables")
+    parser.add_argument("--checks", action="store_true", help="Findings 3 and 4")
+    parser.add_argument("--table4", action="store_true", help="Table 4 on T9")
+    args = parser.parse_args(None if argv is None else list(argv))
+    if args.report:
+        report(args.out)
+        return
+    if args.table4:
+        with ProcessPoolExecutor(args.workers) as pool:
+            rows = list(
+                pool.map(_table4_work, [(n, not args.no_mlflow) for n in TABLE4])
+            )
+        with (TABLE4_CSV if args.out == CSV else args.out).open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=TABLE4_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        return
+    if args.checks:
+        with ProcessPoolExecutor(args.workers) as pool:
+            rows = list(
+                pool.map(_check_work, [(c, not args.no_mlflow) for c in checks()])
+            )
+        with (CHECKS_CSV if args.out == CSV else args.out).open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CHECK_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        return
+    todo = [c for c in cases() if args.largest is None or c[3] <= args.largest]
+    with ProcessPoolExecutor(args.workers) as pool:
+        rows = list(pool.map(_work, [(c, not args.no_mlflow) for c in todo]))
+    rows.sort(key=lambda r: (r["table"], r["problem"], r["ordering"], r["n"]))
+    with args.out.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def report(path: Path) -> None:
+    """Print, per table and problem, ours next to the published values."""
+    with path.open() as fh:
+        rows = list(csv.DictReader(fh))
+    for (table, name), _ in PUBLISHED.items():
+        for ordering in ("red-black", "lexicographic"):
+            sel = [
+                r
+                for r in rows
+                if r["table"] == str(table)
+                and r["problem"] == name
+                and r["ordering"] == ordering
+            ]
+            if not sel:
+                continue
+            sel.sort(key=lambda r: int(r["n"]))
+            print(f"\nTable {table}, {name} (Example {EXAMPLE[name]}), {ordering}\n")
+            print(
+                "| N | Published | Ours | Ratio | Iter (pub., ours) | RelRes (pub., ours)"
+                " | Converged | CPU s (pub., ours) | FDMultigrid (cycles, converged,"
+                " error) |"
+            )
+            print("|---|---|---|---|---|---|---|---|---|")
+            ns, ours, pub = [], [], []
+            for r in sel:
+                ratio = (
+                    f"{float(r['error']) / float(r['published_error']):.2f}"
+                    if r["published_error"]
+                    else ""
+                )
+                print(
+                    f"| {r['n']} | {r['published_error']} | {float(r['error']):.3e} | {ratio}"
+                    f" | {r['published_iterations']}, {r['iterations']}"
+                    f" | {r['published_relres']}, {float(r['relres']):.1e}"
+                    f" | {float(r['error_converged']):.3e}"
+                    f" | {r['published_time_s']}, {float(r['time_s']):.1f}"
+                    f" | {r['default_iterations']}, {r['default_converged']},"
+                    f" {float(r['default_error']):.3e} |"
+                )
+                ns.append(int(r["n"]))
+                ours.append(float(r["error"]))
+                if r["published_error"]:
+                    pub.append(float(r["published_error"]))
+            if len(ns) < 2:
+                continue
+            print(f"\norder ours {_order(ns, ours):.2f}", end="")
+            if len(pub) == len(ns):
+                print(f", published {_order(ns, pub):.2f}", end="")
+            print()
+            gs = [r for r in sel if r["gs_error"]]
+            if gs:
+                print("\n| N | GS published | GS ours | Sweeps (pub., ours) |")
+                print("|---|---|---|---|")
+                for r in gs:
+                    print(
+                        f"| {r['n']} | {r['published_gs_error']} | {float(r['gs_error']):.3e}"
+                        f" | {r['published_gs_iterations']}, {r['gs_iterations']} |"
+                    )
+
+
+def _order(ns: list[int], errors: list[float]) -> float:
+    """The least-squares slope of -log(error) against log N."""
+    return float(-np.polyfit(np.log(ns), np.log(errors), 1)[0])
+
+
+if __name__ == "__main__":
+    main()
