@@ -434,12 +434,33 @@ assert all(
 )
 ```
 
+`DirichletQSPINN` swaps one part of `DirichletICNN`: its network is the QS form of QS-PINN, `QuadraticForm()`, `u = (x - x0)^T A^T A (x - x0) + b . x + c` with `A` from a plain network, which lies above its tangent plane at the reference point `x0` (`docs/methods/qs_pinn.md`).
+
+```python
+from maesolvers import DirichletQSPINN, QuadraticForm
+
+qs = NeuralSolver(
+    network=QuadraticForm(width=10, depth=5, ratio=0.6),
+    loss=icnn.loss,
+    sampler=icnn.sampler,
+    optimizer=icnn.optimizer,
+    max_steps=icnn.max_steps,
+)
+assert all(
+    getattr(qs, name) == getattr(DirichletQSPINN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps")
+)
+```
+
+`QuadraticForm(reference=(0.1, 0.1))` puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `f(x0) > 0`.
+`ICNN(alpha=0.25)` is the input convex network plus `0.25 |x|^2 / 2`, whose Hessian is at least `0.25 I`.
+
 The collocation points are drawn from the seed by the sampler, so every solver with an equal sampler and the same seed trains on the same points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
 
 ### Write your own network, loss, sampler or optimizer
 
 A part is a frozen dataclass, like a solver: it subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, and its fields are its hyperparameters, which `Result.hparams` records and configurations set.
-The four parts below are a network that adds a convex quadratic to any other network, a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
+The four parts below are a network that adds a convex quadratic to any other network (for the input convex network, `ICNN(alpha=...)` does it already), a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
 Put them in a module of your own, here `my_parts.py`.
 
 ```python

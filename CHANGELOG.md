@@ -37,6 +37,11 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `Collocation.target_boundary`, the points on the target's boundary (an empty array of shape `(0, d)` by default, so existing code that builds a `Collocation` keeps working); `fingerprint` hashes them after the other points and adds nothing for none, so the fingerprint of a set without them is unchanged.
   `Batch.target_boundary`, the same points as a tensor (None when there are none), a keyword field with default None after `target`; `Result.info["collocation"]` of a neural solver adds `target_boundary_points`.
 - `nearest_squared_distances(a, b)` in `maesolvers.neural.functional`: the squared distance from each point of one set to the nearest point of the other, both ways, the two halves of eq. (3.4) of Caboussat-Peruso 2025.
+- QS-PINN, JC Zhang's quadratic-form network (issue #33; the note `writing/notes/qs-pinn/main.tex` in jczhang02/monge-ampere-equations), in `maesolvers.neural` and at the top level:
+  `QuadraticForm(width=10, depth=5, activation="tanh", ratio=0.6, reference=None)`, a network part `u = (x - x0)^T A^T A (x - x0) + b . x + c` with `A = alpha (I + ratio Z / sqrt(1 + |Z|_F^2))`, `Z` the `d x d` output of a plain network whose output layer starts at 0, and `alpha`, `b`, `c` trained constants, `alpha` starting at `f(x0)^(1/(2d)) / sqrt(2)`; `x0` is `reference`, or the centre of the domain's bounding box; it supports a problem when `x0` lies inside the domain with `f(x0)` positive and finite, and records `reference` and `alpha_start` in `Result.info["network"]`;
+  the presets `DirichletQSPINN(width=10, depth=5, ratio=0.6, boundary_weight=100.0, interior_points=3000, boundary_points=400, max_steps=10_000)`, `DirichletICNN` with `QuadraticForm` as its network, and `TransportQSPINN(width=10, depth=4, ratio=0.6, boundary_weight=1.0, interior_points=800, boundary_points=800, target_points=800, adam_lr=1e-3, adam_steps=200, max_steps=2000, tol=1e-7)`, `TransportICNN` with `QuadraticForm` in place of `IdentityStart(network=ICNN(...))`, with its support and mass check; both registered in `SOLVERS` after `TransportICNN`.
+- `ICNN(alpha=0.0)`: with `alpha > 0` the network adds `alpha |x|^2 / 2`, so its Hessian is at least `alpha I`, the "ICNN + (alpha/2)|x|^2" baseline of the QS-PINN note; the default adds nothing, and the network, its parameters and its start are as before.
+- `smooth_scaling(z, epsilon)` (`epsilon Z / sqrt(1 + |Z|_F^2)` for each matrix, a smooth map into the open Frobenius ball of radius `epsilon`) and `quadratic_form(matrix, x, reference, b, c)` (the QS form at each point) in `maesolvers.neural.functional`.
 
 ### Changed
 
@@ -52,6 +57,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   `Filtered` raises `ValueError` on construction when its parts share no dimension, such as `Standard9` with `Monotone17(stencil=19)`.
 - The comparison table gives `FDMonotone` on T9 the reason `3D: stencil=19` (the runner builds its default 17-point stencil) and on T10 `2D/3D only`; `benchmarks/comparison.py`'s `unsupported_reason` names the stencils of the problem's dimension for a preset on `Monotone17`.
 - `SOLVERS` lists `TransportICNN` after `DirichletICNN`, so the comparison table gains its column (its rows on the shared test set: T12 over seeds 0 to 9, `Transport only` elsewhere).
+- `SOLVERS` lists `DirichletQSPINN` and `TransportQSPINN` after `TransportICNN`, so the comparison table gains their columns.
 - `UniformSampler`, and so `DirichletICNN`, supports a problem on an `Ellipse` with boundary points, since an `Ellipse` now samples its boundary; `PenaltyMLP` still does not, as its ansatz needs the boundary distance. `DirichletICNN.domains` lists `Ellipse` to match: its support comes from its parts, and the class variable only documents it.
 
 ## 0.1.0 (2026-10-23)
