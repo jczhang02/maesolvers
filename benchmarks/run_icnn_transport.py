@@ -46,14 +46,18 @@ import argparse
 import csv
 import time
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
+from comparison import with_parts
 from run_penalty_mlp import band
 
-from maesolvers import T12, TransportICNN, tracking
+from maesolvers import T12, Problem, TransportICNN, TransportSampler, tracking
+from maesolvers.core import Disk, Ellipse, Transport
 from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error, shared_grid
+from maesolvers.neural import Collocation, NeuralSolver, sample_interior
 
 HERE = Path(__file__).parent
 CSV = HERE / "icnn_t12.csv"
@@ -87,6 +91,34 @@ FIELDS = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class SharedAngleSampler(TransportSampler):
+    """Boundary points of a disk and target points of an ellipse at the same angles.
+
+    A diagnostic sampler (icnn.md, T12, Finding 1): the interior points as
+    :class:`TransportSampler` draws them, then ``boundary_points`` angles
+    ``t``, uniform, giving the points ``center + r (cos t, sin t)`` on the
+    circle and ``center + (a1 cos t, a2 sin t)`` on the ellipse. T12's exact
+    map sends each boundary point to the target point of its angle, so its
+    Hausdorff-type term is 0 here, not about 1e-4 as with independent
+    points; ``target_points`` is not used.
+    """
+
+    def sample(self, problem: Problem, rng: np.random.Generator) -> Collocation:
+        disk, boundary = problem.domain, problem.boundary
+        assert isinstance(disk, Disk) and isinstance(boundary, Transport)
+        assert isinstance(boundary.target, Ellipse)
+        interior = sample_interior(disk, self.interior_points, rng)
+        t = rng.uniform(0.0, 2.0 * np.pi, self.boundary_points)
+        unit = np.stack([np.cos(t), np.sin(t)], axis=-1)
+        return Collocation(
+            interior=interior,
+            boundary=np.asarray(disk.center) + disk.radius * unit,
+            target_boundary=np.asarray(boundary.target.center)
+            + np.asarray(boundary.target.semi_axes) * unit,
+        )
+
+
 def gradient_errors(result, points: np.ndarray) -> dict[str, float]:
     """``gradient_map_error`` of a result on T12 at the points, by central differences."""
     return gradient_map_error(
@@ -102,17 +134,30 @@ def solver(schedule: str, seed: int, options: dict) -> TransportICNN:
     return preset
 
 
-def run_seed(schedule: str, seed: int, options: dict, name: str) -> dict:
-    """Train one seed under one schedule, log it to MLflow, return its row."""
+def run_seed(
+    schedule: str, seed: int, options: dict, name: str, shared_angles: bool = False
+) -> dict:
+    """Train one seed under one schedule, log it to MLflow, return its row.
+
+    With ``shared_angles`` the preset's sampler is replaced by
+    :class:`SharedAngleSampler` with the same counts.
+    """
     import mlflow
     import torch
 
     torch.set_num_threads(1)
     preset = solver(schedule, seed, options)
+    solving: NeuralSolver = preset
+    if shared_angles:
+        sampler = SharedAngleSampler(
+            interior_points=preset.interior_points,
+            boundary_points=preset.boundary_points,
+        )
+        solving = with_parts(preset, sampler=sampler)
     logger = tracking.MLflowLogger()
     with tracking.run("maesolvers-icnn-T12", run_name=name.format(schedule, seed)):
-        result = preset.solve(T12, callbacks=[logger])
-        train = gradient_errors(result, preset.collocation(T12).interior)
+        result = solving.solve(T12, callbacks=[logger])
+        train = gradient_errors(result, solving.collocation(T12).interior)
         test = gradient_errors(result, shared_grid(T12.domain))
         mlflow.log_params({"schedule": schedule, "device": result.info["device"]})
         mlflow.log_metrics(
@@ -164,6 +209,11 @@ def main() -> None:
     parser.add_argument("--adam-steps", type=int, default=TransportICNN.adam_steps)
     parser.add_argument("--max-steps", type=int, default=TransportICNN.max_steps)
     parser.add_argument("--accelerator", default="gpu")
+    parser.add_argument(
+        "--shared-angles",
+        action="store_true",
+        help="boundary and target points at shared angles (icnn.md, T12, Finding 1)",
+    )
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument(
@@ -176,6 +226,8 @@ def main() -> None:
         for k, v in options.items()
         if k != "accelerator" and v != getattr(TransportICNN, k)
     }
+    if args.shared_angles:
+        changed["sampler"] = "shared-angles"
     if (changed or args.seeds != list(range(10))) and args.out is None:
         parser.error(
             f"{', '.join(changed) or 'seeds'} differ from the receipt: give --out"
@@ -187,7 +239,7 @@ def main() -> None:
     context = get_context("spawn")  # CUDA cannot be forked
     with ProcessPoolExecutor(args.workers, mp_context=context) as pool:
         futures = [
-            pool.submit(run_seed, schedule, seed, options, name)
+            pool.submit(run_seed, schedule, seed, options, name, args.shared_angles)
             for schedule in args.schedules
             for seed in args.seeds
         ]
