@@ -397,7 +397,7 @@ class Multigrid(SchemeIteration):
         assert isinstance(problem.domain, Box) and isinstance(
             problem.boundary, Dirichlet
         )
-        sizes = [int(getattr(self.scheme, "n"))]  # noqa: B009, the field __post_init__ checks
+        sizes = [int(cast(Any, self.scheme).n)]  # the field __post_init__ checks
         while sizes[-1] > 2:
             sizes.append((sizes[-1] + 1) // 2)
         levels = []
@@ -425,8 +425,8 @@ class Multigrid(SchemeIteration):
                 )
             )
         finest = levels[0]
-        start = self._start(finest)
-        reference = _norm(finest.f - self._operator(finest, start))
+        start = _start(finest)
+        reference = _norm(finest.f - _operator(finest, start))
         return MultigridContext(levels=tuple(levels), reference=reference)
 
     def initial_guess(self, problem: Problem, context: MultigridContext) -> np.ndarray:
@@ -449,8 +449,8 @@ class Multigrid(SchemeIteration):
         """
         levels = context.levels
         if len(levels) == 1:
-            return self._start(levels[0])[levels[0].grid.interior]
-        u = self._interpolate(levels[0], levels[1], self._full_multigrid(levels, 1))
+            return _start(levels[0])[levels[0].grid.interior]
+        u = _interpolate(levels[0], levels[1], self._full_multigrid(levels, 1))
         return u[levels[0].grid.interior]
 
     def step(
@@ -474,9 +474,9 @@ class Multigrid(SchemeIteration):
             residual is not finite.
         """
         finest = context.levels[0]
-        u = self._full(finest, iterate)
+        u = _full(finest, iterate)
         u = self._cycle(context.levels, 0, u, finest.f)
-        measure = _norm(finest.f - self._operator(finest, u)) / context.reference
+        measure = _norm(finest.f - _operator(finest, u)) / context.reference
         if not np.isfinite(measure):
             return None
         return u[finest.grid.interior], measure
@@ -522,51 +522,15 @@ class Multigrid(SchemeIteration):
         finest = context.levels[0]
         return self.scheme.solution(finest.context, state)
 
-    # The cycles work on the values at every node of a level, in flat order;
-    # the right-hand side b is 0 on the ring.
-
-    def _full(self, level: Level, v: np.ndarray) -> np.ndarray:
-        u = np.empty(len(level.grid.nodes))
-        u[level.grid.interior] = v
-        u[~level.grid.interior] = level.boundary_values
-        return u
-
-    def _start(self, level: Level) -> np.ndarray:
-        return self._full(level, np.zeros(np.count_nonzero(level.grid.interior)))
-
-    def _operator(self, level: Level, u: np.ndarray) -> np.ndarray:
-        """``S(u)`` at the interior nodes, 0 on the ring."""
-        out = np.zeros_like(u)
-        scheme = cast(_MultigridScheme, level.scheme)
-        v = u[level.grid.interior]
-        out[level.grid.interior] = scheme.residual(level.context, v) + scheme.rhs(
-            level.context
-        )
-        return out
-
-    def _sweep(self, level: Level, u: np.ndarray, b: np.ndarray, sweeps: int) -> None:
-        scheme = cast(_MultigridScheme, level.scheme)
-        for _ in range(sweeps):
-            for nodes in level.groups:
-                u[nodes] = scheme.relax(level.context, u, b[nodes], nodes)
-
-    def _interpolate(
-        self, fine: Level, coarse: Level, u_coarse: np.ndarray
-    ) -> np.ndarray:
-        """Interpolate coarse node values for FMG, with the Dirichlet data on the ring."""
-        u = cubic_resample(u_coarse.reshape(coarse.grid.shape), fine.grid.n).ravel()
-        u[~fine.grid.interior] = fine.boundary_values
-        return u
-
     def _full_multigrid(self, levels: Sequence[Level], index: int) -> np.ndarray:
         """Algorithm 2 on ``levels[index]``: the FMG solution there."""
         level = levels[index]
         if index == len(levels) - 1:
-            u = self._start(level)
-            self._sweep(level, u, level.f, self.coarsest_sweeps)
+            u = _start(level)
+            _sweep(level, u, level.f, self.coarsest_sweeps)
             return u
         coarse = levels[index + 1]
-        u = self._interpolate(level, coarse, self._full_multigrid(levels, index + 1))
+        u = _interpolate(level, coarse, self._full_multigrid(levels, index + 1))
         return self._cycle(levels, index, u, level.f)
 
     def _cycle(
@@ -575,28 +539,71 @@ class Multigrid(SchemeIteration):
         """Algorithm 1 on ``levels[index]`` from ``u`` (changed in place) for ``S(u) = b``."""
         level = levels[index]
         if index == len(levels) - 1:
-            self._sweep(level, u, b, self.coarsest_sweeps)
+            _sweep(level, u, b, self.coarsest_sweeps)
             return u
-        self._sweep(level, u, b, self.pre_sweeps)
+        _sweep(level, u, b, self.pre_sweeps)
         coarse = levels[index + 1]
         shape, n_coarse = level.grid.shape, coarse.grid.n
         ring = ~coarse.grid.interior
         residual = resample(
-            half_weighting((b - self._operator(level, u)).reshape(shape)), n_coarse
+            half_weighting((b - _operator(level, u)).reshape(shape)), n_coarse
         )
         residual = residual.ravel()
         residual[ring] = 0.0
         w = resample(u.reshape(shape), n_coarse).ravel()
         w[ring] = coarse.boundary_values
         corrected = self._cycle(
-            levels, index + 1, w.copy(), self._operator(coarse, w) + residual
+            levels, index + 1, w.copy(), _operator(coarse, w) + residual
         )
         delta = resample(
             (corrected - w).reshape(coarse.grid.shape), level.grid.n
         ).ravel()
         u += delta
-        self._sweep(level, u, b, self.post_sweeps)
+        _sweep(level, u, b, self.post_sweeps)
         return u
+
+
+# The cycles work on the values at every node of a level, in flat order;
+# a right-hand side b is 0 on the ring.
+
+
+def _full(level: Level, v: np.ndarray) -> np.ndarray:
+    """Return the values at every node: the unknowns ``v`` and the Dirichlet data."""
+    u = np.empty(len(level.grid.nodes))
+    u[level.grid.interior] = v
+    u[~level.grid.interior] = level.boundary_values
+    return u
+
+
+def _start(level: Level) -> np.ndarray:
+    """Return the node values 0 inside, with the Dirichlet data on the ring."""
+    return _full(level, np.zeros(np.count_nonzero(level.grid.interior)))
+
+
+def _operator(level: Level, u: np.ndarray) -> np.ndarray:
+    """Return ``S(u)`` at the interior nodes, 0 on the ring."""
+    out = np.zeros_like(u)
+    scheme = cast(_MultigridScheme, level.scheme)
+    v = u[level.grid.interior]
+    out[level.grid.interior] = scheme.residual(level.context, v) + scheme.rhs(
+        level.context
+    )
+    return out
+
+
+def _sweep(level: Level, u: np.ndarray, b: np.ndarray, sweeps: int) -> None:
+    """Run Gauss-Seidel sweeps for ``S(u) = b``, changing ``u`` in place."""
+    scheme = cast(_MultigridScheme, level.scheme)
+    for _ in range(sweeps):
+        for nodes in level.groups:
+            u[nodes] = scheme.relax(level.context, u, b[nodes], nodes)
+
+
+def _interpolate(fine: Level, coarse: Level, u_coarse: np.ndarray) -> np.ndarray:
+    """Interpolate coarse node values for FMG, with the Dirichlet data on the ring."""
+    u = cubic_resample(u_coarse.reshape(coarse.grid.shape), fine.grid.n).ravel()
+    u[~fine.grid.interior] = fine.boundary_values
+    return u
 
 
 def _norm(r: np.ndarray) -> float:
