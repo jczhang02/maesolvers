@@ -199,7 +199,9 @@ def upwind_gradient(
     directions = np.asarray(directions, dtype=float)
     index = np.asarray(np.unravel_index(nodes, grid.shape)).T
     rows = np.arange(len(nodes))
-    r, c, v = [rows], [nodes], [np.sum(np.abs(directions), axis=1) / h]
+    r: list[np.ndarray] = [rows]
+    c: list[np.ndarray] = [nodes]
+    v: list[np.ndarray] = [np.sum(np.abs(directions), axis=1) / h]
     for axis, step in enumerate((grid.offset((1, 0)), grid.offset((0, 1)))):
         component = directions[:, axis]
         backward, forward = -np.maximum(component, 0.0), np.minimum(component, 0.0)
