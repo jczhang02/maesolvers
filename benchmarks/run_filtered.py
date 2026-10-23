@@ -310,15 +310,15 @@ class UnitSlopeMonotone17(Monotone17):
         return dataclasses.replace(grid, kappa=np.ones_like(grid.kappa))
 
 
-def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
+def checks(task: tuple[str, str, int, int, Any, bool]) -> dict[str, Any]:
     """One row of filtered_checks.csv.
 
-    ``task`` is (check, problem, N, variant, log), all at n = N - 1 with the
-    17-point stencil: the variant is the filter width's name for "width",
-    the start for "start", delta for "regularised", unused for "kappa",
-    "newton" and "catalogue".
+    ``task`` is (check, problem, N, stencil, variant, log), all at n = N - 1;
+    only "width" reads the stencil, every other check has 17 points. The
+    variant is the filter width's name for "width", the start for "start",
+    delta for "regularised", unused for "kappa", "newton" and "catalogue".
     """
-    check, name, N, variant, log = task
+    check, name, N, stencil, variant, log = task
     n = N - 1
     problem = problem_for(name, n)
     epsilon: Any = ""
@@ -330,15 +330,15 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
     elif check == "width":
         # Oberman's angular resolution is half the gap between directions;
         # the default dtheta is the full gap.
-        half_gap = math.sqrt(1.0 / n) + angular_resolution(17) / 10
-        full_gap = math.sqrt(1.0 / n) + 2 * angular_resolution(17) / 10
+        half_gap = math.sqrt(1.0 / n) + angular_resolution(stencil) / 10
+        full_gap = math.sqrt(1.0 / n) + 2 * angular_resolution(stencil) / 10
         epsilon = {
             "half_gap": half_gap,
             "default": full_gap,
             "twice": 2 * full_gap,
             "four_times": 4 * full_gap,
         }[variant]
-        solver = FDFiltered(n=n, epsilon=epsilon)
+        solver = FDFiltered(n=n, stencil=stencil, epsilon=epsilon)
     elif check == "newton":
         solver = FDNewton(n=n)
     elif check == "start":
@@ -351,7 +351,7 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         solver = Newton(scheme=scheme, max_iter=200)
     else:  # "catalogue"
         solver = FDFiltered(n=n)
-    run_name = f"check={check} N={N} variant={variant}"
+    run_name = f"check={check} N={N} stencil={stencil} variant={variant}"
     m, _ = solve(solver, problem, run_name, log)
     m.setdefault("max", "")  # T7 has no exact solution
     print(f"{name} {run_name}: max {m['max']} its {m['iterations']}", flush=True)
@@ -360,6 +360,7 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
         "problem": name,
         "N": N,
         "n_cells": n,
+        "stencil": stencil,
         "variant": variant,
         "epsilon": epsilon,
         "max_err_nodes": m["max"],
@@ -373,30 +374,36 @@ def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
     }
 
 
-CHECK_TASKS: list[tuple[str, str, int, Any]] = [
-    *(("kappa", "T2", N, "") for N in (63, 127, 255)),
+CHECK_TASKS: list[tuple[str, str, int, int, Any]] = [
+    *(("kappa", "T2", N, 17, "") for N in (63, 127, 255)),
     *(
-        ("width", name, N, width)
+        ("width", name, N, 17, width)
         for name in ("T20", "T2")
         for N in (63, 127)
         for width in ("half_gap", "default", "twice", "four_times")
     ),
     *(
-        ("start", name, N, start)
+        ("width", "T2", N, stencil, width)
+        for N in (255, 361)
+        for stencil in STENCILS
+        for width in ("half_gap", "default")
+    ),
+    *(
+        ("start", name, N, 17, start)
         for name in ("T20", "T2")
         for N in (63, 127)
         for start in ("monotone", "standard")
     ),
-    *(("newton", "T20", N, "") for N in (63, 127)),
+    *(("newton", "T20", N, 17, "") for N in (63, 127)),
     *(
-        ("regularised", name, N, delta)
+        ("regularised", name, N, 17, delta)
         for name in ("T2", "T1", "T20")
         for N in (63, 127)
         for delta in (1e-4, 1e-2, 1e-1)
     ),
-    *(("catalogue", name, N, "") for name in CATALOGUE for N in (17, 65)),
+    *(("catalogue", name, N, 17, "") for name in CATALOGUE for N in (17, 65)),
 ]
-"""(check, problem, N, variant) of every row of filtered_checks.csv."""
+"""(check, problem, N, stencil, variant) of every row of filtered_checks.csv."""
 
 
 def write(path: Path, rows: list[dict[str, Any]]) -> None:
