@@ -12,6 +12,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
+- The `FDMixed` rows were added later, at commit 3b53600 (clean checkout, 263 s of wall time), by `run_comparison.py --solvers FDMixed --workers 7` on a copy of the CSV above; every other row is unchanged.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
   A new preset, a preset whose support or defaults change, fails that test until `run_comparison.py` runs again.
@@ -64,7 +65,7 @@ At `n = 361` the damped Newton iteration of `FDFiltered` stops after 14, 21 and 
 
 ### Finding 3: every classical preset and `PenaltyMLP` have non-convex points on T20; `DirichletICNN` has none
 
-On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 9.8% (`FDNewton`) of the interior nodes, as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
+On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 10.9% (`FDMixed`) of the interior nodes, as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
 On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` has none.
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
@@ -83,8 +84,12 @@ The time median on T10 (155 s) is short because most seeds stop early, not becau
 
 ### Finding 6: cost
 
-At `n = 361` the classical presets take 2.6 s to 240 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
+At `n = 361` the classical presets take 2.6 s to 260 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.6 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 152 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 36 s).
+
+### Finding 7: `FDMixed` on T2 ends on its second root
+
+`FDMixed` reaches 7.0e-7 on T1 with the 7-point stencil at every node, but 2.13e-4 on T2, the second root of `chen_wan_lin2018.md`, Finding 5: from the paper's start, policy iteration ends with the wide stencil at a few nodes next to the corner `(1, 1)` (28 policy iterations; 18 non-convex nodes, 0.014%), as it does there from `N = 256` on; its 7-point root, which it reaches from the exact solution, is more accurate.
 
 ## Rerun
 
