@@ -5,6 +5,7 @@ No paper is reproduced here, so none of the five levels of ADR 0002 applies: thi
 `tests/test_grid.py` checks the same construction at small `n`; nothing is pinned.
 
 Raw data: `nd_grids.csv`, written by `run_nd_grids.py` on a100server at commit e89640c (`just remote-bg nd-grids env OMP_NUM_THREADS=16 python benchmarks/run_nd_grids.py`; 16 threads, the machine shared with other runs), which also logs every row to MLflow under `maesolvers-nd-grids-T9` and `maesolvers-nd-grids-T10`.
+The review changes of 15bb52e (input checks, the `NdBSpline` path moved into a helper) leave the arithmetic of the spline and of `centred_hessian` as it was, so the CSV was not rerun.
 
 ## The setting
 
@@ -62,6 +63,7 @@ The CSV has every degree at every `n`.
 
 ## The 2D path is unchanged
 
-`Standard9`, `Monotone17` and, through them, `Hybrid` and `Filtered` now build their grids with `BoxGrid`, and `difference_operators`, which `Standard9` and `Monotone17` call, is now the 2D case of `second_differences`.
-On a100server, every preset (`FDNewton`, `FDPoisson`, `FDMonotone` with 9, 17 and 33 points and both boundary treatments, `FDHybrid`, `FDFiltered`) on T1, T2, T20 and, for the standard scheme, T8 and T6, at `n = 8`, 16 and 25 and spline degrees 1 to 5, gives node values, node Hessians, the spline on the shared grid, `evaluate`'s fields and the final residual that are equal, as float arrays with `numpy.array_equal`, to those of `next` at 4fdd5da (912 arrays); so do the matrices of `difference_operators` and of `directional_difference`.
-So no 2D receipt in `benchmarks/` changes.
+`Standard9`, `Monotone17` and, through them, `Hybrid` and `Filtered` now build their grids with `BoxGrid`, and `difference_operators`, which `Standard9` calls, is now the 2D case of `second_differences`; `Monotone17` reports `centred_hessian` and `BoxGrid.interpolant`, and `directional_difference` takes its arms from `reach`.
+`check_2d_bit_for_bit.py` snapshots every preset (`FDNewton`, `FDPoisson`, `FDMonotone` with 9, 17 and 33 points and both boundary treatments, `FDHybrid`, `FDFiltered`) on T1, T2, T20 and, for the standard scheme, T8 and T6, at `n = 8`, 16 and 25 and spline degrees 1 to 5: node values, node Hessians, the spline on the shared grid, `evaluate`'s fields and the final residual, with the matrices of `difference_operators` and of `directional_difference`, 912 arrays.
+On a100server the snapshot of this branch at 15bb52e is equal, array by array with `numpy.array_equal`, to the snapshot of `next` at 4fdd5da (0.1), taken by the same script from a checkout of that commit; its docstring gives the commands.
+So no 2D receipt in `benchmarks/` changes, and the pins in `tests/test_reproduction.py` and `tests/test_regression.py` pass unchanged.
