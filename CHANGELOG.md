@@ -17,7 +17,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `PolicyIteration(scheme, max_iter=100, tol=1e-6, krylov_tol=None)`, Howard's algorithm, exported at the top level and from `maesolvers.classical`: for a scheme with `policy_system` and `solve_laplace`, from `laplace u = 2 sqrt(f)`, each step solves the linear system of the optimal policy; it stops when `max |A v - F| <= tol` at the current unknowns.
   Each policy's system is solved by sparse LU, or with `krylov_tol` by BiCGSTAB to that relative residual, preconditioned by an incomplete LU in natural order with drop tolerance `1e-4` (LU if BiCGSTAB fails), which the wide stencil needs from `n = 512` on, where the LU fills in.
   A step measures the residual at the unknowns it starts from and returns them unchanged once it meets `tol`, so `Result.info["history"]` holds the residual of each iterate before its update and `iterations` counts the policies evaluated.
-- The preset `FDMixed(n, angles, spline_degree, max_iter=100, tol=1e-6, krylov_tol=None)`, `PolicyIteration` on `MixedHJB`, exported at the top level and from `maesolvers.classical`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides, as `FDMonotone`'s does.
+- The preset `FDMixed(n, angles, spline_degree, max_iter=100, tol=1e-6, krylov_tol=None)`, `PolicyIteration` on `MixedHJB`, exported at the top level and from `maesolvers.classical`, registered in `SOLVERS`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides, as `FDMonotone`'s does.
 
 ## 0.1.0 (2026-10-23)
 

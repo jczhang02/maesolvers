@@ -5,6 +5,7 @@ import pytest
 import scipy.sparse as sp
 
 from maesolvers import (
+    SOLVERS,
     T1,
     T2,
     T8,
@@ -361,6 +362,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
         },
     }
     assert FDMixed().scheme == MixedHJB()
+    assert SOLVERS["FDMixed"] is FDMixed
     assert isinstance(FDMixed().scheme.n, int)
 
 
