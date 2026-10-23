@@ -292,11 +292,13 @@ def seed_error(result: Result | None, key: str = "max") -> float | None:
     """Return the error of one seed as :func:`summarize` counts it, None if it failed.
 
     A seed fails when it has no result (it timed out or crashed), when its
-    run stopped as ``"diverged"`` (``info["stop"]``: a neural run whose loss
-    was not finite; its network, that of the step before, has a finite
-    error, but ADR 0007 names divergence a failure), or when its error is NaN
-    or infinite. A run that stops unconverged with a finite error, at its
-    step budget or because a step changed nothing, does not fail.
+    run stopped as ``"diverged"`` (``info["stop"]``, which
+    :class:`~maesolvers.core.result.Result` defines for every solver; ADR
+    0007 names divergence a failure, so the run fails even with a finite
+    error, such as a neural run that returns the network from before a
+    non-finite loss), or when its error is NaN or infinite. A run that stops
+    unconverged with a finite error, at its step budget or because a step
+    changed nothing, does not fail.
 
     Parameters
     ----------

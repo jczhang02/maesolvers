@@ -126,7 +126,8 @@ class NeuralSolver(Solver[_Context, _Trained]):
     Notes
     -----
     ``Result.info`` holds, besides the fields of every solver, ``stop`` (why
-    the training stopped: ``"converged"``, ``"stalled"``, ``"diverged"`` or
+    the training stopped, as :class:`~maesolvers.core.result.Result` defines
+    it: ``"converged"``, ``"stalled"``, ``"diverged"`` or
     ``"max_steps"``), ``loss_terms`` (the loss terms of the trained network,
     ``"loss"`` among them), ``collocation`` (``interior_points``,
     ``boundary_points`` and :meth:`Collocation.fingerprint

@@ -53,7 +53,11 @@ class Result:
     info
         Run record: ``time`` (seconds), ``iterations``, ``converged``,
         ``history`` (the convergence measure after every step), ``unknowns``
-        and method-specific entries.
+        and method-specific entries. ``stop``, when present, says why the run
+        ended (such as ``"converged"`` or ``"max_steps"``), with one value
+        that every solver shares: ``"diverged"`` marks a failed run, which
+        :func:`~maesolvers.metrics.summarize` counts as a failed seed whatever
+        its error.
     hparams
         The solver's configuration, ``{"class_path": ..., "init_args": ...}``,
         enough to build the same solver again.

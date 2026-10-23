@@ -71,6 +71,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 
 - `Newton` has the new field `start` (see Added), so the configuration and `hparams` of a bare `Newton` carry `"start": None`, and `tracking.flatten` logs it; the presets' `hparams` are unchanged.
 - `summarize` counts a seed whose `Result.info["stop"]` is `"diverged"` (a neural run that stopped on a non-finite loss) as failed, through `seed_error`, with error `+inf`, though the network it returns, that of the step before, has a finite error (ADR 0007; it was left open to #14).
+- `Result.info["stop"]` is part of the core contract (ADR 0007): when present it says why the run ended, and its value `"diverged"` marks a failed run for every solver, which `summarize` and `seed_error` count as failed; it was documented only for `NeuralSolver`, which sets it as before.
 - `SOLVERS` lists the classical presets, then the neural ones, each in the order they were added: `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid`, `FDFiltered`, `PenaltyMLP`, `DirichletICNN`; the comparison table's columns follow it.
 - `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.

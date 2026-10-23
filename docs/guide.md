@@ -263,6 +263,7 @@ What each part does:
 - `step` returns the next iterate and its measure, or None when it can make no progress; it must not change the iterate it was given.
 - `finalize` turns the final iterate into a `Solution`, the method's part of the result.
   `u` must accept points of shape `(..., 2)`, and `nodes`, `values` and `interior` let `evaluate` report the errors at the nodes; add `node_hessian` or `hessian` for the convexity fields.
+  Its `info` adds entries to `Result.info`; `"stop"` says why the run ended, and a run that blew up sets `"stop": "diverged"`, which `summarize` counts as a failed seed whatever its error.
 
 Use it like any solver.
 
