@@ -50,10 +50,11 @@ for name in SHARED_TEST_SET:
     problem = CATALOGUE[name]
     supported = [key for key, preset in SOLVERS.items() if preset().supports(problem)]
     print(name, supported)
-    # T1 ['FDFiltered', 'FDHybrid', 'FDMonotone', 'FDNewton', 'FDPoisson', 'PenaltyMLP'], ...
+    # T1 ['FDNewton', 'FDPoisson', 'FDMonotone', 'FDHybrid', 'FDFiltered', 'PenaltyMLP', 'DirichletICNN'], ...
 ```
 
 Solving an unsupported problem raises `UnsupportedProblemError`, before any work is done.
+`benchmarks/run_comparison.py` runs this loop with every preset's defaults to make the README comparison table.
 
 A callback observes a solve without changing it.
 Subclass `Callback` and override the hooks you need: `on_solve_start`, `on_step_end` and `on_solve_end`.
