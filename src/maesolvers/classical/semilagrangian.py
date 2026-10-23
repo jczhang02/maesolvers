@@ -624,13 +624,32 @@ def _frames(d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return d[:half], d[half:]
 
 
+_PAIRS_PER_BLOCK = 2**22
+"""Point-edge pairs per block of :func:`_hull_distance`: some 32 MB of temporaries."""
+
+
 def _hull_distance(tri: Delaunay, points: np.ndarray) -> np.ndarray:
-    """Distance from each point of the triangulation to the boundary of its hull."""
+    """Distance from each point inside the triangulation's convex hull to its boundary.
+
+    Inside a convex polygon the nearest boundary point lies on the line of
+    the nearest edge, so the distance is the least distance to the lines of
+    the hull's edges. The points go through in blocks, so memory stays
+    bounded however many there are.
+    """
     hull = tri.convex_hull
     a, b = tri.points[hull[:, 0]], tri.points[hull[:, 1]]
-    edge, along = _nearest_on_segments(points, a, b)
-    nearest = a[edge] + along[:, None] * (b[edge] - a[edge])
-    return np.linalg.norm(points - nearest, axis=-1)
+    normal = np.stack([b[:, 1] - a[:, 1], a[:, 0] - b[:, 0]], axis=-1)
+    normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
+    offset = np.sum(normal * a, axis=-1)
+    # Orient every normal outwards: the mean of the nodes lies inside.
+    outward = np.where(normal @ tri.points.mean(axis=0) < offset, 1.0, -1.0)
+    normal, offset = normal * outward[:, None], offset * outward
+    distance = np.empty(len(points))
+    size = max(1, _PAIRS_PER_BLOCK // len(offset))
+    for lo in range(0, len(points), size):
+        block = points[lo : lo + size]
+        distance[lo : lo + size] = np.min(offset - block @ normal.T, axis=1)
+    return distance
 
 
 def _linear(tri: Delaunay, values: np.ndarray) -> Field:

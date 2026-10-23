@@ -31,6 +31,7 @@ from maesolvers import (
 )
 from maesolvers.classical import _linear
 from maesolvers.classical.semilagrangian import (
+    _hull_distance,
     fit_hessian,
     frame_values,
     frame_weights,
@@ -177,6 +178,19 @@ def test_operators_vanish_on_linear_functions_and_have_the_m_matrix_signs():
 
 
 # The scheme
+
+
+@pytest.mark.parametrize("problem", [T1, T8, T39])
+def test_the_hull_distance_is_the_distance_to_the_nearest_hull_edge(problem):
+    grid = SemiLagrangian(n=12).discretize(problem)
+    tri, unknowns = grid.tri, grid.nodes[grid.interior]
+    a = tri.points[tri.convex_hull[:, 0]][None]
+    b = tri.points[tri.convex_hull[:, 1]][None]
+    p = unknowns[:, None]
+    s = np.clip(np.sum((p - a) * (b - a), -1) / np.sum((b - a) ** 2, -1), 0, 1)
+    nearest = a + s[..., None] * (b - a)
+    brute = np.min(np.linalg.norm(p - nearest, axis=-1), axis=1)
+    np.testing.assert_allclose(_hull_distance(tri, unknowns), brute, atol=1e-14)
 
 
 @pytest.mark.parametrize("problem", [QUADRATIC, T1, T39, T8])
