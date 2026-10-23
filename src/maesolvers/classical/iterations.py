@@ -656,7 +656,15 @@ class PolicyIteration(SchemeIteration):
     ) -> np.ndarray:
         """Solve the policy's system, by LU or by BiCGSTAB with an incomplete LU."""
         if self.krylov_tol is not None:
-            ilu = spilu(matrix, drop_tol=_ILU_DROP_TOL, fill_factor=_ILU_FILL)
+            # Natural order and diagonal pivots: the incomplete LU of an
+            # M-matrix then has positive pivots whatever it drops.
+            ilu = spilu(
+                matrix,
+                drop_tol=_ILU_DROP_TOL,
+                fill_factor=_ILU_FILL,
+                permc_spec="NATURAL",
+                diag_pivot_thresh=0.0,
+            )
             new, info = bicgstab(
                 matrix,
                 rhs,
