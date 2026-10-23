@@ -660,22 +660,23 @@ points = result.nodes[result.interior]
 errors = gradient_map_error(
     gradient_fd(result.u, points, step=h), gradient_fd(T16.exact, points)
 )
-print(
-    errors
-)  # gradient_max 0.0214, gradient_rms 0.0126; the paper prints 0.0220, 0.0127
+# gradient_max 0.0214, gradient_rms 0.0126; the paper prints 0.0220, 0.0127
+print(errors)
 print(evaluate(result)["max"])  # the error of u, after subtracting the means
 ```
 
 The scheme needs only the target's support function, `H*(n) = sup_{y in Y} y . n`.
 A target of a type the helpers do not know, such as a rotated ellipse, gets one through the method of the `SupportFunction` protocol.
-`FDTransport.check` runs `check_mass_balance`, which needs the target's volume, so such a target goes to the composed solver, with the balance checked by hand.
+`FDTransport` solves such a problem in one line.
+Its `check` runs `check_mass_balance` where `can_check_mass_balance(problem)` is True, a `Box`, `Disk` or `Ellipse` domain and target; for a domain or target of your own `volume` or `integrate` cannot run, so it warns that the balance is unchecked and solves.
+Check the balance yourself, as the comment below does, or read `result.info["u_anchor"]`, the constant `u(x_0)` that absorbs an imbalance and is of the order of the discretisation error when the data balance.
 
 ```python
 from dataclasses import dataclass
 
 import numpy as np
 
-from maesolvers import Box, Ellipse, Newton, Problem, Transport
+from maesolvers import Box, Ellipse, Problem, Transport
 
 
 @dataclass(frozen=True)
@@ -704,17 +705,17 @@ class RotatedEllipse:
         return np.linalg.norm(np.asarray(n) @ np.asarray(self.matrix).T, axis=-1)
 
 
-# Uniform densities: f is the target's area over the domain's, 0.44 / 0.32.
+# Uniform densities: f is the target's area, pi det M = 0.44 pi, over the
+# domain's, pi 0.8 0.4 = 0.32 pi, so the masses balance.
 problem = Problem(
     "ellipses",
     Ellipse((0.0, 0.0), (0.8, 0.4)),
     lambda x: np.full(np.shape(x)[:-1], 0.44 / 0.32),
     Transport(RotatedEllipse()),
 )
-preset = FDTransport(n=32, directions=64, box=Box((-1.0, -1.0), (1.0, 1.0)))
-solver = Newton(scheme=preset.scheme, start=preset.start, max_iter=preset.max_iter)
-result = solver.solve(problem)
-print(result.info["converged"], result.info["iterations"])
+solver = FDTransport(n=32, directions=64, box=Box((-1.0, -1.0), (1.0, 1.0)))
+result = solver.solve(problem)  # UserWarning: the mass balance is unchecked
+print(result.info["converged"], result.info["u_anchor"])
 ```
 
 ### Declare Transport support

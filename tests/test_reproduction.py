@@ -6,8 +6,11 @@ Table 3, column "Standard F.D."). Max error at the grid nodes on an N x N
 grid with h = 1 / N; see benchmarks/standard_fd.md for the convention.
 
 Benamou-Froese-Oberman, J. Comput. Phys. 260 (2014), Table 1: max error of
-the gradient map on T16; FDTransport prints it at every N with h = 1/(N - 1),
-N nodes per side (benchmarks/bfo2014.md, Finding 1); N = 32 and 64 are pinned.
+the gradient map on T16. The paper states its N as nodes per side, "the
+spatial step size dx coming from the number of grid points N_X along each
+dimension" (Section 5.2.1, p. 117), so h = 1/(N - 1); FDTransport prints the
+column at every N there, which confirms it (benchmarks/bfo2014.md, Finding 1).
+N = 32 and 64 are pinned.
 
 Benamou-Froese-Oberman, ESAIM: M2AN 44 (2010), Table 7, column "(M1), (M2)":
 u_min of T7 on [-1, 1]^2, where N counts nodes per side, so N = 21 is n = 20
