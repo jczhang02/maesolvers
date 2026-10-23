@@ -5,6 +5,7 @@
 On T6 we ran the method next to Table 1, which belongs to the paper's other method; that comparison is context, not a reproduction.
 
 Receipts: `penalty_mlp_t1.csv` and `penalty_mlp_t6.csv`, written by `run_penalty_mlp.py` on a100server at commit da3df82, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-penalty-mlp-T1` and `maesolvers-penalty-mlp-T6`, with its training curve and the device and thread count as parameters.
+The commits this file cites are on the branch of PR #50, which was squash-merged into `next` as c15c545, so they are not in its history; GitHub keeps them under `refs/pull/50/head`.
 The receipts reproduce only with one thread per seed: the rounding of the fits of `G` and `D`, and so every later number, depends on the thread count.
 Bands are the median and the 5% and 95% quantiles over the ten seeds, computed by `maesolvers.metrics.summarize_errors` with ADR 0007's failed-seed rule; no seed failed, every seed stopped at the 5000-step budget (`stop = max_steps`), and in every seed both fits of the ansatz met their tolerance (`fits_converged`).
 

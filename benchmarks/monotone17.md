@@ -13,6 +13,7 @@ Every run converged.
 Error: max over all grid nodes of `|u_h - u|`, `h = 1/N` (ADR 0001) unless a column says otherwise.
 T21 is not in the catalogue (`Problem.f` cannot hold a measure); `run_monotone17.py` builds it per grid with the papers' `f = 4/h^2` at the nodes within `h/2` of `x0` and 0 elsewhere (SINUM, Section 6.1).
 Raw data: `monotone17.csv` and `monotone17_iterates.csv`, written on a100server by `run_monotone17.py` at commit dc6fe7a (`just remote-bg monotone17d env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python benchmarks/run_monotone17.py`, tmux session `maesolvers-monotone17d`), and `monotone17_checks.csv` by `run_monotone17.py --checks --processes 4` at the same commit (session `maesolvers-monotone17d-checks`).
+The commits this file cites are on the branch of PR #51, which was squash-merged into `next` as 4ddd6cc, so they are not in its history; GitHub keeps them under `refs/pull/51/head`.
 Every solve is one run in the MLflow experiment `maesolvers-monotone17-<problem>` (T1, T2, T20, T21), tagged with that commit and a clean checkout; the experiments hold no other generation.
 
 "As printed" rounds our value to the digits the paper prints; a bold value differs from the published one there.

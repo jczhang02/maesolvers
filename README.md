@@ -236,7 +236,7 @@ A cell with a reason marks a preset that does not support the problem: `not on a
 
 ## Reproduction
 
-A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
+A reproduction is judged against the source paper's own table, on the paper's own test problem, and its verdict is one of the five levels of ADR 0002: exact (the printed digits at every printed `N`), order of magnitude, statistical (neural methods, over 10 seeds), figure only (the paper prints only a figure), or mismatch, recorded as a finding.
 `benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours.
 
 | Problem | N | Published | FDPoisson | FDNewton |
