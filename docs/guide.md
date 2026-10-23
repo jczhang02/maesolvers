@@ -327,7 +327,7 @@ A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=T
 
 ### Grids in any dimension
 
-Every finite-difference scheme maesolvers ships is two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10), but the grid under them is not.
+`Standard9`, `Hybrid` and `Filtered` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
 `BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
 
 - `nodes`, shape `((n + 1)^d, d)`, in C order (the last axis fastest), so `values.reshape(grid.shape)` is the d-dimensional array; for even `n` the nodes of the grid with `n // 2` cells are the nodes with even indices;
