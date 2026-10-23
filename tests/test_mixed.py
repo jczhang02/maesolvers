@@ -263,6 +263,18 @@ def test_newton_on_the_scheme_reaches_the_policy_iteration_root():
     assert np.max(np.abs(newton.values - howard.values)) < 1e-9
 
 
+@pytest.mark.parametrize("wide_search", ["outside", "only"])
+def test_krylov_solves_reach_the_root_of_the_lu_solves(wide_search):
+    scheme = MixedHJB(n=16, wide_search=wide_search)
+    lu = PolicyIteration(scheme=scheme).solve(T2)
+    krylov = PolicyIteration(scheme=scheme, krylov_tol=1e-12).solve(T2)
+    assert krylov.info["converged"]
+    assert krylov.info["iterations"] == lu.info["iterations"]
+    assert np.max(np.abs(krylov.values - lu.values)) < 1e-9
+    with pytest.raises(ValueError, match="krylov_tol"):
+        PolicyIteration(scheme=scheme, krylov_tol=0.0)
+
+
 def test_the_history_holds_the_residual_before_each_update():
     result = FDMixed(n=12).solve(T1)
     history = result.info["history"]
@@ -329,6 +341,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
             "spline_degree": 3,
             "max_iter": 100,
             "tol": 1e-6,
+            "krylov_tol": None,
         },
     }
     assert FDMixed().scheme == MixedHJB()
@@ -339,7 +352,9 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
     "solver",
     [
         FDMixed(n=10, angles=4),
-        PolicyIteration(scheme=MixedHJB(n=10, wide_search="everywhere"), max_iter=9),
+        PolicyIteration(
+            scheme=MixedHJB(n=10, wide_search="everywhere"), max_iter=9, krylov_tol=1e-9
+        ),
         Newton(scheme=MixedHJB(n=10)),
     ],
     ids=["preset", "composed", "newton"],

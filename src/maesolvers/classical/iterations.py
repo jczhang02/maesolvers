@@ -26,7 +26,7 @@ from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import LinearOperator, bicgstab, spilu, spsolve
 
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import positive
@@ -39,6 +39,12 @@ _BACKTRACKS = 40
 
 _SUFFICIENT_DECREASE = 1e-4
 """Armijo constant: a step of length ``t`` must cut the max residual by ``1e-4 t``."""
+
+_ILU_DROP_TOL = 1e-4
+"""Drop tolerance of the incomplete LU that preconditions ``PolicyIteration``'s BiCGSTAB."""
+
+_ILU_FILL = 10.0
+"""Fill factor of that incomplete LU: at most ten times the matrix's nonzeros."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -560,6 +566,12 @@ class PolicyIteration(SchemeIteration):
     tol
         Stop when ``max |A v - F| <= tol`` at the current unknowns, the
         paper's tolerance on the residual by default.
+    krylov_tol
+        None solves each policy's system by sparse LU. A positive value
+        solves it by BiCGSTAB to that relative residual, preconditioned by
+        an incomplete LU (drop tolerance ``1e-4``), and by LU if BiCGSTAB
+        fails; the paper uses GMRES with an incomplete LU. Needed where the
+        LU fills in, as for the 17-point wide stencil at ``n = 512``.
 
     Notes
     -----
@@ -576,6 +588,14 @@ class PolicyIteration(SchemeIteration):
 
     max_iter: int = 100
     tol: float = 1e-6
+    krylov_tol: float | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.krylov_tol is not None:
+            object.__setattr__(
+                self, "krylov_tol", positive("krylov_tol", self.krylov_tol)
+            )
 
     @property
     def _scheme(self) -> _PolicyScheme:
@@ -626,10 +646,28 @@ class PolicyIteration(SchemeIteration):
         norm = float(np.max(np.abs(matrix @ iterate - rhs)))
         if self.converged(problem, context, norm):
             return iterate, norm
-        new = np.asarray(spsolve(sp.csc_matrix(matrix), rhs))
+        new = self._solve(sp.csc_matrix(matrix), rhs, iterate)
         if not np.all(np.isfinite(new)):
             return None
         return new, norm
+
+    def _solve(
+        self, matrix: sp.csc_matrix, rhs: np.ndarray, guess: np.ndarray
+    ) -> np.ndarray:
+        """Solve the policy's system, by LU or by BiCGSTAB with an incomplete LU."""
+        if self.krylov_tol is not None:
+            ilu = spilu(matrix, drop_tol=_ILU_DROP_TOL, fill_factor=_ILU_FILL)
+            new, info = bicgstab(
+                matrix,
+                rhs,
+                x0=guess,
+                rtol=self.krylov_tol,
+                atol=0.0,
+                M=LinearOperator(matrix.shape, ilu.solve),
+            )
+            if info == 0:
+                return np.asarray(new)
+        return np.asarray(spsolve(matrix, rhs))
 
     def converged(self, problem: Problem, context: Any, measure: float) -> bool:
         """Whether the max residual is at most ``tol``.
