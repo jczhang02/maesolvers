@@ -37,6 +37,12 @@ selection and with a smoother that takes a right-hand side ``b <= 0`` as 0,
 both orderings, up to 50 cycles each; and T22 at N = 64 and 128 after 5,
 10, 15, 20 and 30 cycles.
 
+``--table4`` writes multigrid_table4.csv instead: T9 on the grids of
+Table 4 (N = 8, 12, 16, 22, 32 cells, so that the unknowns are the printed
+DOFs), with the 19-point monotone scheme ``FDMonotone(n=N, stencil=19)`` of
+issue #27 and with ``FDMultigrid(n=N)``, next to the "Wide-stencil FD"
+column the paper reprints from Froese-Oberman (J. Comput. Phys. 2011).
+
 ``--report`` prints the markdown tables of ``benchmarks/multigrid.md`` from
 the CSV instead: ours next to the published values, the ratios and the
 least-squares orders.
@@ -57,13 +63,22 @@ from typing import Any
 
 import numpy as np
 
-from maesolvers import CATALOGUE, FDMultigrid, Multigrid, Problem, StandardBox, tracking
+from maesolvers import (
+    CATALOGUE,
+    FDMonotone,
+    FDMultigrid,
+    Multigrid,
+    Problem,
+    StandardBox,
+    tracking,
+)
 from maesolvers.classical.multigrid import sweep_groups
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
 CSV = HERE / "multigrid.csv"
 CHECKS_CSV = HERE / "multigrid_checks.csv"
+TABLE4_CSV = HERE / "multigrid_table4.csv"
 
 GS_TOL = 1e-6
 """The stand-alone Gauss-Seidel solver's relative residual (the paper's 1e-6)."""
@@ -417,6 +432,74 @@ def _check_work(args: tuple[CheckCase, bool]) -> dict[str, Any]:
     return run_check(*args)
 
 
+TABLE4: dict[int, tuple[int, str, str]] = {
+    8: (343, "1.51e-02", "0.04"),
+    12: (1331, "1.40e-02", "0.10"),
+    16: (3375, "1.29e-02", "0.71"),
+    22: (9261, "1.21e-02", "6.72"),
+    32: (29791, "1.11e-02", "86.63"),
+}
+"""Table 4, column "Wide-stencil FD [19]": N, DOFs, max error and CPU s on T9."""
+
+TABLE4_FIELDS = (
+    "n",
+    "published_dofs",
+    "published_error",
+    "published_time_s",
+    "unknowns",
+    "monotone19_error",
+    "monotone19_iterations",
+    "monotone19_converged",
+    "monotone19_time_s",
+    "multigrid_error",
+    "multigrid_iterations",
+    "multigrid_time_s",
+    "commit",
+)
+
+
+def run_table4(n: int, log: bool) -> dict[str, Any]:
+    """One row of multigrid_table4.csv: T9 on n cells, monotone and multigrid."""
+    problem = CATALOGUE["T9"]
+    monotone = FDMonotone(n=n, stencil=19).solve(problem)
+    multigrid = FDMultigrid(n=n).solve(problem)
+    dofs, error, cpu = TABLE4[n]
+    row = {
+        "n": n,
+        "published_dofs": dofs,
+        "published_error": error,
+        "published_time_s": cpu,
+        "unknowns": multigrid.info["unknowns"],
+        "monotone19_error": evaluate(monotone)["max"],
+        "monotone19_iterations": monotone.info["iterations"],
+        "monotone19_converged": monotone.info["converged"],
+        "monotone19_time_s": monotone.info["time"],
+        "multigrid_error": evaluate(multigrid)["max"],
+        "multigrid_iterations": multigrid.info["iterations"],
+        "multigrid_time_s": multigrid.info["time"],
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+    }
+    if log:
+        import mlflow
+
+        with tracking.run(
+            "maesolvers-multigrid-T9", {"table": 4}, run_name=f"table4-n{n}"
+        ):
+            mlflow.log_metrics(
+                {
+                    k: float(v)
+                    for k, v in row.items()
+                    if k.startswith(("monotone19", "multigrid"))
+                }
+            )
+    print(", ".join(f"{k} {row[k]}" for k in TABLE4_FIELDS[:-1]), flush=True)
+    return row
+
+
+def _table4_work(args: tuple[int, bool]) -> dict[str, Any]:
+    return run_table4(*args)
+
+
 def main(argv: Iterable[str] | None = None) -> None:
     """Parse the command line; run the cases, or print the report."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -426,9 +509,20 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, default=CSV)
     parser.add_argument("--report", action="store_true", help="print the md tables")
     parser.add_argument("--checks", action="store_true", help="Findings 3 and 4")
+    parser.add_argument("--table4", action="store_true", help="Table 4 on T9")
     args = parser.parse_args(None if argv is None else list(argv))
     if args.report:
         report(args.out)
+        return
+    if args.table4:
+        with ProcessPoolExecutor(args.workers) as pool:
+            rows = list(
+                pool.map(_table4_work, [(n, not args.no_mlflow) for n in TABLE4])
+            )
+        with (TABLE4_CSV if args.out == CSV else args.out).open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=TABLE4_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
         return
     if args.checks:
         with ProcessPoolExecutor(args.workers) as pool:
