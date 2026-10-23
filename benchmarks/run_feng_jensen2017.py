@@ -9,6 +9,11 @@ about as many nodes as the paper's levels of refinement. Each row is one
 solve: the error at the nodes relative to max |u| over the domain, the
 paper's measure, and Howard's steps.
 
+With --summary it reads the CSV instead and prints the tables of
+feng_jensen2017.md: the smallest relative error over m at each grid, with
+its m, next to the paper's Figure 6, and the convergence rates in h and in
+the best k, end to end as the paper takes them and by least squares.
+
 Every solve is one MLflow run in maesolvers-feng_jensen2017-<problem>
 unless --no-mlflow is given. The solves run in --processes worker processes
 (default 12), each with one thread, the largest grids first; --levels sets
@@ -104,6 +109,99 @@ def run(task: tuple[str, int, float, bool]) -> dict[str, Any]:
     }
 
 
+# Feng-Jensen 2017, Figure 6: the smallest relative Linf error over m at each
+# level of refinement, with the minimising m.
+PUBLISHED: dict[str, tuple[tuple[int, float, int], ...]] = {
+    "T39": (
+        (91, 9.26e-2, 2),
+        (329, 3.85e-2, 2),
+        (1249, 2.15e-2, 2),
+        (4865, 9.59e-3, 4),
+        (19201, 5.63e-3, 4),
+        (76289, 2.44e-3, 8),
+        (304129, 1.51e-3, 8),
+        (1214465, 6.59e-4, 16),
+    ),
+    "T40": (
+        (91, 1.03e-1, 4),
+        (329, 5.69e-2, 4),
+        (1249, 3.08e-2, 8),
+        (4865, 2.03e-2, 16),
+        (19201, 1.38e-2, 32),
+        (76289, 9.12e-3, 32),
+        (304129, 6.04e-3, 64),
+        (1214465, 4.51e-3, 64),
+    ),
+}
+
+
+ROUNDING = 1e-12
+"""A relative error below this is rounding, and gives no rate."""
+
+
+def best(rows: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    """The row of smallest relative error over m at each grid, coarse to fine."""
+    grids = sorted({int(r["n_cells"]) for r in rows if r["problem"] == name})
+    return [
+        min(
+            (r for r in rows if r["problem"] == name and int(r["n_cells"]) == n),
+            key=lambda r: float(r["rel_max_err_nodes"]),
+        )
+        for n in grids
+    ]
+
+
+def rates(x: np.ndarray, error: np.ndarray) -> tuple[float, float]:
+    """The order of ``error`` in ``x``: end to end, and the least-squares slope."""
+    logs = np.log(x), np.log(error)
+    end_to_end = (logs[1][-1] - logs[1][0]) / (logs[0][-1] - logs[0][0])
+    return float(end_to_end), float(np.polyfit(*logs, 1)[0])
+
+
+def summary(rows: list[dict[str, Any]]) -> str:
+    """The Markdown tables of feng_jensen2017.md from the rows of the CSV."""
+    lines = []
+    for name in PROBLEMS:
+        chosen = best(rows, name)
+        published = PUBLISHED.get(name)
+        lines += [f"{name}:", ""]
+        head = "| n | nodes | ours | m | steps |"
+        rule = "|---|---|---|---|---|"
+        if published:
+            head += " paper's DoFs | paper | paper's m |"
+            rule += "---|---|---|"
+        lines += [head, rule]
+        for level, r in enumerate(chosen):
+            cells = (
+                f"| {r['n_cells']} | {r['nodes']} | {float(r['rel_max_err_nodes']):.3g}"
+                f" | {float(r['m']):g} | {r['iterations']} |"
+            )
+            if published and level < len(published):
+                dofs, error, m = published[level]
+                cells += f" {dofs} | {error:.3g} | {m} |"
+            lines.append(cells)
+        error = np.array([float(r["rel_max_err_nodes"]) for r in chosen])
+        h = np.array([float(r["h"]) for r in chosen])
+        k = np.array([float(r["k"]) for r in chosen])
+        if np.min(error) < ROUNDING:
+            lines += ["", "Errors at the rounding level: no rate."]
+        else:
+            eh, lh = rates(h, error)
+            lines += ["", f"Rates: h^{eh:.2f} end to end (h^{lh:.2f} least squares)"]
+            if k[0] != k[-1]:
+                ek, lk = rates(k, error)
+                lines[-1] += f", k^{ek:.2f} (k^{lk:.2f}) in the best k"
+            lines[-1] += "."
+        lines.append("")
+    return "\n".join(lines)
+
+
+def read(path: Path) -> list[dict[str, Any]]:
+    """The rows of a CSV this script wrote."""
+    with path.open(newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
 def write(path: Path, rows: list[dict[str, Any]]) -> None:
     """Write rows as CSV, the header from the first row."""
     with path.open("w", newline="") as fh:
@@ -119,7 +217,13 @@ def main() -> None:
     parser.add_argument("--processes", type=int, default=12, help="worker processes")
     parser.add_argument("--levels", type=int, default=7, help="grids n = 10 2^l")
     parser.add_argument("--out", type=Path, default=HERE / "feng_jensen2017.csv")
+    parser.add_argument(
+        "--summary", type=Path, default=None, help="print the tables of this CSV"
+    )
     args = parser.parse_args()
+    if args.summary is not None:
+        print(summary(read(args.summary)))
+        return
     grids = [10 * 2**level for level in range(args.levels)]
     tasks = [
         (name, n, m, not args.no_mlflow)
