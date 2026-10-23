@@ -110,4 +110,4 @@ A scheme of your own runs under `Multigrid` if it has these: `residual(grid, v)`
 
 ## Reproduction
 
-Tables 1 to 3 and 5 to 7 of the paper, with ours next to them: [`benchmarks/multigrid.md`](../../benchmarks/multigrid.md), written by `benchmarks/run_multigrid.py` on a100server (`multigrid.csv`).
+Tables 1 to 3 and 5 to 7 of the paper, with ours next to them, and Table 4's wide-stencil column against the 19-point monotone scheme: [`benchmarks/multigrid.md`](../../benchmarks/multigrid.md), written by `benchmarks/run_multigrid.py` on a100server (`multigrid.csv`).

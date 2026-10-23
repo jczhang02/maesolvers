@@ -2,7 +2,7 @@
 
 Problems, with Dirichlet data from the exact solution: in 2D on `(0, 1)^2`, T1 (`u = exp(|x|^2 / 2)`, Example 4.1), T3 (`u = (2 sqrt 2 / 3) |x|^(3/2)`, Example 4.2) and T2 (`u = -sqrt(2 - |x|^2)`, Example 4.3); in 3D, T9 (`u = exp(|x|^2 / 2)` on `(0, 1)^3`, Example 4.4), T46 (`u = |x|^2 / 2 - sin x - sin y - sin z` on `(0, pi)^3`, Example 4.5), T28 (`u = |x|^(3/2) / 3` on `(0, 1)^3`, Example 4.6) and T22 (`u = -sqrt(3 - |x|^2)` on `(0, 1)^3`, Example 4.7).
 Published numbers: J. Liu, B. D. Froese, A. M. Oberman, M. Xiao, Int. J. Comput. Math. 94 (2017) 1850-1866, Tables 1 and 2 (2D, red-black and lexicographic Gauss-Seidel) and Tables 3, 5, 6 and 7 (3D, lexicographic), each checked against the page images; the text layer of the PDF garbles the first rows of Tables 5 to 7 and prints Example 4.5's `|x|^2 / 2` as `(x + y + z) / 2`.
-Table 4 reprints numbers of other papers and is not a target (see "Not compared").
+Table 4 reprints numbers of other papers and is not a target; its wide-stencil column is cross-checked against the 19-point monotone scheme (section "Table 4").
 
 Ours: `FDMultigrid(n=N, ordering=...)`, the preset `Multigrid(scheme=StandardBox(n=N))` (ADR 0004; `docs/methods/multigrid.md`), with the paper's settings, which are the defaults: one FMG cycle, then FAS V-cycles with 2 + 2 nonlinear Gauss-Seidel sweeps and one sweep on the grid of 2 cells per side, until the relative residual is at most `1e-6`; float64.
 Every run of `multigrid.csv` converged.
@@ -207,8 +207,23 @@ At `N = 8192` ours takes 154 s (red-black) and 125 s (lexicographic) against the
 In 3D ours grows by 2 to 4 per halving up to `N = 128`, less than the factor 8 of the unknowns, for the same reason; at `N = 128` it takes 8 to 11 s against the paper's 133 to 137 s.
 The times are recorded, not compared (ADR 0002).
 
+## Table 4: T9 against the wide-stencil scheme
+
+Table 4 reprints, for Example 4.4 (T9), the "Wide-stencil FD" errors of Froese-Oberman (J. Comput. Phys. 2011, its Table 4, the 3D hybrid scheme) and the quadratic and cubic interior-penalty elements of Brenner-Neilan (2012); it is not a target of this method.
+Its DOFs (343 to 29791) are `(N - 1)^3`, so on its grids `N` counts cells, `h = 1/N`: the Froese-Oberman grids of `N = 7` to 31 read as `N - 1 = 7` to 31 interior nodes per side, a third reading of their `N` besides the two of `monotone19.md` (Finding 1 there).
+`multigrid_table4.csv` (`run_multigrid.py --table4` at commit 2b0f5ad, MLflow `maesolvers-multigrid-T9`, runs `table4-n<N>`) solves T9 on these grids with the 19-point monotone scheme of #27, `FDMonotone(n=N, stencil=19)`, and with `FDMultigrid(n=N)`:
+
+| N | DOFs | Wide-stencil FD (reprinted) | `FDMonotone(stencil=19)` | Ratio | `FDMultigrid` |
+|---|---|---|---|---|---|
+| 8 | 343 | 1.51e-02 | 1.466e-02 | 0.97 | 1.507e-03 |
+| 12 | 1331 | 1.40e-02 | 1.325e-02 | 0.95 | 7.155e-04 |
+| 16 | 3375 | 1.29e-02 | 1.283e-02 | 0.99 | 4.107e-04 |
+| 22 | 9261 | 1.21e-02 | 1.263e-02 | 1.04 | 2.150e-04 |
+| 32 | 29791 | 1.11e-02 | 1.246e-02 | 1.12 | 1.083e-04 |
+
+The monotone scheme lies within 12 percent of the reprinted hybrid values, which is all a cross-check can ask of two different schemes, and stalls near `1.25e-2`, the limit its angular resolution sets (`monotone19.md`); the standard scheme under multigrid is 10 to 115 times more accurate on this smooth solution, as the paper argues.
+The interior-penalty columns wait for the 0.3 finite elements.
+
 ## Not compared
 
-- Table 4: the wide-stencil hybrid finite differences of Froese-Oberman (J. Comput. Phys. 2011) and the quadratic and cubic `C^0` interior-penalty elements of Brenner-Neilan (2012) on T9, reprinted from those papers.
-  The 3D monotone scheme (#27) and the interior-penalty method (0.3) will compare with them; neither is in maesolvers yet.
 - The Gauss-Seidel CPU times, and the Gauss-Seidel columns beyond `N = 32`, which the paper does not print.
