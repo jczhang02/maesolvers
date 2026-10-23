@@ -9,6 +9,7 @@ like every solver they declare their support on the class.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import ClassVar, Generic, Literal, TypeVar
 
@@ -18,10 +19,13 @@ from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17, stencil_dimension
 from maesolvers.classical.multigrid import Multigrid
 from maesolvers.classical.schemes import Standard9
+from maesolvers.classical.second_boundary import SecondBoundary
 from maesolvers.classical.standard_box import StandardBox
 from maesolvers.core._params import integer
+from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
+from maesolvers.core.transport import can_check_mass_balance, check_mass_balance
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -500,3 +504,134 @@ class FDMultigrid(_StandardBoxPreset, Multigrid):
         nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
         side takes degree ``n``.
     """
+
+
+@dataclass(frozen=True, kw_only=True)
+class _SecondBoundaryPreset:
+    """The fields and support of a preset on :class:`SecondBoundary`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    filtered scheme and the monotone start from the flat fields before the
+    iteration checks them.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = SecondBoundary.domains
+    boundaries: ClassVar[tuple[type, ...]] = SecondBoundary.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = SecondBoundary.dims
+
+    scheme: SecondBoundary = field(init=False, repr=False)
+    start: Newton = field(init=False, repr=False)
+    n: int = SecondBoundary.n
+    stencil: Literal[9, 17, 33] = SecondBoundary.stencil
+    epsilon: float | None = SecondBoundary.epsilon
+    directions: int | None = SecondBoundary.directions
+    box: Box | None = SecondBoundary.box
+    jacobian_floor: float = SecondBoundary.jacobian_floor
+    spline_degree: int = SecondBoundary.spline_degree
+
+    def __post_init__(self) -> None:
+        shared = {
+            "n": self.n,
+            "stencil": self.stencil,
+            "directions": self.directions,
+            "box": self.box,
+            "jacobian_floor": self.jacobian_floor,
+            "spline_degree": self.spline_degree,
+        }
+        scheme = SecondBoundary(interior="filtered", epsilon=self.epsilon, **shared)
+        monotone = SecondBoundary(interior="monotone", **shared)
+        start = Newton(scheme=monotone, max_iter=200, tol=self.tol)  # type: ignore[attr-defined]
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "start", start)
+        for name in (*shared, "epsilon"):
+            object.__setattr__(self, name, getattr(scheme, name))
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDTransport(_SecondBoundaryPreset, Newton):
+    """The second boundary value problem by the method of Benamou-Froese-Oberman 2014.
+
+    ``FDTransport(n=n, ...)`` is ``Newton(scheme=SecondBoundary(n=n,
+    interior="filtered", ...), start=Newton(scheme=SecondBoundary(n=n,
+    interior="monotone", ...), max_iter=200, tol=tol), ...)``: the filtered
+    compact scheme with the transport condition on the boundary ring, solved
+    by Newton from the root of the monotone scheme on the same grid, which
+    Newton on the filtered scheme does not reach from the Poisson start on
+    a domain embedded in the square (``benchmarks/bfo2014.md``). Its
+    ``check`` also runs :func:`~maesolvers.core.transport.check_mass_balance`
+    where that can compute both sides; on a domain or target of your own it
+    warns that the balance is unchecked and solves.
+
+    Parameters
+    ----------
+    n
+        Cells per side of the square (``h = side / n``, ADR 0001), so
+        ``(n + 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the monotone stencil: 9 (the paper's), 17 or 33.
+    epsilon
+        The filter width, or None for the paper's ``sqrt(h) + dtheta``.
+    directions
+        Directions of the boundary equation, or None for the face normals
+        of a Box target and 512 for any other, as in :class:`SecondBoundary`.
+    box
+        The square the grid covers, or None for the domain's bounding box.
+    jacobian_floor
+        The floor of the monotone Jacobian's factors, times ``1 / (2 h^2)``.
+    max_iter
+        Most Newton steps on the filtered scheme; the start keeps a budget
+        of 200 steps whatever ``max_iter``.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``, on the
+        filtered scheme and on the start.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5.
+    """
+
+    max_iter: int = 200
+
+    def check(self, problem: Problem) -> None:
+        """Raise unless the scheme supports the problem and its mass balances.
+
+        The balance is checked where
+        :func:`~maesolvers.core.transport.can_check_mass_balance` is True:
+        a :class:`~maesolvers.core.domains.Box`,
+        :class:`~maesolvers.core.domains.Disk` or
+        :class:`~maesolvers.core.domains.Ellipse` domain and target. On
+        another domain or target, which the scheme supports through its
+        support function, it warns instead; an imbalance then shows in
+        ``Result.info["u_anchor"]``, the constant that absorbs it.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem.
+        ValueError
+            If the problem is out of mass balance
+            (:func:`~maesolvers.core.transport.check_mass_balance`).
+
+        Warns
+        -----
+        UserWarning
+            If the mass balance cannot be checked.
+        """
+        super().check(problem)
+        if can_check_mass_balance(problem):
+            check_mass_balance(problem)
+        else:
+            warnings.warn(
+                f"FDTransport does not check the mass balance of {problem.name}: "
+                "check_mass_balance integrates over a Box, Disk or Ellipse domain "
+                "and knows the volume of such a target only; compare the integral "
+                "of f with the target's volume yourself, or read "
+                'Result.info["u_anchor"]',
+                UserWarning,
+                stacklevel=3,
+            )

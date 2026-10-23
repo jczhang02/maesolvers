@@ -16,6 +16,7 @@ from maesolvers import (
     T8,
     T9,
     T12,
+    T16,
     DirichletICNN,
     FDFiltered,
     FDHybrid,
@@ -23,6 +24,7 @@ from maesolvers import (
     FDMultigrid,
     FDNewton,
     FDPoisson,
+    FDTransport,
     Filtered,
     Monotone17,
     Newton,
@@ -31,6 +33,7 @@ from maesolvers import (
     Scheme,
     SchemeIteration,
     Standard9,
+    TransportICNN,
     UnsupportedProblemError,
 )
 from maesolvers.classical import iterations
@@ -240,15 +243,18 @@ def test_the_registry_lists_the_presets_read_only():
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
+        "FDTransport": FDTransport,
         "PenaltyMLP": PenaltyMLP,
         "DirichletICNN": DirichletICNN,
+        "TransportICNN": TransportICNN,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
 @pytest.mark.parametrize(
-    "solver", [FDFiltered, FDHybrid, FDMonotone, FDMultigrid, FDNewton, FDPoisson]
+    "solver",
+    [FDFiltered, FDHybrid, FDMonotone, FDMultigrid, FDNewton, FDPoisson, FDTransport],
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
@@ -261,7 +267,7 @@ def test_classical_presets_declare_the_support_of_their_scheme(solver):
         declared.boundaries,
         dims,
     )
-    for problem in (T8, T12, T1, T9):
+    for problem in (T8, T12, T16, T1, T9):
         assert solver().supports(problem) == scheme.supports(problem)
 
 

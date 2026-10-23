@@ -4,7 +4,8 @@ Points are arrays of shape ``(..., d)`` and predicates return boolean arrays of
 shape ``(...)``. Every domain is a frozen dataclass that satisfies the
 :class:`Domain` protocol. :class:`Box`, :class:`Disk` and
 :class:`CutQuarterDisk` also satisfy :class:`BoundarySampling` and
-:class:`BoundaryDistance`, the capabilities the neural solvers need.
+:class:`BoundaryDistance`, the capabilities the neural solvers need;
+:class:`Ellipse`, a transport target, satisfies :class:`BoundarySampling`.
 """
 
 from __future__ import annotations
@@ -103,6 +104,35 @@ class BoundaryDistance(Protocol):
         numpy.ndarray
             Shape ``(...)``: zero on the boundary, positive inside. For points
             outside the domain the value has no meaning.
+        """
+        ...
+
+
+@runtime_checkable
+class SupportFunction(Protocol):
+    """A convex transport target that knows its own support function.
+
+    A capability beside :class:`Domain` (ADR 0007) for a target set that
+    :func:`~maesolvers.core.transport.support_function` does not know, such
+    as a rotated ellipse or a polygon: that function calls this method for
+    such a target, so a solver that represents the target by its support
+    function, such as :class:`~maesolvers.classical.SecondBoundary`, accepts
+    it. :class:`Box`, :class:`Disk` and :class:`Ellipse` need no method;
+    :func:`~maesolvers.core.transport.support_function` knows them.
+    """
+
+    def support_function(self, n: np.ndarray) -> np.ndarray:
+        """Return ``sup_{y in Y} y . n`` for each direction.
+
+        Parameters
+        ----------
+        n
+            Directions of shape ``(..., d)``, not necessarily unit vectors.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(...)``, positively homogeneous in ``n``.
         """
         ...
 
@@ -273,6 +303,41 @@ class Ellipse:
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open ellipse."""
         return self._level(x) < 1.0
+
+    def sample_boundary(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """Draw ``n`` points on the ellipse, uniform in arc length.
+
+        The point at parameter ``t`` is ``center + (a1 cos t, a2 sin t)``,
+        and its speed ``|dp/dt|`` varies along the ellipse, so ``t`` is drawn
+        uniform and kept with probability ``speed(t) / max speed``
+        (rejection), which makes the points uniform in arc length, not in
+        ``t``.
+
+        Parameters
+        ----------
+        n
+            Number of points, at least 0.
+        rng
+            The random generator.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n, 2)``, in the order they were accepted.
+        """
+        n = integer("n", n, 0)
+        a1, a2 = self.semi_axes
+        kept: list[np.ndarray] = []
+        count = 0
+        while count < n:
+            t = rng.uniform(0.0, 2.0 * np.pi, size=2 * (n - count))
+            speed = np.hypot(a1 * np.sin(t), a2 * np.cos(t))
+            t = t[rng.uniform(0.0, max(a1, a2), size=t.size) < speed]
+            kept.append(t)
+            count += t.size
+        t = np.concatenate(kept)[:n] if kept else np.zeros(0)
+        circle = np.stack([a1 * np.cos(t), a2 * np.sin(t)], axis=-1)
+        return np.asarray(self.center) + circle
 
 
 @dataclass(frozen=True)

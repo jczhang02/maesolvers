@@ -17,9 +17,12 @@ stencil; in 3D they are the four orthogonal triples of the 19-point stencil
 
 The numerical kernels are module-level pure functions: :func:`stencil_frames`,
 :func:`angular_resolution`, :func:`directional_difference`, :func:`frame_values`,
-:func:`frame_jacobian_coefficients` and :func:`frame_jacobian`. :class:`Monotone17`
-composes them into a :class:`~maesolvers.classical.schemes.Scheme` that
-:class:`~maesolvers.classical.iterations.Newton` solves.
+:func:`frame_jacobian_coefficients`, :func:`frame_jacobian`,
+:func:`monotone_kappa`, :func:`monotone_operator` and
+:func:`monotone_jacobian`. :class:`Monotone17` composes them into a
+:class:`~maesolvers.classical.schemes.Scheme` that
+:class:`~maesolvers.classical.iterations.Newton` solves; so does
+:class:`~maesolvers.classical.second_boundary.SecondBoundary`.
 """
 
 from __future__ import annotations
@@ -345,6 +348,96 @@ def frame_jacobian(operators: sp.spmatrix, weights: np.ndarray) -> sp.csc_matrix
     return sp.csc_matrix(collapse @ operators)
 
 
+def monotone_kappa(f: np.ndarray, dim: int = 2) -> np.ndarray:
+    """Return the slope ``kappa`` of :func:`frame_values` below zero.
+
+    ``max(f, mean f, 1) ** ((d - 1) / d)``, ``sqrt(max(f, mean f, 1))`` in
+    2D: at least 1, so a negative second difference ``a`` adds at least
+    ``|a|`` to the residual, and of the order of the product of the other
+    ``d - 1`` second differences where ``f`` is large (:class:`Monotone17`).
+
+    Parameters
+    ----------
+    f
+        Shape ``(m,)``: the right-hand side at the nodes of the operator.
+    dim
+        The dimension ``d``, 2 or 3.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(m,)``.
+    """
+    scale = np.maximum(np.maximum(f, np.mean(f)), 1.0)
+    return scale ** ((dim - 1) / dim)  # numpy takes sqrt for ** 0.5
+
+
+def monotone_operator(
+    d: np.ndarray, available: np.ndarray, kappa: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the monotone operator and the frame that attains it at each node.
+
+    The smallest :func:`frame_values` over the frames that enter the minimum
+    at a node.
+
+    Parameters
+    ----------
+    d
+        Shape ``(frames, dim, m)``: the second differences of each frame.
+    available
+        Shape ``(frames, m)``, boolean: where a frame enters the minimum; at
+        least one frame at every node.
+    kappa
+        Shape ``(m,)``, positive: the slope of :func:`frame_values`.
+
+    Returns
+    -------
+    tuple
+        ``(value, active)``, both shape ``(m,)``: the operator and the index
+        of the first frame that attains it.
+    """
+    values = np.where(available, frame_values(d, kappa), np.inf)
+    return values.min(axis=0), values.argmin(axis=0)
+
+
+def monotone_jacobian(
+    d: np.ndarray,
+    active: np.ndarray,
+    kappa: np.ndarray,
+    floor: float,
+    operators: sp.spmatrix,
+) -> sp.csc_matrix:
+    """Return a generalised Jacobian of :func:`monotone_operator`.
+
+    At each node the frame that attains the minimum is differentiated
+    (Danskin's theorem) with the coefficients of
+    :func:`frame_jacobian_coefficients`, through :func:`frame_jacobian`.
+
+    Parameters
+    ----------
+    d
+        Shape ``(frames, dim, m)``, as in :func:`monotone_operator`.
+    active
+        Shape ``(m,)``: the frame that attains the minimum, from
+        :func:`monotone_operator`.
+    kappa
+        Shape ``(m,)``, as in :func:`frame_values`.
+    floor
+        Positive, as in :func:`frame_jacobian_coefficients`.
+    operators
+        Shape ``(frames dim m, k)``: the second differences as a linear map
+        of ``k`` unknowns, stacked as ``d.ravel()``.
+
+    Returns
+    -------
+    scipy.sparse.csc_matrix
+        Shape ``(m, k)``.
+    """
+    chosen = np.arange(d.shape[0])[:, None] == active
+    weights = frame_jacobian_coefficients(d, kappa, floor)
+    return frame_jacobian(operators, weights * chosen[:, None, :])
+
+
 @dataclass(frozen=True, eq=False)
 class MonotoneGrid:
     """One problem discretised by :class:`Monotone17`, its working context.
@@ -583,7 +676,6 @@ class Monotone17(Scheme):
             )
         h = box_grid.h[0]
         floor = self.jacobian_floor / (2.0 * h * h)
-        scale = np.maximum(np.maximum(f, np.mean(f)), 1.0)
         laplacian = sum(operators[1:dim], operators[0])
         return MonotoneGrid(
             box_grid=box_grid,
@@ -593,7 +685,7 @@ class Monotone17(Scheme):
             operators=sp.csr_matrix(sp.vstack(operators)),
             data=np.array([part[1] for part in parts]).reshape(shape),
             available=available,
-            kappa=scale ** ((dim - 1) / dim),  # numpy takes sqrt for ** 0.5
+            kappa=monotone_kappa(f, dim),
             floor=floor,
             laplace=factorized(laplacian.tocsc()),
         )
@@ -647,7 +739,7 @@ class Monotone17(Scheme):
         numpy.ndarray
         """
         d = self.directional_differences(grid, v)
-        return _available_values(grid, d).min(axis=0) - grid.f
+        return monotone_operator(d, grid.available, grid.kappa)[0] - grid.f
 
     def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
         """Return a generalised Jacobian ``J`` of :meth:`residual`; ``-J`` is an M-matrix.
@@ -668,10 +760,8 @@ class Monotone17(Scheme):
         scipy.sparse.csc_matrix
         """
         d = self.directional_differences(grid, v)
-        active = _available_values(grid, d).argmin(axis=0)
-        chosen = np.arange(grid.frames)[:, None] == active
-        weights = frame_jacobian_coefficients(d, grid.kappa, grid.floor)
-        return frame_jacobian(grid.operators, weights * chosen[:, None, :])
+        _, active = monotone_operator(d, grid.available, grid.kappa)
+        return monotone_jacobian(d, active, grid.kappa, grid.floor, grid.operators)
 
     def solve_laplace(self, grid: MonotoneGrid, rhs: np.ndarray) -> np.ndarray:
         """Solve ``laplace u = rhs`` with the Dirichlet data for the unknowns.
@@ -731,8 +821,3 @@ class Monotone17(Scheme):
                 "residual_max": float(np.max(np.abs(self.residual(grid, v)))),
             },
         )
-
-
-def _available_values(grid: MonotoneGrid, d: np.ndarray) -> np.ndarray:
-    """:func:`frame_values`, ``+inf`` where a frame is not available."""
-    return np.where(grid.available, frame_values(d, grid.kappa), np.inf)

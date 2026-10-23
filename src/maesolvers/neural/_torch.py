@@ -7,7 +7,7 @@ Imported only inside methods that run during a solve, so that
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 
 import numpy as np
@@ -61,6 +61,52 @@ def mlp(dim: int, width: int, depth: int, activation: str) -> torch.nn.Module:
     return network
 
 
+def _minimise(
+    module: torch.nn.Module,
+    misfit: Callable[[], torch.Tensor],
+    max_steps: int,
+    tol: float,
+) -> dict[str, float | int | bool]:
+    """Minimise the mean square of ``misfit()`` over the module's parameters by L-BFGS.
+
+    Full batch, strong Wolfe line search, 100 curvature pairs; stops after
+    ``max_steps`` iterations or when the largest gradient component is at
+    most ``tol``. Returns what :func:`fit` reports.
+    """
+    parameters = list(module.parameters())
+    optimizer = torch.optim.LBFGS(
+        parameters,
+        max_iter=max_steps,
+        max_eval=2 * max_steps,
+        tolerance_grad=tol,
+        tolerance_change=0.0,
+        history_size=100,
+        line_search_fn="strong_wolfe",
+    )
+
+    def closure() -> torch.Tensor:
+        optimizer.zero_grad()
+        loss = misfit().pow(2).mean()
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    mse = float(closure())
+    max_gradient = max(
+        (float(p.grad.abs().max()) for p in parameters if p.grad is not None),
+        default=0.0,
+    )
+    optimizer.zero_grad()
+    largest = float(misfit().detach().abs().max())
+    return {
+        "iterations": int(optimizer.state[parameters[0]].get("n_iter", 0)),
+        "max_gradient": max_gradient,
+        "converged": max_gradient <= tol,
+        "mse": mse,
+        "max_misfit": largest,
+    }
+
+
 def fit(
     module: torch.nn.Module, x: np.ndarray, y: np.ndarray, max_steps: int, tol: float
 ) -> dict[str, float | int | bool]:
@@ -91,39 +137,47 @@ def fit(
     dtype = next(module.parameters()).dtype
     points = torch.tensor(np.asarray(x), dtype=dtype)
     target = torch.tensor(np.asarray(y), dtype=dtype)
-    parameters = list(module.parameters())
-    optimizer = torch.optim.LBFGS(
-        parameters,
-        max_iter=max_steps,
-        max_eval=2 * max_steps,
-        tolerance_grad=tol,
-        tolerance_change=0.0,
-        history_size=100,
-        line_search_fn="strong_wolfe",
-    )
+    return _minimise(module, lambda: module(points) - target, max_steps, tol)
 
-    def closure() -> torch.Tensor:
-        optimizer.zero_grad()
-        loss = functional.mean_squared_misfit(module(points), target)
-        loss.backward()
-        return loss
 
-    optimizer.step(closure)
-    mse = float(closure())
-    max_gradient = max(
-        (float(p.grad.abs().max()) for p in parameters if p.grad is not None),
-        default=0.0,
+def fit_gradient(
+    module: torch.nn.Module,
+    x: np.ndarray,
+    gradient: np.ndarray,
+    max_steps: int,
+    tol: float,
+) -> dict[str, float | int | bool]:
+    """Fit the gradient of ``module`` at ``x`` to ``gradient`` by L-BFGS, in place.
+
+    The objective is the mean over the points and the components of
+    ``(d module / dx_i - gradient_i)^2``; otherwise as :func:`fit`.
+
+    Parameters
+    ----------
+    module
+        Maps ``(M, d)`` to ``(M,)``; its parameters are changed.
+    x, gradient
+        Points and target gradients, both of shape ``(M, d)``.
+    max_steps
+        Most L-BFGS iterations.
+    tol
+        Stop when the largest component of the gradient of the objective is
+        at most this.
+
+    Returns
+    -------
+    dict
+        As :func:`fit`, ``max_misfit`` the largest misfit of one component.
+    """
+    dtype = next(module.parameters()).dtype
+    points = torch.tensor(np.asarray(x), dtype=dtype)
+    target = torch.tensor(np.asarray(gradient), dtype=dtype)
+    return _minimise(
+        module,
+        lambda: functional.gradient(module, points) - target,
+        max_steps,
+        tol,
     )
-    optimizer.zero_grad()
-    with torch.no_grad():
-        misfit = float((module(points) - target).abs().max())
-    return {
-        "iterations": int(optimizer.state[parameters[0]].get("n_iter", 0)),
-        "max_gradient": max_gradient,
-        "converged": max_gradient <= tol,
-        "mse": mse,
-        "max_misfit": misfit,
-    }
 
 
 class InputConvex(torch.nn.Module):
@@ -173,6 +227,53 @@ class InputConvex(torch.nn.Module):
             if layer < len(later) - 1:
                 z = torch.nn.functional.softplus(z)
         return z.squeeze(-1)
+
+
+class Switching(torch.optim.Optimizer):
+    """Delegate each ``step`` to one torch optimizer for a number of calls, then to another.
+
+    Both optimizers are built over the same parameters before the first
+    step; each keeps its own state, so the second starts fresh when it takes
+    over.
+
+    Parameters
+    ----------
+    params
+        The parameters, in one group.
+    first, then
+        The torch optimizers over ``params``.
+    after
+        The number of calls of :meth:`step` that go to ``first``.
+    """
+
+    def __init__(
+        self,
+        params: Sequence[torch.nn.Parameter],
+        first: torch.optim.Optimizer,
+        then: torch.optim.Optimizer,
+        after: int,
+    ) -> None:
+        super().__init__(params, {})
+        self.first, self.then, self.after = first, then, after
+        self.calls = 0
+
+    def step(self, closure: Callable[[], torch.Tensor]) -> torch.Tensor:  # type: ignore[override]
+        """Take one step of ``first`` for the first ``after`` calls, of ``then`` after.
+
+        Parameters
+        ----------
+        closure
+            Zeroes the gradients, evaluates the loss, back-propagates it and
+            returns it.
+
+        Returns
+        -------
+        torch.Tensor
+            What the optimizer's step returns.
+        """
+        optimizer = self.first if self.calls < self.after else self.then
+        self.calls += 1
+        return optimizer.step(closure)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 class Ansatz(torch.nn.Module):

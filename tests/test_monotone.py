@@ -39,6 +39,9 @@ from maesolvers.classical.monotone import (
     frame_jacobian,
     frame_jacobian_coefficients,
     frame_values,
+    monotone_jacobian,
+    monotone_kappa,
+    monotone_operator,
     stencil_dimension,
     stencil_frames,
 )
@@ -165,6 +168,37 @@ def test_frame_jacobian_coefficients_are_the_derivatives_away_from_kinks():
         )
     floored = frame_jacobian_coefficients(np.zeros((1, 2, 1)), np.ones(1), floor=0.25)
     np.testing.assert_array_equal(floored, 0.25)
+
+
+def test_the_monotone_operator_is_the_least_available_frame_and_its_jacobian():
+    rng = np.random.default_rng(2)
+    frames, m, k = 3, 20, 7
+    operators = sp.csr_matrix(rng.standard_normal((2 * frames * m, k)))
+    v = rng.standard_normal(k)
+    d = (operators @ v).reshape(frames, 2, m)
+    available = np.ones((frames, m), dtype=bool)
+    available[2, :10] = False
+    f = rng.uniform(0.0, 3.0, m)
+    kappa = monotone_kappa(f)
+    np.testing.assert_array_equal(
+        kappa, np.sqrt(np.maximum(np.maximum(f, f.mean()), 1))
+    )
+    assert np.all(monotone_kappa(f, 3) >= 1.0)
+    value, active = monotone_operator(d, available, kappa)
+    expected = np.where(available, frame_values(d, kappa), np.inf)
+    np.testing.assert_array_equal(value, expected.min(axis=0))
+    assert np.all(active[:10] < 2)
+    jacobian = monotone_jacobian(d, active, kappa, 0.0, operators)
+    step, eps = rng.standard_normal(k), 1e-7
+    numeric = (
+        monotone_operator(
+            (operators @ (v + eps * step)).reshape(d.shape), available, kappa
+        )[0]
+        - monotone_operator(
+            (operators @ (v - eps * step)).reshape(d.shape), available, kappa
+        )[0]
+    ) / (2 * eps)
+    np.testing.assert_allclose(jacobian @ step, numeric, rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize("dim", [2, 3])
