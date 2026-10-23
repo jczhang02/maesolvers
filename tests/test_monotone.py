@@ -27,6 +27,9 @@ from maesolvers import (
 from maesolvers.classical.monotone import (
     angular_resolution,
     directional_difference,
+    monotone_jacobian,
+    monotone_kappa,
+    monotone_operator,
     pair_jacobian_coefficients,
     pair_values,
     stencil_pairs,
@@ -154,6 +157,33 @@ def test_pair_jacobian_coefficients_are_the_derivatives_away_from_kinks():
         )
     floored = pair_jacobian_coefficients(np.zeros((1, 2, 1)), np.ones(1), floor=0.25)
     np.testing.assert_array_equal(floored, 0.25)
+
+
+def test_the_monotone_operator_is_the_least_available_pair_and_its_jacobian():
+    rng = np.random.default_rng(2)
+    pairs, m, k = 3, 20, 7
+    operators = sp.csr_matrix(rng.standard_normal((2 * pairs * m, k)))
+    v = rng.standard_normal(k)
+    d = (operators @ v).reshape(pairs, 2, m)
+    available = np.ones((pairs, m), dtype=bool)
+    available[2, :10] = False
+    kappa = monotone_kappa(rng.uniform(0.0, 3.0, m))
+    assert np.all(kappa >= 1.0)
+    value, active = monotone_operator(d, available, kappa)
+    expected = np.where(available, pair_values(d, kappa), np.inf)
+    np.testing.assert_array_equal(value, expected.min(axis=0))
+    assert np.all(active[:10] < 2)
+    jacobian = monotone_jacobian(d, active, kappa, 0.0, operators)
+    step, eps = rng.standard_normal(k), 1e-7
+    numeric = (
+        monotone_operator(
+            (operators @ (v + eps * step)).reshape(d.shape), available, kappa
+        )[0]
+        - monotone_operator(
+            (operators @ (v - eps * step)).reshape(d.shape), available, kappa
+        )[0]
+    ) / (2 * eps)
+    np.testing.assert_allclose(jacobian @ step, numeric, rtol=1e-5, atol=1e-6)
 
 
 QUADRATIC = Problem(

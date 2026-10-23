@@ -28,7 +28,13 @@ from maesolvers import (
     UnsupportedProblemError,
     from_config,
 )
-from maesolvers.classical.filtered import filter_function, filter_slope, filter_width
+from maesolvers.classical.filtered import (
+    filter_function,
+    filter_slope,
+    filter_width,
+    filtered_jacobian,
+    filtered_value,
+)
 from maesolvers.metrics import evaluate
 
 
@@ -106,6 +112,20 @@ def test_the_filter_slope_is_its_derivative_accurate_at_one_monotone_at_two():
 def test_the_filter_width_is_the_papers_rule():
     assert filter_width(1 / 30, math.pi / 8) == pytest.approx(
         math.sqrt(1 / 30) + math.pi / 80
+    )
+    # Benamou-Froese-Oberman 2014, Section 5.2.1: sqrt(dx) + dtheta.
+    assert filter_width(1 / 32, math.pi / 4, divisor=1.0) == pytest.approx(
+        math.sqrt(1 / 32) + math.pi / 4
+    )
+
+
+def test_the_filtered_kernels_combine_the_two_operators():
+    fa, fm = np.array([1.0, 1.0, 1.0, 1.0]), np.array([1.05, 1.15, 1.3, 0.0])
+    np.testing.assert_allclose(filtered_value(fa, fm, 0.1), [1.0, 1.1, 1.3, 0.0])
+    slope = np.array([1.0, -1.0, 0.0, 0.0])
+    jm, ja = sp.eye(4, format="csr"), 3.0 * sp.eye(4, format="csr")
+    np.testing.assert_array_equal(
+        filtered_jacobian(slope, jm, ja).diagonal(), [3.0, 2.0, 1.0, 1.0]
     )
 
 
