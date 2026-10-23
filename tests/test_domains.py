@@ -9,6 +9,7 @@ from maesolvers.core import (
     Box,
     CutQuarterDisk,
     Disk,
+    DiskUnionSquare,
     Domain,
     Ellipse,
 )
@@ -23,6 +24,7 @@ from maesolvers.core.domains import _allocate
         Disk((0, 0), 1),
         Ellipse((0, 0), (2, 1)),
         CutQuarterDisk(),
+        DiskUnionSquare(),
     ],
 )
 def test_every_domain_satisfies_the_protocol(domain):
@@ -126,6 +128,32 @@ def test_cut_quarter_disk_bbox_touches_the_domain_on_every_side():
 )
 def test_cut_quarter_disk_membership(point, inside):
     domain = CutQuarterDisk()
+    assert domain.contains(np.array(point)) == inside
+    assert domain.interior(np.array(point)) == inside
+
+
+def test_disk_union_square_is_the_hull_of_the_disk_and_the_corner():
+    domain = DiskUnionSquare()
+    assert domain.dim == 2 and domain.bbox == Box((-1, -1), (1, 1))
+    # The sides of the square touch the circle at (1, 0) and (0, 1), so
+    # those points lie on the boundary, as does the corner (1, 1).
+    edge = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.5], [-1.0, 0.0]])
+    assert np.all(domain.contains(edge)) and not np.any(domain.interior(edge))
+
+
+@pytest.mark.parametrize(
+    ("point", "inside"),
+    [
+        ((0.9, 0.9), True),  # in the square, outside the disk
+        ((-0.6, -0.6), True),  # in the disk, outside the square
+        ((0.0, 0.5), True),  # on a side of the square, inside the disk
+        ((0.9, -0.5), False),  # below the square, outside the disk
+        ((1.1, 0.5), False),
+        ((-0.9, 0.9), False),
+    ],
+)
+def test_disk_union_square_membership(point, inside):
+    domain = DiskUnionSquare()
     assert domain.contains(np.array(point)) == inside
     assert domain.interior(np.array(point)) == inside
 

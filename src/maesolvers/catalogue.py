@@ -31,6 +31,7 @@ from maesolvers.core.domains import (
     Box,
     CutQuarterDisk,
     Disk,
+    DiskUnionSquare,
     Domain,
     Ellipse,
     Field,
@@ -55,6 +56,8 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "T39",
+    "T40",
 ]
 
 # Pure numerical kernels on float points of shape (..., d), values of shape (...).
@@ -256,6 +259,23 @@ def _t20_f(x: np.ndarray) -> np.ndarray:
     return 1.0 - 0.2 / np.maximum(r, 0.2)
 
 
+# T39, T40: Feng-Jensen 2017, Section 8, on the union of the unit disk and
+# the unit square.
+
+
+def _t39_exact(x: np.ndarray) -> np.ndarray:
+    return _r2(x) ** 2
+
+
+def _t39_f(x: np.ndarray) -> np.ndarray:
+    # u = r^4: u_rr = 12 r^2 and u_r / r = 4 r^2, so det D^2 u = 48 r^4.
+    return 48.0 * _r2(x) ** 2
+
+
+def _t40_exact(x: np.ndarray) -> np.ndarray:
+    return np.abs(x[..., 0])
+
+
 # The problems, in id order.
 
 T1 = _exp_solution(
@@ -394,8 +414,50 @@ T22 = _sphere_solution(
     "corner (1, 1, 1) (Froese-Oberman 2011, Table 4).",
 )
 
+T39 = _dirichlet(
+    "T39",
+    DiskUnionSquare(),
+    _t39_f,
+    _t39_exact,
+    "u = |x|^4, f = 48 |x|^4, vanishing at the origin, on the union of the "
+    "unit disk and the unit square (0, 1)^2, a convex domain that is not "
+    "strictly convex (Feng-Jensen 2017, Section 8, the quartic problem). "
+    "From the survey; the shared test-set specification does not define it yet.",
+)
+
+T40 = _dirichlet(
+    "T40",
+    DiskUnionSquare(),
+    _const(0.0, 2),
+    _t40_exact,
+    "u = |x1|, f = 0: a degenerate equation whose viscosity solution has a "
+    "kink along x1 = 0, on the domain of T39 (Feng-Jensen 2017, Section 8, "
+    "the nonsmooth problem). From the survey; the shared test-set "
+    "specification does not define it yet.",
+)
+
 CATALOGUE: Mapping[str, Problem] = MappingProxyType(
-    {p.name: p for p in (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T12, T16, T20, T22)}
+    {
+        p.name: p
+        for p in (
+            T1,
+            T2,
+            T3,
+            T4,
+            T5,
+            T6,
+            T7,
+            T8,
+            T9,
+            T10,
+            T12,
+            T16,
+            T20,
+            T22,
+            T39,
+            T40,
+        )
+    }
 )
 """Every catalogue problem by its T id, in id order; read-only."""
 

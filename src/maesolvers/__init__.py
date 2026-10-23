@@ -27,6 +27,8 @@ from maesolvers.catalogue import (
     T16,
     T20,
     T22,
+    T39,
+    T40,
 )
 from maesolvers.classical import (
     FDFiltered,
@@ -50,6 +52,7 @@ from maesolvers.core import (
     CutQuarterDisk,
     Dirichlet,
     Disk,
+    DiskUnionSquare,
     Ellipse,
     IterativeSolver,
     Problem,
@@ -97,6 +100,8 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "T39",
+    "T40",
     "Adam",
     "Box",
     "Callback",
@@ -104,6 +109,7 @@ __all__ = [
     "Dirichlet",
     "DirichletICNN",
     "Disk",
+    "DiskUnionSquare",
     "Ellipse",
     "FDFiltered",
     "FDHybrid",

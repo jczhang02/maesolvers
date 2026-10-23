@@ -29,6 +29,7 @@ from maesolvers.core import (
     CutQuarterDisk,
     Dirichlet,
     Disk,
+    DiskUnionSquare,
     Result,
     Transport,
     UnsupportedProblemError,
@@ -54,6 +55,8 @@ def test_catalogue_is_keyed_by_t_id():
         "T16",
         "T20",
         "T22",
+        "T39",
+        "T40",
     ]
     assert all(problem.name == key for key, problem in CATALOGUE.items())
 
@@ -193,6 +196,17 @@ HAND_VALUES = [
     ("T16", (0.0, 0.0), 4.0 * _Q0**2, (1.0 - 8.0 * np.pi * _Q0) ** 2),
     # At the origin u = -sqrt 3, f = 3 * 3^(-5/2).
     ("T22", (0.0, 0.0, 0.0), -np.sqrt(3.0), 3.0**-1.5),
+    # u = |x|^4 and f = 48 |x|^4: on the unit circle, at the corner (1, 1)
+    # of the square (|x|^2 = 2), and at (0.5, -0.5) (|x|^2 = 1/2); f vanishes
+    # at the origin.
+    ("T39", (0.6, 0.8), 1.0, 48.0),
+    ("T39", (1.0, 1.0), 4.0, 192.0),
+    ("T39", (0.5, -0.5), 0.25, 12.0),
+    ("T39", (0.0, 0.0), 0.0, 0.0),
+    # u = |x1|, f = 0, on the kink and either side of it.
+    ("T40", (-0.3, 0.9), 0.3, 0.0),
+    ("T40", (0.0, -0.5), 0.0, 0.0),
+    ("T40", (0.9, 0.9), 0.9, 0.0),
 ]
 
 
@@ -255,6 +269,9 @@ KINKS = {
     "T20": ((0.5, 0.5), 0.2),
 }
 
+# Lines where D u jumps: x1 = value.
+KINK_LINES = {"T40": 0.0}
+
 
 def _smooth_interior_points(problem, rng, count=300, margin=0.05):
     """Random points at least ``margin`` from the boundary and from kinks."""
@@ -270,6 +287,8 @@ def _smooth_interior_points(problem, rng, count=300, margin=0.05):
         center, radius = KINKS[problem.name]
         r = np.linalg.norm(p - center, axis=-1)
         keep &= np.abs(r - radius) > margin
+    if problem.name in KINK_LINES:
+        keep &= np.abs(p[:, 0] - KINK_LINES[problem.name]) > margin
     p = p[keep]
     assert len(p) >= count
     return p[:count]
@@ -302,6 +321,16 @@ def _boundary_points(domain, rng, count=400):
         t = rng.uniform(0.0, 2.0 * np.pi, count)
         return np.asarray(domain.center) + domain.radius * np.stack(
             [np.cos(t), np.sin(t)], axis=-1
+        )
+    if isinstance(domain, DiskUnionSquare):
+        s = rng.uniform(0.0, 1.0, count)[:, None]
+        t = rng.uniform(np.pi / 2, 2.0 * np.pi, count)
+        return np.concatenate(
+            [
+                np.hstack([np.ones_like(s), s]),  # the side x = 1
+                np.hstack([s, np.ones_like(s)]),  # the side y = 1
+                np.stack([np.cos(t), np.sin(t)], axis=-1),  # the arc
+            ]
         )
     assert isinstance(domain, CutQuarterDisk)
     corner = np.array([(1.0 + np.sqrt(7.0)) / 4.0, (np.sqrt(7.0) - 1.0) / 4.0])
