@@ -9,8 +9,8 @@ target sets :class:`~maesolvers.core.domains.Box`,
 :class:`~maesolvers.core.domains.Disk` and
 :class:`~maesolvers.core.domains.Ellipse`, as pure functions beside the
 domains rather than as members of the
-:class:`~maesolvers.core.domains.Domain` protocol (ADR 0007), and the mass
-balance a solver of transport problems checks in its ``check``.
+:class:`~maesolvers.core.domains.Domain` protocol (ADR 0007), and the check
+of the mass balance that every transport problem needs.
 
 Each function dispatches on the type of the target (or domain), so a target
 set of another type, such as a rotated ellipse or a polygon, raises
@@ -373,10 +373,12 @@ def check_mass_balance(
     The target density of a
     :class:`~maesolvers.core.boundary.Transport` problem is uniform 1, so a
     solution exists only when the integral of ``f`` over the domain equals
-    the volume of the target. A solver of transport problems calls this from
-    its own ``check``, after ``super().check(problem)``, so that it never
-    runs on unbalanced data; the base
-    :meth:`~maesolvers.core.solver.Solver.check` does not.
+    the volume of the target. A solver of transport problems written as a
+    subclass calls this from its own ``check``, after
+    ``super().check(problem)``, so that it never runs on unbalanced data;
+    the base :meth:`~maesolvers.core.solver.Solver.check` does not. A
+    composed solver has no hook for its parts to add a check, so its caller
+    calls this before ``solve``.
 
     Parameters
     ----------

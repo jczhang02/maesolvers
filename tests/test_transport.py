@@ -10,12 +10,14 @@ import pytest
 from scipy.spatial import cKDTree
 
 from maesolvers import (
+    T1,
     T12,
     T16,
     Box,
     CutQuarterDisk,
     Disk,
     Ellipse,
+    FDNewton,
     Problem,
     Solution,
     Solver,
@@ -457,3 +459,15 @@ def test_gradient_fd_with_a_given_step():
     assert np.allclose(gradient_fd(u, x, step=1e-2), 3 * x**2 + 1e-4)
     with pytest.raises(ValueError, match="step must be positive"):
         gradient_fd(u, x, step=0.0)
+
+
+def test_gradient_fd_of_a_grid_result_on_the_interior_points():
+    # A classical result's u is constant past the box, so the contract asks
+    # for interior points: there the error is the scheme's, 2.0e-3 at n = 16.
+    result = FDNewton(n=16).solve(T1)
+    points = shared_grid(T1.domain)
+    points = points[T1.domain.interior(points)]
+    errors = gradient_map_error(
+        gradient_fd(result.u, points), gradient_fd(T1.exact, points)
+    )
+    assert errors["gradient_max"] < 3e-3

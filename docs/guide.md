@@ -619,12 +619,16 @@ print(support_function(target, np.array([[1.0, 0.0], [1.0, 1.0]])))  # [0.5 1. ]
 `gradient_map_error(gradient, exact)` returns `gradient_max` and `gradient_rms`, the largest and the root mean square Euclidean norm of the difference over the points, under names that do not clash with those of `evaluate`.
 The RMS weighs every point by `1 / M`; the L2 norm over the domain is about `sqrt(volume(domain))` times it, which differs from it where the domain's area is not 1, as on T12's unit disk, so a benchmark states which of the two a paper's "L2 error" is.
 Pass the method's own gradient where it has one, such as the differences of a grid scheme at its nodes, and `gradient_fd` of `result.u` otherwise.
+`gradient_fd` evaluates `u` a small step past each point along each axis, so `u` must be defined there: a problem's exact solution and a network are, but a classical result's `u` interpolates its grid and is constant past the domain's bounding box, so at a boundary point of a `Box` the difference gives about half the derivative.
+For such a `u`, take the interior points only, `points[domain.interior(points)]`.
 
 ### Declare Transport support
 
 A solver supports transport problems as it supports any other.
 Written from scratch, it lists `Transport` in its `boundaries`; composed of parts, it supports a problem when its parts do, so a scheme or a loss for transport problems returns True from `supports` for them.
-A solver for transport problems calls `check_mass_balance(problem)` in its `check`, after `super().check(problem)`, so that a solve raises `ValueError` before `setup` for a problem whose source mass differs from the target's volume; the base `Solver.check` does not call it.
+The base `Solver.check` does not check the mass balance.
+A solver written from scratch, or a subclass of a preset, calls `check_mass_balance(problem)` in its own `check`, after `super().check(problem)`, so that a solve raises `ValueError` before `setup` for a problem whose source mass differs from the target's volume.
+A composed solver (`NeuralSolver`, or a scheme with an iteration) has no hook yet through which a part adds a check (#28, #29), so its caller runs `check_mass_balance(problem)` before `solve`, as the example below does.
 `check_mass_balance` integrates `f` over a `Box`, a `Disk` or an `Ellipse` and raises `TypeError` for another domain; a solver on another domain integrates `f` itself and passes the result as `mass`.
 Its default `rtol` of `1e-3` suits a smooth `f`; for an `f` that jumps, which the quadrature resolves only to about the jump over the number of nodes (`1e-2` at the default 64), pass a larger `rtol`, more `points` or the `mass`.
 A scheme reads the target from `problem.boundary.target`: the scheme of Benamou-Froese-Oberman 2014 writes the condition at a boundary node as the largest `grad u . n - H*(n)` over a set of directions `n`, with `H*(n) = support_function(target, n)` computed once per solve.
@@ -636,7 +640,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from maesolvers import ICNN, LBFGS, T1, T12, NeuralSolver, Transport, UniformSampler
-from maesolvers.core import nonnegative
+from maesolvers.core import check_mass_balance, nonnegative
 from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error, shared_grid
 from maesolvers.neural import Loss, functional
 
@@ -673,6 +677,7 @@ transport = NeuralSolver(
     max_steps=20,
 )
 assert transport.supports(T12) and not transport.supports(T1)
+check_mass_balance(T12)  # a composed solver does not check it itself
 result = transport.solve(T12)
 points = shared_grid(T12.domain)
 print(gradient_map_error(gradient_fd(result.u, points), gradient_fd(T12.exact, points)))

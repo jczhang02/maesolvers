@@ -139,15 +139,23 @@ def gradient_fd(u: Field, points: np.ndarray, step: float | None = None) -> np.n
     """Gradient of ``u`` by central differences.
 
     For a gradient the method does not give: of a problem's exact solution,
-    or of a result's ``u`` (an interpolant or a network). A method's own
-    discrete gradient, such as the differences of a grid scheme at its
-    nodes, is passed to :func:`gradient_map_error` directly instead.
+    or of a result's ``u``. A method's own discrete gradient, such as the
+    differences of a grid scheme at its nodes, is passed to
+    :func:`gradient_map_error` directly instead.
+
+    ``u`` is evaluated within ``step`` of each point along each axis, so a
+    little outside the domain at a boundary point, and must be defined and
+    smooth there. A problem's exact solution and a network are. A classical
+    result's ``u`` interpolates its grid and is constant past the domain's
+    bounding box, so at a boundary point of a ``Box`` the difference is about
+    half the derivative: pass the interior points only,
+    ``points[domain.interior(points)]``, or the method's own gradient.
 
     Parameters
     ----------
     u
-        The function, evaluated at points within ``step`` of ``points`` along
-        each axis, so a little outside the domain at boundary points.
+        The function, defined and smooth within ``step`` of ``points`` along
+        each axis.
     points
         Shape ``(..., d)``.
     step
@@ -188,7 +196,9 @@ def gradient_map_error(gradient: np.ndarray, exact: np.ndarray) -> dict[str, flo
     gradient
         The method's gradient, shape ``(..., d)``: its own discrete gradient
         at its nodes, an autograd gradient, or :func:`gradient_fd` of
-        ``result.u``.
+        ``result.u`` at points where ``result.u`` is defined a step beyond
+        (the interior points, for a grid interpolant; see
+        :func:`gradient_fd`).
     exact
         The exact gradient at the same points, shape ``(..., d)``, such as
         :func:`gradient_fd` of ``problem.exact``.
