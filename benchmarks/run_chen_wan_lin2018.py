@@ -1,12 +1,13 @@
-"""Regenerate chen_wan_lin2018.csv, or chen_wan_lin2018_checks.csv.
+"""Regenerate chen_wan_lin2018.csv, chen_wan_lin2018_table5.csv or the checks.
 
 Runs the examples of Chen-Wan-Lin, J. Sci. Comput. 76 (2018), Section 7, at
 the paper's N = 32, 64, ..., 512 with n = N cells per side (Finding 1 of
 chen_wan_lin2018.md): Tables 1 to 3, the mixed scheme (FDMixed) and the pure
 semi-Lagrangian scheme (PolicyIteration on MixedHJB with wide_search="only")
 on T1 over [-1, 1]^2, T2 and T20c; Table 4, the mixed scheme on the cone T21
-over (-0.5, 0.5)^2; Table 5, u_h(0, 0) of the mixed scheme and of the standard
-9-point scheme on f = 1, g = 0 over (-0.5, 0.5)^2. T1 over [-1, 1]^2, the
+over (-0.5, 0.5)^2; with --table5, Table 5, u_h(0, 0) of the mixed scheme and
+of the standard 9-point scheme on f = 1, g = 0 over (-0.5, 0.5)^2, into
+chen_wan_lin2018_table5.csv. T1 over [-1, 1]^2, the
 cone and the Table 5 problem are built here: the catalogue's T1 is on
 (0, 1)^2, and the catalogue cannot hold T21's Dirac mass.
 
@@ -16,7 +17,7 @@ sqrt(h^2 sum e^2) over the nodes, which matches its tables (Finding 1).
 With --checks it writes chen_wan_lin2018_checks.csv instead, the evidence for
 the findings: the grid convention (n = N against n = N + 1), the search of
 the wide-stencil controls at every node, the discrete Dirac mass of the cone,
-and the number of angles.
+the number of angles, and policy iteration from the exact solution.
 
 Every solve is one MLflow run in maesolvers-mixed-<problem> unless
 --no-mlflow is given. The solves run in --processes worker processes
@@ -27,6 +28,8 @@ a100server from the repository root::
         python benchmarks/run_chen_wan_lin2018.py
     just remote-bg cwl-checks env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
         python benchmarks/run_chen_wan_lin2018.py --checks
+    just remote-bg cwl-table5 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+        python benchmarks/run_chen_wan_lin2018.py --table5
 """
 
 from __future__ import annotations
@@ -339,7 +342,7 @@ def _problem(name: str, n: int, mass: float = SEVEN_POINT_CONE_MASS) -> Problem:
 
 
 def table_row(task: tuple[str, str, int, bool]) -> dict[str, Any]:
-    """One row of chen_wan_lin2018.csv: a problem, a column and an N."""
+    """One row of chen_wan_lin2018.csv or of the Table 5 CSV: a problem, a column, an N."""
     name, scheme, N, log = task
     problem = _problem(name, N)
     solver = solver_for(scheme, N)
@@ -387,10 +390,14 @@ def table_row(task: tuple[str, str, int, bool]) -> dict[str, Any]:
 
 
 TABLE_TASKS: list[tuple[str, str, int]] = [
-    *((name, scheme, N) for (name, scheme) in PUBLISHED for N in NS),
-    *(("T7-half", scheme, N) for scheme in TABLE5 for N in NS),
+    (name, scheme, N) for (name, scheme) in PUBLISHED for N in NS
 ]
 """(problem, column, N) of every row of chen_wan_lin2018.csv."""
+
+TABLE5_TASKS: list[tuple[str, str, int]] = [
+    ("T7-half", scheme, N) for scheme in TABLE5 for N in NS
+]
+"""(problem, column, N) of every row of chen_wan_lin2018_table5.csv."""
 
 
 def _order(coarse: str, fine: str) -> float:
@@ -497,7 +504,7 @@ CHECK_TASKS: list[tuple[str, str, int, dict[str, Any]]] = [
 
 def _cost(name: str, scheme: str, N: int) -> int:
     """Rough cost of a solve, to start the longest first: a wide search costs N more."""
-    wide = scheme in ("wide only", "everywhere") or name in ("T21", "T20c")
+    wide = scheme in ("wide only", "everywhere") or name in ("T21", "T20c", "T7-half")
     return N * N * (N if wide else 1)
 
 
@@ -511,8 +518,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
     parser.add_argument("--processes", type=int, default=16, help="worker processes")
-    parser.add_argument(
+    which = parser.add_mutually_exclusive_group()
+    which.add_argument(
         "--checks", action="store_true", help="write chen_wan_lin2018_checks.csv only"
+    )
+    which.add_argument(
+        "--table5", action="store_true", help="write chen_wan_lin2018_table5.csv only"
     )
     args = parser.parse_args()
     log = not args.no_mlflow
@@ -521,15 +532,16 @@ def main() -> None:
         costs = [_cost(t[1], t[3].get("scheme", "mixed"), t[2]) for t in tasks]
         worker, path = check_row, HERE / "chen_wan_lin2018_checks.csv"
     else:
-        tasks = list(TABLE_TASKS)
+        tasks = list(TABLE5_TASKS if args.table5 else TABLE_TASKS)
         costs = [_cost(*t) for t in tasks]
-        worker, path = table_row, HERE / "chen_wan_lin2018.csv"
+        name = "chen_wan_lin2018_table5.csv" if args.table5 else "chen_wan_lin2018.csv"
+        worker, path = table_row, HERE / name
     order = _longest_first(costs)
     with Pool(args.processes) as pool:
         done = pool.map(worker, [(*tasks[i], log) for i in order], 1)
     rows = [row for _, row in sorted(zip(order, done, strict=True), key=lambda p: p[0])]
     # Written only after every solve, so no run sees a dirty checkout.
-    write(path, rows if args.checks else with_rates(rows))
+    write(path, with_rates(rows) if worker is table_row else rows)
 
 
 if __name__ == "__main__":
