@@ -35,13 +35,14 @@ and 1e6, the latter the standard 9-point scheme alone, on the ellipse
 UndampedNewton, 300 steps) on the filtered scheme from the Poisson start
 and from the monotone root, on T12 and the ellipse; and ``u(x_0)`` added to
 ``f`` inside the ellipse only (``anchor_inside``, filter width 1e6). Besides
-the errors and the iteration counts, each row holds statistics of the last
-iterate on the whole square: the smallest eigenvalue of the centred Hessian
-at the interior nodes outside the domain and the share of those nodes where
-it is negative, the same share inside, the gauge of the domain at the node
-of the largest residual and the filter's argument there, and how far the
-one-sided gradient on the square's boundary ring lies off the target's
-boundary.
+the errors (max and median) and the iteration counts, each row holds the
+gauge of the domain (1 on its boundary) at the node of the largest gradient
+error, and statistics of the last iterate on the whole square: the smallest
+eigenvalue of the centred Hessian at the interior nodes outside the domain
+and the share of those nodes where it is negative, the same share inside,
+the gauge at the node of the largest residual and the filter's argument
+there, and how far the one-sided gradient on the square's boundary ring
+lies off the target's boundary.
 
 Every solve is one MLflow run in maesolvers-bfo2014-<problem> (T16, T12,
 ellipse, halfdisks) unless --no-mlflow is given; the solves run in
@@ -500,6 +501,7 @@ def check_measures(name: str, solver: Newton, result: Any) -> dict[str, float]:
     return {
         "gradient_max": float(np.max(error)),
         "gradient_median": float(np.median(error)),
+        "worst_error_gauge": float(gauge(problem.domain, points[np.argmax(error)])),
         "iterations": info["iterations"],
         "start_iterations": info.get("start_iterations", nan),
         "start_converged": float(info.get("start_converged", nan)),
