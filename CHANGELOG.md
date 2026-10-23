@@ -2,7 +2,10 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## Unreleased
+## 0.1.0 (2026-10-23)
+
+This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.
+The rest of the interface (solvers, schemes, iterations, the neural parts and the presets) may still change in 0.x, never silently.
 
 ### Added
 
