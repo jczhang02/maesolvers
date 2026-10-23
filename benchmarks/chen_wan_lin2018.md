@@ -11,23 +11,23 @@ Problems (the paper's Examples 1 to 5, with Dirichlet data from the exact soluti
 - Example 4, the cone T21, `u = |x|`, `f = pi delta_0` on `(-0.5, 0.5)^2`, built per grid with a discrete Dirac mass at the origin (Finding 3);
 - Example 5, `f = 1`, `g = 0` on `(-0.5, 0.5)^2`, built as `T7-half`: T7 under `x -> 2x`, `u -> (u - 1)/4`; the paper reports `u_h(0, 0)`.
 
-Columns: "mixed" is `FDMixed(n=N)`, `PolicyIteration` on `MixedHJB` with the defaults; "wide only" is `PolicyIteration(scheme=MixedHJB(n=N, wide_search="only"))`, the pure semi-Lagrangian scheme of Feng-Jensen 2017 that the paper compares with; Table 5's non-monotone column is the standard 9-point scheme, `FDPoisson(n=N)`.
+Columns: "mixed" is `FDMixed(n=N)`, `PolicyIteration` on `MixedHJB` with the defaults; "wide only" is `PolicyIteration(scheme=MixedHJB(n=N, wide_search="only"))`, the pure semi-Lagrangian scheme of Feng-Jensen 2017 that the paper compares with; Table 5's non-monotone column is the standard 9-point scheme, `FDPoisson(n=N, max_iter=300000)`.
 `n = N` cells per side, `M = N` angles, the paper's tolerance `1e-6` on the residual of the HJB equation.
 Each policy's linear system is solved by sparse LU, except in the columns where the wide stencil enters at many nodes (the pure semi-Lagrangian scheme, T21, Table 5) from `N = 256` on: there BiCGSTAB with an incomplete LU solves it to a relative residual of `1e-12` (`krylov_tol`), since the LU fills in to tens of GB and does not finish in hours at `N = 512`.
 The paper uses GMRES with an incomplete LU throughout; where the LU is cheap it stays, because that tolerance moves the fourth digit of a 7-point error at `N = 512` (T1: `4.70448e-6` by BiCGSTAB, an MLflow run at commit 1f96a1b, against `4.70454e-6` by LU and the published `4.705e-6`).
 The errors are the paper's: `||e||_inf`, the max at the nodes, and `||e||_2 = sqrt(h^2 sum e^2)` over the nodes (Finding 1).
 
-Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 9c24bcb, the same code) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 9c24bcb, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 1f96a1b, some KILLED), which the receipts do not use.
+Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 55da491, after the standard column's step budget was raised; its mixed rows are those of the earlier run at 9c24bcb to every digit) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 55da491, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 9c24bcb, and a start of the Table 5 run at 55da491 stopped within a minute; some KILLED), which the receipts do not use.
 
 ## Verdict
 
 | Table | Problem | Mixed scheme | Pure semi-Lagrangian |
 |---|---|---|---|
-| 1 | T1 on `[-1, 1]^2` | exact: every printed digit, both norms, every `N`; 4 policy iterations, as printed | order of magnitude: within 3%, orders within 0.02 |
-| 2 | T2 | exact at `N = 32` to 128; at 256 and 512 a mismatch from the paper's start, where policy iteration reaches a second root of the scheme, whose 7-point root is exact (Finding 5) | order of magnitude: within 3% |
-| 3 | T20c | order of magnitude: 7 of the 10 printed values exact, the rest within 0.7% (Finding 4) | order of magnitude: within 3% |
-| 4 | T21 | order of magnitude with the discrete Dirac mass `(4 sqrt 2 - 2)/h^2`, within 19%, orders within 0.11; a mismatch with `pi/h^2` (Finding 3) | not printed |
-| 5 | `f = 1`, `g = 0` | the mixed scheme: order of magnitude, `u_h(0, 0)` within `1.0e-4`, exact at `N = 256` and 512 | the standard 9-point scheme: within `2e-5`, exact at `N = 256` and 512 |
+| 1 | T1 on `[-1, 1]^2` | exact: every printed digit, both norms, every `N`; 4 policy iterations, as printed | order of magnitude: within 3.2%, orders within 0.02 |
+| 2 | T2 | mismatch (ADR 0002 level 5): every printed digit at `N = 32` to 128, but at 256 and 512 policy iteration from the paper's start reaches a second root of the scheme, 10 to 65 times less accurate, with orders of -1.33 and 0.15 (Finding 5) | order of magnitude: within 3% |
+| 3 | T20c | order of magnitude: 6 of the 10 printed values exact, the rest within 0.7% (Finding 4) | order of magnitude: within 3% |
+| 4 | T21 | mismatch for the paper's `f = pi delta`: with the mass `pi/h^2` the error is `0.039` at every `N`; with `(4 sqrt 2 - 2)/h^2`, a mass fitted to the exact solution, within 19%, orders within 0.11 (Finding 3) | not printed |
+| 5 | `f = 1`, `g = 0` | the mixed scheme: order of magnitude, `u_h(0, 0)` within `1.0e-4`; the published value at `N = 512`, and at 256 by an iterate that did not converge (policy iteration cycles) | the standard 9-point scheme: within `2e-5`, exact at `N = 256` and 512, every `N` converged |
 
 ### Table 1 (1), T1 on [-1, 1]^2, mixed scheme
 
@@ -106,7 +106,7 @@ Its tables match `N` cells per side instead, `h = 1/N` on the unit square (ADR 0
 So at the paper's even `N` the origin is a node, which Examples 4 and 5 need.
 The `L2` norm is the discrete `sqrt(h^2 sum e^2)`: on `[-1, 1]^2` it exceeds the max norm (Table 1), which an RMS error cannot; the RMS error times the square root of the area misses Table 1 by 3% (`1.240e-3` against `1.201e-3` at `N = 32`).
 
-## Finding 2: the wide stencil competes only where no 7-point stationary point is monotone
+## Finding 2: the wide stencil competes only where no 7-point stationary point lies in its region
 
 The paper's Section 5.2 describes the optimal control at a node as the best of six regional optima, the wide-stencil region among them, at every node.
 Its cost estimate says otherwise: `O(1)` per node "if the standard 7-point stencil discretization can be applied monotonically on all or most of the grid points", which holds only if the wide-stencil search is skipped there.
@@ -118,29 +118,32 @@ The tables follow the cost estimate.
 - on T2 it takes the wide stencil at 0.7% of the nodes, next to the corner `(1, 1)`, where the Hessian of the solution is near the edge of diagonal dominance: the max error is `8.82e-4`, `7.77e-4`, `5.10e-4` at `N = 32`, 64, 128 against the published `2.359e-4`, `8.211e-5`, `2.882e-5`, and the order drops from 1.5 to 0.2 and 0.6;
 - on the cone it fails, with max errors of 1.5 to 3.7 that grow with `N`: near the tip the wide stencil's arms of length `sqrt(h)` see smaller second differences of the cone than the 7-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by `O(1)`.
 
-The skip makes the scheme switch between two stencils at a node as `u` moves a stationary point across the edge of its region, so it is no longer the maximum of monotone operators everywhere that the paper's Section 6 proves convergent; Finding 5 shows a consequence.
+The skip makes the scheme switch between two stencils at a node as `u` moves a stationary point across the edge of its region, so it is no longer the maximum of monotone operators everywhere that the paper's Section 6 proves convergent; Finding 5 shows the consequences, a second root and policy iteration that cycles.
 
 ## Finding 3: the Dirac mass of the cone
 
 The paper writes `f = pi delta(0, 0)` and does not say how it discretises it.
 With `f = pi / h^2` at the node at the origin, the error is `0.0389` at every `N` (rows `mass`): at the tip the 7-point stencil of the exact cone gives `u_xx = u_yy = 2/h` and `u_xy = (sqrt 2 - 2)/h` (stencil 1), so `det = (4 sqrt 2 - 2)/h^2 = 3.657/h^2`, and the scheme's discrete Monge-Ampere measure of a cone of slope `s` is `3.657 s^2`, not `pi s^2`; the discrete solution is a flatter cone, and its tip is `0.039` high.
 Froese-Oberman's `4/h^2` (`monotone17.md`, Finding 4) gives `0.0246` at every `N`, the tip too low.
-With `f = (4 sqrt 2 - 2)/h^2`, the mass at which the exact cone solves the 7-point equation at its tip, the tip error vanishes and the error, at the nodes around the tip where the wide stencil is used, falls like `h^0.5` in the max norm and `h^0.8` in `L2`, as the paper's does; `run_chen_wan_lin2018.py` uses this mass for Table 4.
+With `f = (4 sqrt 2 - 2)/h^2`, the mass at which the exact cone solves the 7-point equation at its tip, so a mass fitted to the exact solution, the tip error vanishes and the error, at the nodes around the tip where the wide stencil is used, falls like `h^0.5` in the max norm and `h^0.8` in `L2`, as the paper's does; `run_chen_wan_lin2018.py` uses this mass for Table 4.
 The published errors lie within 19% of ours, the orders within 0.11, and the policy iterations grow alike (9, 15, 17, 23, 27 printed; 11, 17, 19, 28, 35 ours): this is likely, not certainly, the paper's discretisation.
+Since the mass is fitted, the level for the problem the paper states, `f = pi delta`, is a mismatch; the fitted mass is the evidence for this finding, not a reproduction.
 
 ## Finding 4: small differences on T20c
 
-On T20c seven of the ten printed values are ours to every digit; the max error at `N = 128` is one unit off in the fourth digit (`6.906e-5` against `6.907e-5`), the `L2` error at `N = 64` two units (`4.271e-5` against `4.273e-5`), and both norms at `N = 512` differ by 0.6%.
+On T20c six of the ten printed values are ours to every digit; the max error at `N = 128` is one unit off in the fourth digit (`6.906e-5` against `6.907e-5`), the `L2` error at `N = 64` two units (`4.271e-5` against `4.273e-5`), and both norms at `N = 512` differ by 0.6%.
 T20c is the one example of Tables 1 to 3 where the wide stencil enters (at up to 0.7% of the nodes, next to the circle `|x| = 0.1`), so the difference lies in a detail of the wide stencil the paper leaves open: the placement of the `M` angles (`theta = -pi/4 + k pi/(2M)` here), or the bilinear interpolation at the ends of an arm.
-The pure semi-Lagrangian column, which uses the wide stencil everywhere, differs from Tables 1 to 3 by 0.5% to 3%, for the same reason: on T1 at `N = 32`, `M = N - 1`, `N + 1`, `N / 2` and `2N` angles give max errors of `1.89e-2`, `1.85e-2`, `1.65e-2` and `1.560e-2` against the published `1.557e-2` and our `1.565e-2` with `M = N` (rows `angles`).
+The pure semi-Lagrangian column, which uses the wide stencil everywhere, differs from Tables 1 to 3 by up to 3.2% (T1, `L2` at `N = 128`), for the same reason: on T1 at `N = 32`, `M = N - 1`, `N + 1`, `N / 2` and `2N` angles give max errors of `1.89e-2`, `1.85e-2`, `1.65e-2` and `1.560e-2` against the published `1.557e-2` and our `1.565e-2` with `M = N` (rows `angles`).
 
 ## Finding 5: on T2 the scheme has a second root
 
 From the paper's start, `laplace u = 2 sqrt(f)` (its eq. (50)), policy iteration on T2 reaches the published errors at `N = 32` to 128, but at `N = 256` and 512 it ends on another discrete solution, with the wide stencil at the nodes next to the top side near the corner (0.06% of the unknowns, `wide_fraction` in the CSV), and max errors `2.215e-4` and `2.324e-4` against the published `1.015e-5` and `3.583e-6`.
 From the exact solution at the nodes it reaches, in 3 policy iterations, the root with the 7-point stencil at every node, whose errors are the published ones to every printed digit at every `N` (rows `start`): `1.022e-6` and `1.015e-5` at `N = 256`, `2.557e-7` and `3.583e-6` at `N = 512`.
 A maximum of monotone operators has one root; the skip of Finding 2 breaks that, and which root policy iteration reaches depends on its path, here on how the early iterates near the singular corner fall on either side of the edge of a 7-point region.
-The paper's 5 policy iterations at every `N` suggest its path never left the 7-point stencil; ours from the same start takes 21 at `N = 256` and does not converge in 100 at 512, where the policy cycles with a residual near `0.09`.
-Level for Table 2: exact at `N = 32` to 128 from the paper's start; at 256 and 512 the scheme's 7-point root is exact, which `FDMixed` reaches from the exact solution only.
+The paper's 5 policy iterations from `N = 64` on suggest its path never left the 7-point stencil.
+Ours from the same start already differs at `N = 128`, with 15 policy iterations against the printed 5 and the errors still exact, the first sign of the split; it takes 21 at `N = 256` and does not converge in 100 at 512, where the policy cycles with a residual near `0.09`.
+Level for Table 2: a mismatch (ADR 0002 level 5), since the paper's method from the paper's start misses `N = 256` and 512 by 10 to 65 times.
+The agreement at `N = 32` to 128, and the exact 7-point root from the exact solution, which is not the paper's start, are the evidence for this finding, not a reproduction.
 
 ## Table 5
 
@@ -149,13 +152,13 @@ Level for Table 2: exact at `N = 32` to 128 from the paper's start; at 256 and 5
 | 32 | -0.18380 | -0.18370 | 8 | 0.18063 | 0.18065 |
 | 64 | -0.18444 | -0.18447 | 11 | 0.18312 | 0.18313 |
 | 128 | -0.18461 | -0.18463 | 15 | 0.18436 | 0.18437 |
-| 256 | -0.18485 | -0.18485 | 100, not converged | 0.18499 | 0.18499 |
+| 256 | -0.18485 | -0.18485 (not converged) | 100, not converged | 0.18499 | 0.18499 |
 | 512 | -0.18507 | -0.18507 | 24 | 0.18530 | 0.18530 |
 
-The mixed scheme's `u_h(0, 0)` is the published value at `N = 256` and 512 and within `1.0e-4` at the coarser grids; there the wide stencil enters at 7% to 17% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
-At `N = 256` policy iteration cycles between policies with a residual near `0.07` and stops after 100 steps, with `u_h(0, 0)` already at the published value.
+The mixed scheme's `u_h(0, 0)` is the published value at `N = 512` and within `1.0e-4` at the coarser grids; at every `N` the wide stencil enters at 7% to 17% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
+At `N = 256` policy iteration cycles between policies with a residual near `0.07` and stops after 100 steps unconverged, the default rule's cycling of Finding 5; its last iterate prints the published value, but it is not a root of the scheme, so that row is no evidence of an exact match.
 The non-monotone column is the standard 9-point scheme, whose equation is even in `u` when `g = 0`: its concave solution is minus its convex one, which `FDPoisson` computes, so the column prints `-u_h(0, 0)` of `FDPoisson`; it matches within `2e-5`, and to every digit at `N = 256` and 512.
-From `N = 128` on the Poisson iteration stops at its budget of 10 000 steps before successive iterates agree to `1e-12` (`converged` False in the CSV).
+The Poisson iteration takes 952, 3338, 11 593, 39 438 and 130 107 steps until successive iterates agree to `1e-12`, so `run_chen_wan_lin2018.py` gives it 300 000 (its default of 10 000 stopped it unconverged from `N = 128` on in an earlier run, with the same printed values).
 `T7-half` is T7 scaled, so Benamou-Froese-Oberman's `u_min = 0.2682` of T7 at 61 nodes per side gives `(0.2682 - 1)/4 = -0.1830` here, consistent with both columns.
 
 ## Conventions that differ
