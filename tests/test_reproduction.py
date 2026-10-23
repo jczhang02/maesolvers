@@ -14,8 +14,14 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 1 and whose lower corner is not the origin.
 """
 
+import dataclasses
+import math
+from typing import Any
+
+import numpy as np
 import pytest
 from centred import C2_CENTRED
+from scipy.sparse.linalg import spsolve
 
 from maesolvers import (
     T1,
@@ -27,6 +33,8 @@ from maesolvers import (
     FDMonotone,
     FDNewton,
     FDPoisson,
+    Newton,
+    Problem,
 )
 from maesolvers.metrics import evaluate
 
@@ -114,8 +122,10 @@ def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
 # Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
 # counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
 # and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
-# Only converged solves are pinned: on T2 no filtered solve converges, though
-# the last iterates print as most published values (Finding 4).
+# Only converged solves are pinned. On T2 FDFiltered's damped Newton stalls
+# next to the discrete root; the paper's undamped iteration (p. 438) reaches it
+# at N = 31 and 63 and prints the published value (Finding 4), so that pin is
+# taken with a test-local copy of run_filtered.UndampedNewton.
 
 
 # (N, stencil): units of 1e-5. N = 31: Table 4.1, all three stencils, and
@@ -158,3 +168,28 @@ def test_monotone_columns_of_froese_oberman_2013(case):
     problem, N, stencil, units, expected = FO2013_MONOTONE[case]
     err = evaluate(FDMonotone(n=N - 1, stencil=stencil).solve(problem))["max"]
     assert round(err / units, 2) == expected
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class UndampedNewton(Newton):
+    """The full Newton step, as run_filtered.UndampedNewton (FO 2013, p. 438)."""
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float] | None:
+        r = self._scheme.residual(context, iterate)
+        norm = float(np.max(np.abs(r)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
+        candidate = iterate + spsolve(self._scheme.jacobian(context, iterate), -r)
+        new_norm = float(np.max(np.abs(self._scheme.residual(context, candidate))))
+        return (candidate, new_norm) if math.isfinite(new_norm) else None
+
+
+# Table 4.1, T2, filtered, N = 31: 1.74e-3 with all three stencils.
+@pytest.mark.parametrize("stencil", [9, 17, 33])
+def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(stencil):
+    scheme = FDFiltered(n=30, stencil=stencil).scheme
+    result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
+    assert result.info["converged"]
+    assert round(evaluate(result)["max"] / 1e-3, 2) == 1.74

@@ -14,23 +14,30 @@ iterate eight Newton steps before the last (a second solve with a smaller
 max_iter), so a reader can judge how settled the last iterate is.
 
 With --checks it writes filtered_checks.csv instead, the evidence for the
-findings: the monotone part with kappa = 1 on T2; other filter widths on
-T20 and T2; Newton on the filtered scheme from the monotone and the
-standard roots on T20 and T2; Newton on the standard scheme alone
-(FDNewton) on T20; the filtered scheme with the regularised monotone part
-of SINUM 2011, Section 3.5 (run_monotone17.SmoothMonotone17), as FO 2013,
-p. 438, says its Newton used, on T2, T1 and T20; and FDFiltered on every
-catalogue problem it supports at n = 16 and 64.
+findings: the paper's undamped Newton iteration (FO 2013, p. 438) on
+FDFiltered's scheme, on T2, T1 and T20; the Jacobian floor
+max(u_vv, 1e-8 / (2 h^2)) of FO 2011 (JCP, Section 7.2), the device FO 2013,
+p. 438, says its Newton used ("as in [FO11b]"), on T2, T1, T5 and T20; the
+smooth max (MA)^delta of FO 2011 (SINUM, Section 3.5;
+run_monotone17.SmoothMonotone17) in the monotone part, on T2, T1 and T20;
+the monotone part with kappa = 1 on T2; other filter widths on T20 and T2;
+Newton on the filtered scheme from the monotone and the standard roots on
+T20 and T2; Newton on the standard scheme alone (FDNewton) on T20; and
+FDFiltered on every catalogue problem it supports at n = 16 and 64.
 
 Every solve is one MLflow run in maesolvers-filtered-<problem> unless
---no-mlflow is given. The solves run in --processes worker processes
-(default 16), so set one thread each. Run it on a100server from the
-repository root::
+--no-mlflow is given, tagged with the commit and whether the checkout is
+dirty. Write the CSV outside the checkout with --out, and copy it into
+benchmarks/ after the run, so that no run of a later phase sees the
+checkout dirtied by an earlier one. The solves run in --processes worker
+processes (default 16), so set one thread each. Run it on a100server from
+the repository root::
 
     just remote-bg filtered env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-        python benchmarks/run_filtered.py
+        python benchmarks/run_filtered.py --out /jczhang02/maesolvers-data/data
     just remote-bg filtered-checks env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-        python benchmarks/run_filtered.py --checks
+        python benchmarks/run_filtered.py --checks \
+        --out /jczhang02/maesolvers-data/data
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ from typing import Any
 
 import numpy as np
 from run_monotone17 import SmoothMonotone17, cone
+from scipy.sparse.linalg import spsolve
 
 from maesolvers import (
     T1,
@@ -310,13 +318,43 @@ class UnitSlopeMonotone17(Monotone17):
         return dataclasses.replace(grid, kappa=np.ones_like(grid.kappa))
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class UndampedNewton(Newton):
+    """Newton with the full step, the iteration FO 2013 prints (p. 438).
+
+    ``u_{n+1} = u_n - J(u_n)^{-1} F_H[u_n]`` with the scheme's Jacobian, no
+    line search; :class:`Newton` halves the step until the max residual
+    decreases. The solve ends, not converged, at a non-finite residual.
+    """
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float] | None:
+        """One full Newton step, or None at a non-finite residual."""
+        r = self._scheme.residual(context, iterate)
+        norm = float(np.max(np.abs(r)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
+        candidate = iterate + spsolve(self._scheme.jacobian(context, iterate), -r)
+        new_norm = float(np.max(np.abs(self._scheme.residual(context, candidate))))
+        return (candidate, new_norm) if math.isfinite(new_norm) else None
+
+
+UNDAMPED_MAX_ITER = 600
+"""Most steps of UndampedNewton; it converges linearly where it converges."""
+
+JCP_FLOOR = 1e-8
+"""The Jacobian floor of FO 2011 (JCP, Section 7.2), times 1 / (2 h^2)."""
+
+
 def checks(task: tuple[str, str, int, int, Any, bool]) -> dict[str, Any]:
     """One row of filtered_checks.csv.
 
     ``task`` is (check, problem, N, stencil, variant, log), all at n = N - 1;
-    only "width" reads the stencil, every other check has 17 points. The
-    variant is the filter width's name for "width", the start for "start",
-    delta for "regularised", unused for "kappa", "newton" and "catalogue".
+    only "width" and "undamped" read the stencil, every other check has 17
+    points. The variant is the filter width's name for "width", the start for
+    "start", delta for "smooth_max", the floor for "jacobian_floor", unused
+    for "undamped", "kappa", "newton" and "catalogue".
     """
     check, name, N, stencil, variant, log = task
     n = N - 1
@@ -345,7 +383,12 @@ def checks(task: tuple[str, str, int, int, Any, bool]) -> dict[str, Any]:
         start = FDMonotone(n=n) if variant == "monotone" else FDPoisson(n=n)
         scheme = Filtered(accurate=Standard9(n=n), monotone=Monotone17(n=n))
         solver = Newton(scheme=scheme, start=start, max_iter=200)
-    elif check == "regularised":
+    elif check == "undamped":
+        scheme = FDFiltered(n=n, stencil=stencil).scheme
+        solver = UndampedNewton(scheme=scheme, max_iter=UNDAMPED_MAX_ITER)
+    elif check == "jacobian_floor":
+        solver = FDFiltered(n=n, jacobian_floor=variant)
+    elif check == "smooth_max":
         monotone = SmoothMonotone17(n=n, delta=variant)
         scheme = Filtered(accurate=Standard9(n=n), monotone=monotone)
         solver = Newton(scheme=scheme, max_iter=200)
@@ -375,6 +418,19 @@ def checks(task: tuple[str, str, int, int, Any, bool]) -> dict[str, Any]:
 
 
 CHECK_TASKS: list[tuple[str, str, int, int, Any]] = [
+    # The slowest first, so that the pool does not end on one long solve.
+    *(
+        ("undamped", "T2", N, stencil, "")
+        for N in reversed(SIZES)
+        for stencil in reversed(STENCILS)
+    ),
+    *(("undamped", name, N, 17, "") for name in ("T1", "T20") for N in (63, 127)),
+    *(
+        ("jacobian_floor", name, N, 17, JCP_FLOOR)
+        for name in ("T2", "T1", "T20")
+        for N in (63, 127)
+    ),
+    *(("jacobian_floor", "T5", N, 17, JCP_FLOOR) for N in (17, 65)),
     *(("kappa", "T2", N, 17, "") for N in (63, 127, 255)),
     *(
         ("width", name, N, 17, width)
@@ -396,7 +452,7 @@ CHECK_TASKS: list[tuple[str, str, int, int, Any]] = [
     ),
     *(("newton", "T20", N, 17, "") for N in (63, 127)),
     *(
-        ("regularised", name, N, 17, delta)
+        ("smooth_max", name, N, 17, delta)
         for name in ("T2", "T1", "T20")
         for N in (63, 127)
         for delta in (1e-4, 1e-2, 1e-1)
@@ -422,12 +478,15 @@ def main() -> None:
     parser.add_argument(
         "--checks", action="store_true", help="write filtered_checks.csv only"
     )
+    parser.add_argument(
+        "--out", type=Path, default=HERE, help="directory of the CSV (benchmarks/)"
+    )
     args = parser.parse_args()
     log = not args.no_mlflow
     if args.checks:
         with Pool(args.processes) as pool:
             rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
-        write(HERE / "filtered_checks.csv", rows)
+        write(args.out / "filtered_checks.csv", rows)
         return
     tasks = [
         (name, scheme, stencil, boundary, convention, log)
@@ -449,7 +508,6 @@ def main() -> None:
     tasks.sort(key=lambda task: (-task[2], task[4] != "1/(N-1)"))
     with Pool(args.processes) as pool:
         rows = [row for chunk in pool.imap_unordered(sequence, tasks) for row in chunk]
-    # Written only after every solve, so no run sees a dirty checkout.
     order = {name: i for i, name in enumerate(("C2-centred", "T20", "T2", "T21", "T1"))}
     rows.sort(
         key=lambda r: (
@@ -461,7 +519,7 @@ def main() -> None:
             r["N"],
         )
     )
-    write(HERE / "filtered.csv", rows)
+    write(args.out / "filtered.csv", rows)
 
 
 if __name__ == "__main__":
