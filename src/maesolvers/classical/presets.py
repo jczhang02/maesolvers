@@ -437,7 +437,9 @@ class FDMixed(_MixedPreset, PolicyIteration):
     ``PolicyIteration(scheme=MixedHJB(n=n, angles=M, ...), ...)``, the
     "proposed mixed stencil scheme" of Chen-Wan-Lin 2018, Tables 1 to 4:
     the standard 7-point stencil for the controls where it is monotone, the
-    semi-Lagrangian wide stencil for the others (``docs/methods/chen_wan_lin2018.md``).
+    semi-Lagrangian wide stencil for the others, searched where no 7-point
+    stationary point is monotone, as in the paper's tables
+    (``docs/methods/chen_wan_lin2018.md``).
 
     Parameters
     ----------

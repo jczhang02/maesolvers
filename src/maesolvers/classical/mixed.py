@@ -24,13 +24,17 @@ semi-Lagrangian wide stencil, first order, is: the second differences along
 the turned axes with arms of length ``sqrt(h)``, the values at the arms'
 ends interpolated bilinearly, an arm that leaves the box shortened to it
 with the Dirichlet data there (their eq. (16) to (19)). At every node the
-discrete equation is the maximum over all controls, each with its own
-stencil, so the scheme is monotone everywhere and converges to the
-viscosity solution (their Section 6).
+discrete equation is the maximum over the controls, each with its own
+stencil, so every linearisation is an M-matrix, and the paper proves
+convergence to the viscosity solution (their Section 6).
 
 The maximum over the 7-point controls has closed forms (their eq. (30) to
 (34)); over the wide-stencil controls it is a search over ``M`` angles, each
-with its best ``a`` in closed form (their eq. (36) to (38)).
+with its best ``a`` in closed form (their eq. (36) to (38)). Where the
+stationary point of a 7-point objective, eq. (30), lies in its region, it
+maximises that objective over all controls, and the paper's algorithm takes
+it without the wide-stencil search; its tables match only this rule
+(``benchmarks/chen_wan_lin2018.md``, Finding 2).
 :class:`MixedHJB` composes these into a
 :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.PolicyIteration` (Howard's
@@ -47,7 +51,7 @@ The numerical kernels are module-level pure functions:
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, NamedTuple
+from typing import ClassVar, Literal, NamedTuple
 
 import numpy as np
 import scipy.sparse as sp
@@ -55,7 +59,7 @@ from scipy.sparse.linalg import factorized
 
 from maesolvers.classical._grid import interior_mask, spline
 from maesolvers.classical.schemes import Scheme, difference_operators
-from maesolvers.core._params import boolean, integer
+from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, Field
 from maesolvers.core.problem import Problem
@@ -188,12 +192,17 @@ class SevenPointControls(NamedTuple):
         The control that attains it.
     case : numpy.ndarray
         Of int: the stencil, 1 or 2 as in :func:`seven_point_case`.
+    stationary : numpy.ndarray
+        Boolean: where the stationary point of eq. (30) of a stencil lies in
+        that stencil's region. It maximises that stencil's objective over all
+        controls, so the paper takes it without a wide-stencil search there.
     """
 
     value: np.ndarray
     a: np.ndarray
     theta: np.ndarray
     case: np.ndarray
+    stationary: np.ndarray
 
 
 def seven_point_controls(
@@ -226,40 +235,54 @@ def seven_point_controls(
     Returns
     -------
     SevenPointControls
-        The value and the control, per point, of the shape of ``dxx``.
+        The value, the control and where a stationary point is in its
+        region, per point, of the shape of ``dxx``.
     """
+    dxy = {1: dxy1, 2: dxy2}
     candidates = []  # (a, theta, case)
-    for case, dxy in ((1, dxy1), (2, dxy2)):
+    stationary = np.zeros(np.shape(dxx), dtype=bool)
+    infeasible = []  # per candidate: where it lies outside its region
+    for case in (1, 2):
         with np.errstate(divide="ignore", invalid="ignore"):
-            theta = np.nan_to_num(0.5 * np.arctan(2.0 * dxy / (dyy - dxx)), nan=0.0)
-        lam = (dxx - dyy) * np.cos(2.0 * theta) - 2.0 * dxy * np.sin(2.0 * theta)
+            ratio = 2.0 * dxy[case] / (dyy - dxx)
+        theta = 0.5 * np.arctan(np.nan_to_num(ratio, nan=0.0))
+        lam = (dxx - dyy) * np.cos(2.0 * theta) - 2.0 * dxy[case] * np.sin(2.0 * theta)
         a = _best_weight(lam, f)
-        candidates.append((a, theta, case, seven_point_case(a, theta) == case))
-    zero = np.zeros_like(dxx)
-    candidates.append((_best_weight(dxx - dyy, f), zero, 1, None))
+        inside = seven_point_case(a, theta) == case
+        stationary |= inside
+        candidates.append((a, theta, case))
+        infeasible.append(~inside)
+    candidates.append((_best_weight(dxx - dyy, f), np.zeros_like(dxx), 1))
     with np.errstate(divide="ignore", invalid="ignore"):
         root_f = 2.0 * np.sqrt(f)
-        for case, dxy, signs in (
-            (1, dxy1, ((1, -1), (-1, 1))),
-            (2, dxy2, ((1, 1), (-1, -1))),
-        ):
+        for case, signs in ((1, ((1, -1), (-1, 1))), (2, ((1, 1), (-1, -1)))):
             for s_a, s_theta in signs:
-                gamma = s_a * (dyy - dxx - 2.0 * s_theta * dxy) / root_f
+                gamma = s_a * (dyy - dxx - 2.0 * s_theta * dxy[case]) / root_f
                 theta = 0.5 * s_theta * _boundary_angle(gamma)
-                band = seven_point_band(theta)
-                candidates.append((band[1] if s_a > 0 else band[0], theta, case, None))
-    values = []
-    for a, theta, case, feasible in candidates:
-        value = _seven_point_value(a, theta, dxx, dyy, dxy2 if case == 2 else dxy1, f)
-        values.append(value if feasible is None else np.where(feasible, value, -np.inf))
-    best = np.argmax(np.stack(values), axis=0)
+                low, high = seven_point_band(theta)
+                candidates.append((high if s_a > 0 else low, theta, case))
+    infeasible += [np.zeros(np.shape(dxx), dtype=bool)] * (len(candidates) - 2)
+    values = np.stack(
+        [
+            np.where(out, -np.inf, _seven_point_value(a, t, dxx, dyy, dxy[c], f))
+            for (a, t, c), out in zip(candidates, infeasible, strict=True)
+        ]
+    )
+    best = np.argmax(values, axis=0)[None]
 
     def pick(field: int) -> np.ndarray:
-        stacked = np.stack([np.broadcast_to(c[field], dxx.shape) for c in candidates])
-        return np.take_along_axis(stacked, best[None], axis=0)[0]
+        stacked = np.stack(
+            [np.broadcast_to(c[field], np.shape(dxx)) for c in candidates]
+        )
+        return np.take_along_axis(stacked, best, axis=0)[0]
 
-    value = np.take_along_axis(np.stack(values), best[None], axis=0)[0]
-    return SevenPointControls(value, pick(0), pick(1), pick(2).astype(int))
+    return SevenPointControls(
+        np.take_along_axis(values, best, axis=0)[0],
+        pick(0),
+        pick(1),
+        pick(2).astype(int),
+        stationary,
+    )
 
 
 def wide_stencil_weight(
@@ -385,8 +408,8 @@ class MixedGrid:
         The length ``sqrt(h)`` of the wide stencil's arms.
     angles
         The ``M`` angles of the wide-stencil search, in ``[-pi/4, pi/4)``.
-    seven_point
-        Whether the 7-point controls take part.
+    wide_search
+        :attr:`MixedHJB.wide_search`.
     laplace
         Solves the 5-point ``(D_xx + D_yy) v = rhs`` by a sparse LU
         factorisation.
@@ -408,7 +431,7 @@ class MixedGrid:
     dxy2: sp.csr_matrix
     arm: float
     angles: np.ndarray
-    seven_point: bool
+    wide_search: str
     laplace: Callable[[np.ndarray], np.ndarray]
 
 
@@ -504,8 +527,9 @@ class MixedHJB(Scheme):
     controls ``(a, theta)`` of the HJB operator, each control with its own
     stencil: the standard 7-point stencil where it is monotone, the
     semi-Lagrangian wide stencil with arms ``sqrt(h)`` elsewhere (module
-    docstring). Each operator is linear in ``u`` with an M-matrix, so the
-    scheme is monotone and :class:`PolicyIteration
+    docstring); ``wide_search`` sets where the wide-stencil controls
+    compete. Each control's operator is linear in ``u`` with an M-matrix,
+    so :class:`PolicyIteration
     <maesolvers.classical.iterations.PolicyIteration>` converges from any
     start. The 7-point controls are optimised in closed form, the
     wide-stencil ones over ``angles`` angles, so the scheme is consistent
@@ -518,16 +542,24 @@ class MixedHJB(Scheme):
     n
         Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
         ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2. The
-        paper's ``N x N`` grid counts the unknowns per side: its ``N`` is
-        ``n - 1``.
+        paper's ``N`` is ``n``: its tables match ``h = 1/N`` on the unit
+        square, although its Section 4 counts ``N`` unknowns per side
+        (``benchmarks/chen_wan_lin2018.md``, Finding 1).
     angles
         The number ``M`` of angles ``theta = -pi/4 + k pi / (2 M)``,
         ``k = 0, ..., M - 1``, of the wide-stencil search, at least 1; None
-        takes ``n - 1``, the paper's ``M = N``.
-    seven_point
-        If False, every control takes the wide stencil, and ``a`` is
+        takes ``n``, the paper's ``M = N``.
+    wide_search
+        Where the wide-stencil controls compete. ``"outside"``: at the nodes
+        where neither 7-point stationary point, eq. (30), lies in its
+        region; elsewhere that stationary point maximises its stencil's
+        objective over all controls and is taken as the optimum, at a cost
+        of ``O(1)``, as the paper's cost estimate says and its tables match.
+        ``"everywhere"``: at every node, as its Section 5.2 states.
+        ``"only"``: every control takes the wide stencil, with ``a``
         unrestricted: the pure semi-Lagrangian scheme of Feng and Jensen
-        (2017), which the paper compares with.
+        (2017), which the paper compares with. ``benchmarks/chen_wan_lin2018.md``,
+        Finding 2, compares the three.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
         nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
@@ -546,8 +578,8 @@ class MixedHJB(Scheme):
     Raises
     ------
     TypeError
-        On construction, if ``seven_point`` is not a bool or ``n``,
-        ``angles`` or ``spline_degree`` not an integer.
+        On construction, if ``n``, ``angles`` or ``spline_degree`` is not
+        an integer.
     ValueError
         On construction, if a parameter is out of range.
     """
@@ -558,16 +590,18 @@ class MixedHJB(Scheme):
 
     n: int = 64
     angles: int | None = None
-    seven_point: bool = True
+    wide_search: Literal["outside", "everywhere", "only"] = "outside"
     spline_degree: int = 3
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "n", integer("n", self.n, 2))
         if self.angles is not None:
             object.__setattr__(self, "angles", integer("angles", self.angles, 1))
-        object.__setattr__(
-            self, "seven_point", boolean("seven_point", self.seven_point)
-        )
+        if self.wide_search not in ("outside", "everywhere", "only"):
+            raise ValueError(
+                "wide_search must be 'outside', 'everywhere' or 'only', "
+                f"got {self.wide_search!r}"
+            )
         spline_degree = integer("spline_degree", self.spline_degree, 1)
         if spline_degree > 5:
             raise ValueError(
@@ -638,7 +672,7 @@ class MixedHJB(Scheme):
             )
         dxx, dyy, _ = difference_operators(n, h, h)
         dxy1, dxy2 = _cross_differences(n, h)
-        count = n - 1 if self.angles is None else self.angles
+        count = n if self.angles is None else self.angles
         return MixedGrid(
             n=n,
             h=h,
@@ -656,7 +690,7 @@ class MixedHJB(Scheme):
             dxy2=dxy2,
             arm=float(np.sqrt(h)),
             angles=-0.25 * np.pi + 0.5 * np.pi * np.arange(count) / count,
-            seven_point=self.seven_point,
+            wide_search=self.wide_search,
             laplace=factorized(sp.csr_matrix(dxx + dyy)[:, interior].tocsc()),
         )
 
@@ -684,24 +718,27 @@ class MixedHJB(Scheme):
     def _policy(self, grid: MixedGrid, v: np.ndarray) -> _Policy:
         """Find the optimal control at every unknown and the objective's value there."""
         u = self._values(grid, v)
-        f = grid.f
-        if grid.seven_point:
-            best = seven_point_controls(
-                grid.dxx @ u, grid.dyy @ u, grid.dxy1 @ u, grid.dxy2 @ u, f
-            )
-            value, a, theta, case = best
-        else:
+        rows = np.arange(v.size)
+        if grid.wide_search == "only":
             value = np.full(v.size, -np.inf)
             a, theta, case = np.zeros(v.size), np.zeros(v.size), np.zeros(v.size, int)
+        else:
+            value, a, theta, case, stationary = seven_point_controls(
+                grid.dxx @ u, grid.dyy @ u, grid.dxy1 @ u, grid.dxy2 @ u, grid.f
+            )
+            if grid.wide_search == "outside":
+                rows = rows[~stationary]
+        index, f = grid.index[rows], grid.f[rows]
         for angle in grid.angles:
-            dzz, dww = _wide_differences(grid, grid.index, np.asarray(angle), u, v)
-            weight = wide_stencil_weight(dzz, dww, f, angle, grid.seven_point)
+            dzz, dww = _wide_differences(grid, index, np.asarray(angle), u, v[rows])
+            weight = wide_stencil_weight(
+                dzz, dww, f, angle, restricted=grid.wide_search != "only"
+            )
             wide = wide_stencil_value(dzz, dww, weight, f)
-            better = wide > value
-            value = np.where(better, wide, value)
-            a = np.where(better, weight, a)
-            theta = np.where(better, angle, theta)
-            case = np.where(better, 0, case)
+            chosen = wide > value[rows]
+            better = rows[chosen]
+            value[better], a[better] = wide[chosen], weight[chosen]
+            theta[better], case[better] = angle, 0
         return _Policy(value, a, theta, case)
 
     def policy_system(

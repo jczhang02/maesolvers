@@ -136,6 +136,23 @@ def test_on_a_convex_hessian_the_seven_point_maximum_is_zero_where_det_is_f():
     assert np.allclose(control, inverse / np.trace(inverse))
 
 
+def test_the_stationary_flag_marks_a_stationary_point_inside_its_region():
+    # Dominant Hessian: the stationary point is a 7-point control. On the
+    # cone's discrete Hessian off the axes and diagonals it is not.
+    dominant = seven_point_controls(*np.array([[2.0], [1.0], [0.7], [0.7]]), np.ones(1))
+    assert dominant.stationary[0]
+    x, y = 0.3, 0.1
+    r3 = (x * x + y * y) ** 1.5
+    cone = seven_point_controls(
+        np.array([y * y / r3]),
+        np.array([x * x / r3]),
+        np.array([-x * y / r3]),
+        np.array([-x * y / r3]),
+        np.zeros(1),
+    )
+    assert not cone.stationary[0]
+
+
 @pytest.mark.parametrize("restricted", [True, False])
 def test_the_wide_stencil_weight_maximises_over_its_controls(restricted):
     rng = np.random.default_rng(2)
@@ -176,9 +193,9 @@ def test_the_wide_stencil_is_exact_on_a_bilinear_function_up_to_the_boundary():
         assert np.allclose(dww, 2 * e_w[0] * e_w[1], atol=1e-10)
 
 
-@pytest.mark.parametrize("seven_point", [True, False])
-def test_every_policy_matrix_is_an_m_matrix(seven_point):
-    scheme = MixedHJB(n=10, seven_point=seven_point)
+@pytest.mark.parametrize("wide_search", ["outside", "everywhere", "only"])
+def test_every_policy_matrix_is_an_m_matrix(wide_search):
+    scheme = MixedHJB(n=10, wide_search=wide_search)
     problem = _quadratic_problem([[1.0, 1.5], [1.5, 4.0]])
     grid = scheme.discretize(problem)
     rng = np.random.default_rng(3)
@@ -222,9 +239,20 @@ def test_policy_iteration_converges_at_second_order_on_t1():
 
 def test_the_pure_wide_stencil_scheme_is_less_accurate_on_t1():
     mixed = evaluate(FDMixed(n=17).solve(T1))["max"]
-    wide = PolicyIteration(scheme=MixedHJB(n=17, seven_point=False)).solve(T1)
+    wide = PolicyIteration(scheme=MixedHJB(n=17, wide_search="only")).solve(T1)
     assert wide.info["converged"] and wide.info["wide_fraction"] == 1.0
     assert evaluate(wide)["max"] > 3 * mixed
+
+
+def test_the_wide_search_mode_decides_where_the_wide_stencil_competes():
+    """On T2 the paper's rule keeps the 7-point stencil at every node; the
+    search at every node takes the wide stencil near the corner (1, 1)."""
+    outside = PolicyIteration(scheme=MixedHJB(n=32)).solve(T2)
+    everywhere = PolicyIteration(scheme=MixedHJB(n=32, wide_search="everywhere")).solve(
+        T2
+    )
+    assert outside.info["wide_fraction"] == 0.0 < everywhere.info["wide_fraction"]
+    assert evaluate(outside)["max"] < evaluate(everywhere)["max"]
 
 
 def test_newton_on_the_scheme_reaches_the_policy_iteration_root():
@@ -271,7 +299,7 @@ def test_a_negative_f_is_refused():
         ({"n": 1}, ValueError),
         ({"angles": 0}, ValueError),
         ({"angles": 2.5}, TypeError),
-        ({"seven_point": "yes"}, TypeError),
+        ({"wide_search": "inside"}, ValueError),
         ({"spline_degree": 6}, ValueError),
     ],
 )
@@ -280,8 +308,8 @@ def test_parameters_are_checked(kwargs, error):
         MixedHJB(**kwargs)
 
 
-def test_angles_default_to_the_interior_nodes_per_side():
-    grid = MixedHJB(n=9).discretize(T1)
+def test_angles_default_to_the_cells_per_side():
+    grid = MixedHJB(n=8).discretize(T1)
     assert len(grid.angles) == 8 and grid.angles[0] == -np.pi / 4
     assert np.allclose(np.diff(grid.angles), np.pi / 16)
     assert len(MixedHJB(n=9, angles=3).discretize(T1).angles) == 3
@@ -311,7 +339,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
     "solver",
     [
         FDMixed(n=10, angles=4),
-        PolicyIteration(scheme=MixedHJB(n=10, seven_point=False), max_iter=9),
+        PolicyIteration(scheme=MixedHJB(n=10, wide_search="everywhere"), max_iter=9),
         Newton(scheme=MixedHJB(n=10)),
     ],
     ids=["preset", "composed", "newton"],
