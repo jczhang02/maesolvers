@@ -34,7 +34,6 @@ from maesolvers import (
     T7,
     T9,
     T20,
-    T22,
     FDFiltered,
     FDHybrid,
     FDMonotone,
@@ -216,17 +215,13 @@ def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
 
 
 # Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 4: max error of the
-# 19-point scheme in 3D. Order of magnitude overall (benchmarks/monotone19.md);
-# its N does not fix the grid convention (Finding 1), so the cells that agree to
-# the printed digits are pinned with the n that gives them: T9 at N = 21 with
-# h = 1/N, and at N = 11, 15 and 21 with h = 1/(N - 1); T22 at N = 11 with
-# h = 1/(N - 1). N = 31 agrees too (T9, h = 1/N) but takes a minute.
+# 19-point scheme in 3D, with h = 1/N (ADR 0001). T9 is order of magnitude
+# (benchmarks/monotone19.md) and agrees to the printed digits at N = 21 and 31;
+# N = 31 takes a minute, so only N = 21 is pinned. The cells that agree with
+# h = 1/(N - 1) are not pinned: the paper used one convention, and which one
+# its N follows stays open (Finding 1).
 SINUM_TABLE4_EXACT = [  # (problem, n cells, printed max error in units of 1e-4)
     (T9, 21, 127),
-    (T9, 10, 140),
-    (T9, 14, 132),
-    (T9, 20, 127),
-    (T22, 10, 53),
 ]
 
 
