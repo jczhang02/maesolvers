@@ -23,7 +23,9 @@ The discrete gradient is the paper's centred difference (Section 3.1) at the
 grid nodes of the source domain off the boundary ring, through
 ``gradient_fd(result.u, points, step=h)``: the spline through the node values
 interpolates them, so these are the node differences to rounding. For T16,
-``gradient_max_ring`` adds the ring nodes with one-sided differences.
+``gradient_max_ring`` and ``gradient_rms_ring`` add the ring nodes, with
+one-sided differences there. With --problems only those problems run, and
+their rows replace the same problems' rows of the CSV given by --out.
 
 Every solve is one MLflow run in maesolvers-bfo2014-<problem> (T16, T12,
 ellipse, halfdisks) unless --no-mlflow is given; the solves run in
@@ -262,7 +264,9 @@ def gradient_errors(name: str, result: Any) -> dict[str, float]:
         values = result.values.reshape(n + 1, n + 1)
         gradient = np.stack(np.gradient(values, h, edge_order=1), axis=-1)
         exact = exact_gradient(name, result.nodes).reshape(n + 1, n + 1, 2)
-        out["gradient_max_ring"] = gradient_map_error(gradient, exact)["gradient_max"]
+        ring = gradient_map_error(gradient, exact)
+        out["gradient_max_ring"] = ring["gradient_max"]
+        out["gradient_rms_ring"] = ring["gradient_rms"]
     return out
 
 
@@ -333,6 +337,7 @@ def run(task: tuple[str, str, int, int | None, bool]) -> dict[str, Any]:
         "published_l2": pub[1],
         "gradient_rms": errors["gradient_rms"],
         "gradient_max_ring": errors.get("gradient_max_ring", ""),
+        "gradient_rms_ring": errors.get("gradient_rms_ring", ""),
         "u_max": measured.get("max", ""),
         "u_rms": measured.get("rms", ""),
         "published_iterations": pub[2],
@@ -354,21 +359,34 @@ def main() -> None:
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
     parser.add_argument("--processes", type=int, default=16, help="worker processes")
     parser.add_argument("--grids", type=int, nargs="+", default=list(GRIDS))
+    parser.add_argument(
+        "--problems", nargs="+", choices=list(PROBLEMS), default=list(PROBLEMS)
+    )
     parser.add_argument("--out", type=Path, default=HERE / "bfo2014.csv")
     args = parser.parse_args()
     if tuple(args.grids) != GRIDS and args.out == HERE / "bfo2014.csv":
         parser.error("--grids differs from the tables': give --out")
-    todo = [(*t, not args.no_mlflow) for t in tasks() if t[2] in args.grids]
+    todo = [
+        (*t, not args.no_mlflow)
+        for t in tasks()
+        if t[2] in args.grids and t[0] in args.problems
+    ]
     with Pool(args.processes) as pool:
         rows = pool.map(run, todo, 1)
+    fields = list(rows[0])  # a fresh row has every column, older ones may not
+    if args.out.exists() and set(args.problems) != set(PROBLEMS):
+        with args.out.open(newline="") as fh:
+            rows += [r for r in csv.DictReader(fh) if r["problem"] not in args.problems]
     order = {
         (t[0], t[1], t[2], t[3]): i for i, t in enumerate(sorted(tasks(), key=_key))
     }
     rows.sort(
-        key=lambda r: order[(r["problem"], r["variant"], r["N"], r["NY"] or None)]
+        key=lambda r: order[
+            (r["problem"], r["variant"], int(r["N"]), int(r["NY"]) if r["NY"] else None)
+        ]
     )
     with args.out.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0]), lineterminator="\n")
+        writer = csv.DictWriter(fh, fieldnames=fields, restval="", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     print(f"wrote {len(rows)} rows to {args.out}")
