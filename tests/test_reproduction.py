@@ -24,6 +24,7 @@ from centred import C2_CENTRED
 from scipy.sparse.linalg import spsolve
 
 from maesolvers import (
+    CATALOGUE,
     T1,
     T2,
     T7,
@@ -35,7 +36,9 @@ from maesolvers import (
     FDPoisson,
     Newton,
     Problem,
+    StandardBox,
 )
+from maesolvers.classical.multigrid import sweep_groups
 from maesolvers.metrics import evaluate
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
@@ -206,3 +209,46 @@ def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
     result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
     assert result.info["converged"]
     assert round(evaluate(result)["max"] / 1e-3, 2) == expected
+
+
+# Liu-Froese-Oberman-Xiao, Int. J. Comput. Math. 94 (2017), Tables 3, 5, 6 and
+# 7, columns "Gauss-Seidel": the paper's stand-alone nonlinear Gauss-Seidel
+# solver, lexicographic sweeps of StandardBox.relax from 1.01 u at the unknowns
+# until the residual's L2 norm is 1e-6 of the start's. Matched to the printed
+# digits at every printed N, with the same number of sweeps at N = 8 and 16
+# (benchmarks/multigrid.md); N = 8 is pinned here, and N = 16 on T9 (some 5 s
+# each).
+LIU_GAUSS_SEIDEL = {  # problem: {N: (error as printed, sweeps)}
+    "T9": {8: (1.2e-3, 72), 16: (3.0e-4, 270)},
+    "T46": {8: (1.7e-2, 82)},
+    "T28": {8: (4.0e-4, 86)},
+    "T22": {8: (1.4e-3, 75)},
+}
+
+
+def _gauss_seidel(problem: Problem, n: int) -> tuple[float, int]:
+    """The max error and the sweeps of the paper's stand-alone solver."""
+    scheme = StandardBox(n=n)
+    grid = scheme.discretize(problem)
+    box = grid.grid
+    u = grid.values(1.01 * problem.exact(box.nodes[box.interior]))
+    f = np.zeros(len(u))
+    f[box.interior] = grid.f
+    groups = sweep_groups(n, box.dim, "lexicographic")
+    reference = np.linalg.norm(scheme.residual(grid, u[box.interior]))
+    sweeps = 0
+    while np.linalg.norm(scheme.residual(grid, u[box.interior])) > 1e-6 * reference:
+        for nodes in groups:
+            u[nodes] = scheme.relax(grid, u, f[nodes], nodes)
+        sweeps += 1
+    return float(np.max(np.abs(u - problem.exact(box.nodes)))), sweeps
+
+
+@pytest.mark.parametrize(
+    "name,n", [(name, n) for name, rows in LIU_GAUSS_SEIDEL.items() for n in rows]
+)
+def test_gauss_seidel_matches_the_liu_et_al_tables(name, n):
+    error, sweeps = _gauss_seidel(CATALOGUE[name], n)
+    printed, published_sweeps = LIU_GAUSS_SEIDEL[name][n]
+    assert float(f"{error:.1e}") == printed
+    assert sweeps == published_sweeps
