@@ -6,7 +6,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (127 runs and 28 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (187 runs and 36 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
@@ -14,6 +14,8 @@ README's section "Comparison" shows the tables; this file says how they were mad
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
 - The rows of `TransportICNN` (issue #29) came later, from the same script at commit 21970e5, clean checkout, merged into the receipt in 496 s of wall time with 10 worker processes of one CPU thread each: `just remote-bg comparison-transport-icnn env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers TransportICNN --workers 10`.
   The merge replaces only that preset's rows, so every other row is the receipt of f15b98f.
+- The rows of `DirichletQSPINN` and `TransportQSPINN` (issue #33) came from the same script at commit 0526410, clean checkout, merged into the receipt in 1716 s of wall time with 8 worker processes of one CPU thread each: `just remote-bg qs-comparison python benchmarks/run_comparison.py --solvers DirichletQSPINN TransportQSPINN --workers 8 --out /jczhang02/maesolvers-data/data/comparison-qs.csv`, the current `comparison.csv` copied there first.
+  Their unsupported row on T20 was rewritten at commit c35c01e, which names its reason (`f(x0) = 0`), by the same command with `--problems T20`; no run was made for it.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
   A new preset, a preset whose support or defaults change, fails that test until `run_comparison.py` runs again.
@@ -31,7 +33,8 @@ README's section "Comparison" shows the tables; this file says how they were mad
   No run of this receipt failed.
 - A classical run whose iteration stops before its tolerance (`converged` False) is kept at its last iterate and marked `\*`; a neural seed that stops at its step budget or stalls is a normal seed.
 - Unsupported pairs: `unsupported_reason` in `comparison.py` names the first of the boundary condition, the dimension and the domain that the preset does not declare.
-  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); `TransportICNN`, the first transport preset (0.2), takes only transport problems (`Transport only` on the other rows).
+  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); `TransportICNN`, the first transport preset (0.2), takes only transport problems (`Transport only` on the other rows), as `TransportQSPINN` does.
+  For a preset on the QS form it also names the reference point when that is what fails: `DirichletQSPINN` on T20 gives `f(x0) = 0`, since T20's `f` vanishes at the centre of its box (`docs/methods/qs_pinn.md`, Known limits).
 - Orientation: the problems are the rows and the presets the columns, as GLOSSARY (共用集) and the test-set specification say; the scope comment of #14 calls T12 a "column".
 
 ## Differences from the test-set specification
@@ -50,6 +53,7 @@ Every value the reproduction receipts share with this one agrees to all digits, 
 - `FDHybrid` on T1 (1.571050e-6), T2 (4.177276e-5) and T20 (2.970804e-5): `hybrid.csv`, `N = 361`, `h = 1/N`, narrow.
 - `FDFiltered` on T1 (9.677519e-5, 14 steps, `converged` False): `filtered.csv`, `N = 361`, `h = 1/N`, 17 points, narrow; its T2 and T20 rows there are at `h = 1/(N-1)` only.
 - `PenaltyMLP` and `DirichletICNN` on T1, seeds 0 to 9: `penalty_mlp_t1.csv` and `icnn_t1.csv`, every seed's shared-grid max error.
+- `DirichletQSPINN` on T8 and `TransportQSPINN` on T12, seeds 0 to 9: `qs_pinn.csv`, every seed's shared-grid max error.
 
 One receipt differs by design: `icnn_t12.csv` trained `TransportICNN` on T12 on a GPU, and this table on the CPU, the preset's default.
 The two devices round differently, and 1800 L-BFGS steps carry the difference into the result: the CPU seeds' max error of `u` is 0.79 to 1.80 times the GPU seeds' (median 1.7e-3 here, 2.0e-3 there), the same distribution, not the same numbers.
@@ -79,12 +83,14 @@ In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay
 On T2 the penalty MLP's median max error is 0.121 (8.6% of the oscillation), and 9 of 10 `DirichletICNN` seeds stall (SciPy's line search fails) after 509 to 7650 steps, with errors from 0.066 to 2.2e3; only seed 3 reaches the step budget, at 0.049.
 On T20, whose solution is only `C^1`, the medians are 4.3e-3 (penalty MLP) and 1.4e-2 (ICNN) against a threshold of 1.3e-3.
 On T1 and T8, which are smooth, `DirichletICNN` succeeds in every seed (on T8 eight seeds meet the gradient tolerance), and the penalty MLP in 9 (seed 1 ends at 1.79e-2, just above the threshold of 1.72e-2) and 5.
+`DirichletQSPINN` fails the threshold on T2 in every seed too (median 2.21, every seed `stalled` after 11 to 480 steps, non-convex at 12.8% of the grid in the median), and does not support T20, whose `f` vanishes at the centre of its box (`f(x0) = 0`); on T1 and T8 it succeeds in every seed, on T8 at 4.65e-8, which `qs_pinn.md` (Finding 1) explains.
 
 ### Finding 5: `DirichletICNN` in 3D works in 7 seeds of 10, in 4D in none
 
 On T9 (3D) eight seeds reach the step budget, seven of them below the threshold of 3.48e-2 (3.1e-3 to 2.9e-2) and seed 0 above it (9.2e-2); seed 4 stalls after 1843 steps at 0.83 and seed 9 after 3 steps at 1.9e3.
 On T10 (4D) nine seeds stall, four of them after one step (errors 1.6e4 to 4.8e4), and the best seed ends at 2.5; `docs/methods/icnn.md` (Known limits) records first losses of 2e33 to 3e36 there, against 2e26 to 3e28 on T9.
 The time median on T10 (155 s) is short because most seeds stop early, not because the solve is cheap.
+`DirichletQSPINN` succeeds in every seed on T9 (3.9e-3 to 2.6e-2, every seed `stalled`), and in none on T10, where every seed stalls at errors of 0.54 to 1.35 and six are non-convex at some grid points; its matrix `A` cannot vary by more than a factor 4 at a point (`docs/methods/qs_pinn.md`, Known limits).
 
 ### Finding 6: cost
 
