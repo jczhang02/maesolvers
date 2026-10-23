@@ -23,9 +23,11 @@ from maesolvers import (
     T20,
     Box,
     NeuralSolver,
+    PenaltyMLP,
     Problem,
 )
 from maesolvers.catalogue import SHARED_TEST_SET
+from maesolvers.neural import BFGS
 
 ROOT = Path(__file__).parent.parent
 
@@ -133,6 +135,21 @@ def test_preset_options_go_to_the_presets_that_take_them():
         "max_steps": 10,
         "seed": 3,
     }
+
+
+def test_with_parts_swaps_the_named_part_and_keeps_every_other_field():
+    preset = PenaltyMLP(seed=3, max_steps=7, tol=1e-6)
+    solver = comparison.with_parts(preset, optimizer=BFGS())
+    assert type(solver) is NeuralSolver
+    assert solver.optimizer == BFGS()
+    for field in dataclasses.fields(NeuralSolver):
+        if field.name != "optimizer":
+            assert getattr(solver, field.name) is getattr(preset, field.name)
+
+
+def test_with_parts_refuses_a_name_that_is_not_a_field():
+    with pytest.raises(TypeError, match="not fields of NeuralSolver: optimiser"):
+        comparison.with_parts(PenaltyMLP(), optimiser=BFGS())
 
 
 def test_threshold_is_a_share_of_the_exact_oscillation():

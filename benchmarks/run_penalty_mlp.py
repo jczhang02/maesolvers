@@ -44,10 +44,11 @@ from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
+from comparison import with_parts
 
 from maesolvers import CATALOGUE, PenaltyMLP, tracking
 from maesolvers.metrics import evaluate, seed_error, summarize_errors
-from maesolvers.neural import BFGS, NeuralSolver, sample_interior
+from maesolvers.neural import BFGS, sample_interior
 
 HERE = Path(__file__).parent
 POINTS = 10**6
@@ -119,20 +120,6 @@ def boundary_split(solver, result, n: int = POINTS // 10) -> dict[str, float]:
     }
 
 
-def with_bfgs(preset: PenaltyMLP) -> NeuralSolver:
-    """The preset's parts and settings with the optimizer ``BFGS()``."""
-    return NeuralSolver(
-        network=preset.network,
-        loss=preset.loss,
-        sampler=preset.sampler,
-        optimizer=BFGS(),
-        max_steps=preset.max_steps,
-        tol=preset.tol,
-        seed=preset.seed,
-        accelerator=preset.accelerator,
-    )
-
-
 def run_seed(
     problem_id: str, seed: int, options: dict, label: str, optimizer: str = "lbfgs"
 ) -> dict:
@@ -150,7 +137,7 @@ def run_seed(
     problem = CATALOGUE[problem_id]
     solver = PenaltyMLP(seed=seed, **options)
     if optimizer == "bfgs":
-        solver = with_bfgs(solver)
+        solver = with_parts(solver, optimizer=BFGS())
     logger = tracking.MLflowLogger()
     with tracking.run(
         f"maesolvers-penalty-mlp-{problem_id}", run_name=f"seed={seed} {label}"
