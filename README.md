@@ -270,7 +270,7 @@ The filtered scheme (`FDFiltered`) matches Froese-Oberman 2013, Table 4.2, on it
 
 The multigrid method of Liu-Froese-Oberman-Xiao 2017 (`FDMultigrid`) reaches the order-of-magnitude level on its 2D Tables 1 and 2 (T1, T3, T2, `N = 128` to 8192, within 8 percent at every `N`, with the paper's iteration counts on T2) and on its 3D Tables 3, 5 and 6 (T9, T46, T28, `N = 8` to 128); Table 7 (T22) is a mismatch: the published value at `N = 32` is four times ours and four times the paper's own Gauss-Seidel column.
 The stand-alone Gauss-Seidel columns of the 3D tables match to the printed digits and to the sweep, so the scheme and the root selection are the paper's; on T9 and T46 one published FMG cycle lands below the discrete solution's error, ours above it, and the FMG interpolation, which the paper leaves open, explains about half of that gap ([`benchmarks/multigrid.md`](benchmarks/multigrid.md)).
-These columns stop by the paper's relative residual; `FDMultigrid` stops on a residual bound that does not depend on the grid, which takes 1 to 14 cycles there and reports T22 at `N = 128` unconverged (Finding 5 there).
+These columns stop by the paper's relative residual; `FDMultigrid` stops on a residual bound that does not depend on the grid, which takes 1 to 14 cycles there where it converges, and runs its 50 cycles unconverged on T22 at `N = 128` (Finding 5 there).
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
