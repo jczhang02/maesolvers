@@ -122,10 +122,10 @@ def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
 # Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
 # counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
 # and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
-# Only converged solves are pinned. On T2 FDFiltered's damped Newton stalls
-# next to the discrete root; the paper's undamped iteration (p. 438) reaches it
-# at N = 31 and 63 and prints the published value (Finding 4), so that pin is
-# taken with a test-local copy of run_filtered.UndampedNewton.
+# Only converged solves are pinned. On T2 FDFiltered's damped Newton stalls;
+# the paper's undamped iteration (p. 438) converges in 9 of the 15 cells of
+# Table 4.1 and prints the published values (Finding 4), so the T2 pin is taken
+# with a test-local copy of run_filtered.UndampedNewton.
 
 
 # (N, stencil): units of 1e-5. N = 31: Table 4.1, all three stencils, and

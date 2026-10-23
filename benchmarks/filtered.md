@@ -12,10 +12,14 @@ Ours, with `n = N - 1` cells (Finding 1):
 
 All with `boundary="narrow"` unless a row says otherwise, residual tolerance `1e-10` relative to `max(1, max f)` for Newton, float64, scipy sparse LU.
 Error: max over all grid nodes of `|u_h - u|`.
-Conventions that differ from the paper's: the monotone part is `Monotone17`, continued below zero with the slope `kappa` (`monotone17.md`), where the paper's operator adds `sum min{D, delta}`; and the paper "regularized the max operator to allow the gradient to be computed, as in [FO11b]" (p. 438), with no `delta` printed, where `Monotone17` takes the bare max and min with their semi-smooth Jacobian.
-`filtered_checks.csv` runs both alternatives (rows `kappa` and `regularised`, the T2 section and Finding 4).
-Raw data: `filtered.csv`, written on a100server by `run_filtered.py` at commit e9ddc67 (tmux session `maesolvers-filtered4`, `run_filtered.py --processes 16` with one thread per process), and `filtered_checks.csv` by `run_filtered.py --checks --processes 16` at commit dd86994 (session `maesolvers-filtered5-checks`).
-Every solve is one run in the MLflow experiment `maesolvers-filtered-<problem>` (`C2-centred`, T20, T2, T21, T1, and T3, T4, T5, T7 for the checks), tagged with that commit and a clean checkout; runs of earlier generations, with the half-gap width, carry older commits.
+Conventions that differ from the paper's:
+
+- the monotone part is `Monotone17`, continued below zero with the slope `kappa` (`monotone17.md`), where the paper's operator adds `sum min{D, delta}` (rows `kappa`);
+- the paper "regularized the max operator to allow the gradient to be computed, as in [FO11b]" (p. 438); [FO11b] is FO 2011 in J. Comput. Phys. (the hybrid paper), whose Section 7.2 floors each second difference in the Jacobian, `max{u_vv, 1e-8 / (2 h^2)}`; that is `Monotone17.jacobian_floor = 1e-8`, where `FDFiltered`'s default is `1e-12` (rows `jacobian_floor`); the floor changes Newton's steps, not the scheme;
+- the paper's Newton takes the full step, `u_{n+1} = u_n - J(u_n)^{-1} F_H[u_n]` (p. 438), where our `Newton` halves the step until the max residual decreases (rows `undamped`, Finding 4).
+Raw data: `filtered.csv`, written on a100server by `run_filtered.py --processes 16 --out <data dir>` at commit 8e1b763 (tmux session `maesolvers-filtered6`, one thread per process), and `filtered_checks.csv` by `run_filtered.py --checks --processes 16 --out <data dir>` at commit baf03dc (session `maesolvers-filtered7-checks`); both were written outside the checkout and copied into `benchmarks/` afterwards.
+Every solve is one run in the MLflow experiment `maesolvers-filtered-<problem>` (`C2-centred`, T20, T2, T21, T1, and T3, T4, T5, T7 for the checks), tagged with that commit and `git.dirty=false`.
+The `filtered.csv` of 8e1b763 equals that of e9ddc67 but for `time_s`; the runs of e9ddc67 carry `git.dirty=true`, because a `--checks` run in the same session had rewritten the tracked `filtered_checks.csv` before they started (no code differed), and runs of earlier generations, with the half-gap width, carry older commits.
 
 A bold value differs from the published one at the printed digits; a star marks a solve that did not converge (Finding 4).
 A level read off starred values is provisional: it depends on where `Newton`'s line search gave up.
@@ -28,11 +32,11 @@ The levels follow ADR 0002; the order of a column is the least-squares slope of 
 |---|---|---|---|---|
 | C2 | 17 points exact; 9 and 33 order of magnitude (exact from `N = 63`) | order of magnitude (exact but at `N = 63`, Finding 2) | exact | exact |
 | T20 | order of magnitude (last digit) | mismatch (Finding 5) | mismatch (Finding 5) | exact |
-| T2 | exact | mismatch: no solve converges (Finding 4); the last iterates agree to the printed digits in 14 of 15 cells | mismatch: not converged; the last iterates agree in 4 of 5 cells | exact |
+| T2 | exact | with the paper's undamped Newton: exact in 9 of 15 cells (every `N` with 9 points, `N = 31` and 63 with 17 and 33), mismatch in the other six, where it does not converge; `FDFiltered`'s damped Newton converges in none (Finding 4) | undamped Newton: exact at `N = 31` and 63, mismatch from 127 | exact |
 | T21 | mismatch (Finding 6) | mismatch | mismatch | exact |
 
 `tests/test_reproduction.py` pins the filtered values on C2 at `N = 31` (all three stencils) and at `N = 63` (17 points, Table 4.2), the standard values on C2, T2 and T20, and monotone values on C2 and T2, each to the printed digits, all with `n = N - 1`.
-No T2 filtered value is pinned: none is a converged solve.
+It pins the T2 filtered values at `N = 31` (all three stencils) with a test-local copy of the paper's undamped iteration, since `FDFiltered` does not converge there.
 
 ## C2, the centred smooth example
 
@@ -110,14 +114,45 @@ Table 4.2, in units of `1e-3`:
 | 361 | 0.13 | 0.13* | 12 | 200 | 5.42 | 5.42 |
 
 Monotone: exact, all three stencils.
-Filtered, with `boundary="narrow"`: no solve converges (Finding 4); every one ends with a max residual between `1e-2` and `2e-1`, against a tolerance of `1e-10 max(1, max f)`.
-The last iterates agree with the published values to the printed digits in 14 of the 15 cells of Table 4.1 (17 points at `N = 255`: `0.121e-3` against `0.13e-3`), with ratio 0.93 to 1.02 and orders 0.98, 1.09, 1.31 against the published 0.99, 1.09, 1.32.
-That would be exact for 9 and 33 points and order of magnitude for 17, but it is not a reproduction: the values are not discrete solutions, and the paper reports 7 to 12 Newton steps, so its solves converged.
-How settled the starred values are differs by cell (`max_err_8_steps_before`): with 17 points at `N = 31`, 63 and 361 and with 33 points at 31 to 127 the error changed by less than `1e-4` relative over the last eight steps; in the other nine cells by 2 percent or more, and in short solves by many times the final error (17 points at `N = 127` stopped after 11 steps, and eight steps before its error was 19 times larger).
-Part of the agreement does not discriminate: at `N = 31` and 63 every filtered solve but one (below) ends at the same error, `1.7379e-3` and `5.8602e-4`, which is also the narrow 17- and 33-point monotone scheme's, and so do all widths, starts and `kappa` in `filtered_checks.csv`; the max error sits at nodes near the corner where all these schemes coincide.
-With `boundary="interpolate"` one solve converges: 33 points at `N = 31`, error `1.011e-3` against the published `1.74e-3`, which is the 33-point monotone scheme's with that boundary (`1.012e-3`); the other nine do not converge, and their last iterates print as the published values.
+
+Filtered: `FDFiltered`'s damped Newton converges in no cell, and its starred values above are last iterates (Finding 4).
+The paper's own iteration, the full Newton step with the same approximate Jacobian (p. 438; `run_filtered.UndampedNewton`, at most 2000 steps, rows `undamped`), on the same scheme from the same start, converges in 9 of the 15 cells of Table 4.1, and each of its roots prints as the published value:
+
+| N | stencil | published | undamped | steps | residual | tolerance | damped, last iterate |
+|---|---|---|---|---|---|---|---|
+| 31 | 9 | 1.74 | 1.7378 | 74 | `1.1e-8` | `1.2e-8` | 1.7378* |
+| 31 | 17 | 1.74 | 1.7378 | 113 | `1.2e-8` | `1.2e-8` | 1.7379* |
+| 31 | 33 | 1.74 | 1.7378 | 172 | `1.1e-8` | `1.2e-8` | 1.7379* |
+| 63 | 9 | 0.59 | 0.5860 | 173 | `4.7e-8` | `4.9e-8` | 0.5860* |
+| 63 | 17 | 0.59 | 0.5860 | 182 | `4.8e-8` | `4.9e-8` | 0.5860* |
+| 63 | 33 | 0.59 | 0.5860 | 378 | `4.9e-8` | `4.9e-8` | 0.5860* |
+| 127 | 9 | 0.20 | 0.2025 | 465 | `2.0e-7` | `2.0e-7` | 0.2025* |
+| 127 | 17 | 0.20 | not converged | 2000 | `4.4e2` | `2.0e-7` | 0.2025* |
+| 127 | 33 | 0.20 | not converged | 2000 | `3.8e2` | `2.0e-7` | 0.2025* |
+| 255 | 9 | 0.15 | 0.1538 | 740 | `8.0e-7` | `8.1e-7` | 0.1468* |
+| 255 | 17 | 0.13 | not converged | 2000 | `1.1e3` | `8.1e-7` | 0.1215* |
+| 255 | 33 | 0.08 | not converged | 2000 | `1.3e3` | `8.1e-7` | 0.0811* |
+| 361 | 9 | 0.17 | 0.1674 | 1141 | `1.6e-6` | `1.6e-6` | 0.1731* |
+| 361 | 17 | 0.13 | not converged | 2000 | `5.7e3` | `1.6e-6` | 0.1337* |
+| 361 | 33 | 0.08 | not converged | 2000 | `7.1e3` | `1.6e-6` | 0.0814* |
+
+Units of `1e-3`; residual is the max residual of the last iterate, tolerance `1e-10 max(1, max f)` (`max f` grows like `1 / (8 h^2)` at the corner).
+Where it does not converge the undamped iteration still has a max residual between `4e2` and `7e3` after 2000 steps, finite, and its last iterate an error of `0.6e-3` to `1.9e-3`.
+So the level is set cell by cell with the paper's iteration: exact at every `N` with 9 points and at `N = 31` and 63 with 17 and 33; mismatch with 17 and 33 points from `N = 127` on, where neither iteration converges.
+Table 4.2 (17 points): exact at `N = 31` and 63, mismatch from 127 on.
+`tests/test_reproduction.py` pins the three cells at `N = 31` with a test-local copy of the undamped iteration; `FDFiltered` itself, whose `Newton` halves the step until the max residual decreases, does not converge on T2 (Finding 4), so a user of the preset gets the starred values.
+
+In the seven cells at `N = 31`, 63 and 127 where the undamped iteration converges, the damped one stops next to its root, at the same error to four or five digits, with a max residual between `1e-2` and `2e-1`: its line search, which asks the max residual to decrease, finds no step there (Finding 4).
+At `N = 255` and 361 with 9 points the damped last iterates (`0.147e-3`, `0.173e-3`) are farther from the roots (`0.154e-3`, `0.167e-3`), though both print as the published values.
+With 17 and 33 points at `N = 127` the damped last iterates have the 9-point root's error to five digits, `0.20246e-3`, with max residuals `0.18` and `0.03`; whether those schemes have a root there is not settled.
+The undamped iteration needs 74 to 1141 steps, against the paper's 7 to 12 on T2 (Table 4.2, 17 points), and converges linearly, as a quasi-Newton iteration does: in the band its Jacobian is `2 J_M`, not the derivative `2 J_M - J_A`.
+The paper states no start; ours is `laplace u_0 = 2 sqrt(f)`, and we leave the difference in step counts as found.
+In the cells where neither iteration converges, the damped last iterates print as the published values but for 17 points at `N = 255` (`0.121e-3` against `0.13e-3`); how settled they are differs by cell (`max_err_8_steps_before` in `filtered.csv`: with 17 points at `N = 361` and 33 points at 127 the error changed by less than `1e-4` relative over the last eight steps; with 17 points at `N = 127`, which stopped after 11 steps, eight steps before its error was 19 times larger).
+Part of the agreement does not discriminate: at `N = 31` and 63 every filtered solve, damped or undamped, ends at the same error, `1.7378e-3` and `5.8602e-4`, which is also the narrow 17- and 33-point monotone scheme's, and so do all widths, starts and `kappa` in `filtered_checks.csv`; the max error sits at nodes near the corner where all these schemes coincide.
+The 9-point column from `N = 127` on does discriminate: the 9-point monotone scheme gives `0.83e-3` there.
+With `boundary="interpolate"` one damped solve converges: 33 points at `N = 31`, error `1.011e-3` against the published `1.74e-3`, which is the 33-point monotone scheme's with that boundary (`1.012e-3`); the other nine do not converge, and their last iterates print as the published values.
 The paper notes that with its `eps` the filtered scheme "is slightly less accurate on the blow-up example".
-The filter width decides the large-`N` cells: with half the angular gap as `dtheta` (Oberman's angular resolution) the last iterates at `N = 255` and 361 are `0.25e-3` and `0.28e-3` with 9 points, `0.15e-3` and `0.16e-3` with 17 and `0.088e-3` and `0.092e-3` with 33 (`filtered_checks.csv`, rows `width`), against the published `0.15`, `0.17`, `0.13`, `0.13`, `0.08`, `0.08` (Finding 3).
+The filter width decides the large-`N` cells: with half the angular gap as `dtheta` (Oberman's angular resolution) the damped last iterates at `N = 255` and 361 are `0.25e-3` and `0.28e-3` with 9 points, `0.15e-3` and `0.16e-3` with 17 and `0.088e-3` and `0.092e-3` with 33 (`filtered_checks.csv`, rows `width`), against the published `0.15`, `0.17`, `0.13`, `0.13`, `0.08`, `0.08` (Finding 3).
 `Monotone17`'s slope below zero (`kappa = sqrt(max(f, mean f, 1))`, large near the corner, where the paper's operator has slope 1) changes the error by less than `1e-6` relative at `N = 63` and 127, and at 255 gives `0.125e-3` against `0.121e-3` (rows `kappa`), the published value but not converged either.
 
 ## T21, the cone
@@ -165,18 +200,28 @@ The paper's T2 columns fit the full gap (`pi/4`, `atan(1/2)`, `atan(1/3)`) inste
 | 361 | 33 | 0.08 | 0.081* | 0.092* |
 
 T2 filtered, units of `1e-3` (`filtered_checks.csv`, rows `width`); with 17 points at `N = 63` and 127 the two widths give the same errors to six digits.
-None of these solves converges (Finding 4), so the evidence is the last iterates'; with the half gap (the `filtered.csv` of commit 4130727) the 9-point column has order 0.75 against the published 0.99, with the full gap 0.98.
+These damped solves do not converge (Finding 4), so the evidence in the table is the last iterates'; with 9 points the paper's undamped iteration converges with the full gap, to `0.154e-3` and `0.167e-3`, the published `0.15e-3` and `0.17e-3` (T2 section; it was not run with the half gap); with the half gap (the `filtered.csv` of commit 4130727) the 9-point column has order 0.75 against the published 0.99, with the full gap 0.98.
 On C2 the width does not matter: the filter keeps the standard scheme everywhere with either.
 On T20 the full gap moves the error away from the published one rather than towards it: `1.733e-4` at `N = 63` against `1.854e-4` with the half gap and the published `1.40e-4`; see Finding 5.
 
-## Finding 4: Newton with the paper's Jacobian does not converge
+## Finding 4: our damped Newton stalls where the paper's full step converges
 
 In the band `1 < |F_A - F_M| / eps < 2` the filtered equation is `2 F_M - F_A + 2 eps sign(F_A - F_M)`, whose derivative is `2 J_M - J_A`; the paper takes `2 J_M`, dropping `-J_A`, because a negative weight on `J_A` "can lead to poorly conditioned or ill-posed linear systems" (p. 438).
-Our `Newton` takes that Jacobian, halves the step until the max residual decreases (down to `2^-39`), and ends the solve, not converged, when no step does.
+`FDFiltered`'s `Newton` takes that Jacobian, halves the step until the max residual decreases (down to `2^-39`), and ends the solve, not converged, when no step does.
 It ends that way on T2 at every `N`, stencil and boundary treatment but one (33 points, `boundary="interpolate"`, `N = 31`, see the T2 section), on T20 from `N = 127` on, on the cone at every `N`, and on T1 (below) at every `N` but one; on C2, where no node is in the band, and on T20 at `N <= 63`, Newton converges in 3 to 21 steps.
-The paper reports 2 to 12 Newton steps with the same approximate Jacobian, on T2 7 to 12, so its solves converged where ours do not.
 
-Three situations stop the line search, on different problems:
+The paper's iteration is the full step, `u_{n+1} = u_n - J(u_n)^{-1} F_H[u_n]` (p. 438), with no line search.
+With that step (`run_filtered.UndampedNewton`, at most 2000 steps, rows `undamped`) the same scheme from the same start gives:
+
+- T2: it converges in 9 of the 15 cells of Table 4.1, where the damped one stalls, each to a root that prints as the published value (the T2 section has the table); with 17 and 33 points from `N = 127` on it does not converge in 2000 steps;
+- T1 at `N = 63` and 127 (17 points, `n = N - 1`): it converges in 155 and 446 steps, to `4.5505e-5` and `5.1584e-5`, where the damped solves stall, with the floor `1e-8` at `4.5524e-5` and `4.6734e-5` (rows `jacobian_floor`), and with the default floor at the neighbouring `n = N` (`filtered.csv`, rows `T1`);
+- T20: at `N = 63` both converge, in 16 steps, to `1.7327e-4`, `FDNewton`'s non-convex root (Finding 5); at 127, where the damped one stalls, the undamped one diverges (max residual `7e4` after 334 steps, then a non-finite one).
+
+So on T2 and T1, where the undamped iteration converges, the max-norm line search, not the approximate Jacobian, is what stops `FDFiltered`: on the way to the root the undamped steps increase the max residual at times, which the line search forbids (on T2 at `N = 255` with 9 points it is `2.6e-3` at step 151 and `3.5e-3` at step 201, and reaches the tolerance at step 740; the MLflow history of that run).
+The undamped iteration converges linearly, and needs 74 to 1141 steps on T2 where the paper reports 7 to 12; the paper states no start, so the difference is not explained.
+`Newton` keeps its line search: the presets `FDNewton`, `FDMonotone` and `FDHybrid` and their pinned values rest on it, and an opt-in undamped or non-monotone step is the follow-up in issue #56.
+
+Three situations stop the damped line search, on different problems:
 
 - A node in the band attains the max residual, and the Newton direction, which there is not the derivative's, need not decrease it: on T2 (at `n = 62` and 126) and T1 (at `n = 64` and 127), with the residual between `1e-2` and `2e-1`; on T20 at `n = 126` the max sits at a node of the accurate piece and band nodes hold the next four (an exploratory diagnosis, not a receipt).
 - The approximate Jacobian is nearly singular, so no step decreases the residual at all: on T5 at `n = 16` the solve takes 0 steps and returns the Laplace start (`filtered_checks.csv`, rows `catalogue`).
@@ -184,15 +229,16 @@ Three situations stop the line search, on different problems:
   On the cone at `n = 62` the approximate Jacobian is exactly singular after one step (scipy warns), and the solve stops after 2 steps.
 - On T4, whose `f` jumps from 0 to 1 on the circle `|x - x0| = 0.4`, the solve stops after 25 to 30 steps with the max residual at a node of the accurate piece next to that circle (`|x - x0| = 0.375` at `n = 16`, `0.399` at `n = 64`, same diagnosis): the residual is not smooth there, and neither mechanism above applies. On the cone at `n = 126` the max residual also sits at a node of the accurate piece when the solve stops, after 103 steps.
 
-Remedies that do not converge either:
+Remedies that do not make the damped Newton converge:
 
-- the paper's own device, the regularised max of FO 2011 (SINUM Section 3.5, `run_monotone17.SmoothMonotone17`) in the monotone part, with `delta = 1e-4`, `1e-2` and `0.1` (rows `regularised`): on T2 at `N = 63` and 127 no `delta` converges, `1e-4` and `1e-2` diverge to errors of `0.02` to `0.66`, and `0.1` ends at `5.864e-4` at 63 (the bare scheme's `5.860e-4`) and diverges at 127; on T1 one of six solves converges (`delta = 1e-2`, `N = 63`, 156 steps, `4.55e-5`); on T20 all three converge at `N = 63`, to the bare scheme's root, and only `delta = 1e-4` at 127, to `FDNewton`'s root;
+- the paper's own device: FO 2013 "regularized the max operator to allow the gradient to be computed, as in [FO11b]" (p. 438), and [FO11b] is FO 2011 in J. Comput. Phys., whose Section 7.2 floors each second difference in the Jacobian at `1e-8 / (2 h^2)`, `FDFiltered(jacobian_floor=1e-8)` (rows `jacobian_floor`): it converges on T20 at `N = 63`, where the default floor does too, to the same root, and nowhere else; on T2 at `N = 63` and 127, T1 at 63 and 127, T20 at 127 and T5 at `n = 16` and 64 it stalls as the default does (on T5 at `n = 16` again after 0 steps);
+- the smooth max `(MA)^delta` of FO 2011 in SIAM J. Numer. Anal. (Section 3.5, `run_monotone17.SmoothMonotone17`) in the monotone part, a remedy of ours, not the paper's, with `delta = 1e-4`, `1e-2` and `0.1` (rows `smooth_max`): on T2 at `N = 63` and 127 no `delta` converges, `1e-4` and `1e-2` diverge to errors of `0.02` to `0.66`, and `0.1` ends at `5.864e-4` at 63 (the bare scheme's `5.860e-4`) and diverges at 127; on T1 one of six solves converges (`delta = 1e-2`, `N = 63`, 156 steps, `4.55e-5`); on T20 all three converge at `N = 63`, to the bare scheme's root, and only `delta = 1e-4` at 127, to `FDNewton`'s root;
 - starts from the monotone or the standard root (rows `start`): on T2 Newton stalls from both, after 1 to 13 steps, at the same errors; on T20 the monotone start stalls, while the standard root is already a filtered root (Finding 5);
 - other widths (rows `width`): twice and four times the width converge on T20 at `N = 127`, not on T2;
 - `kappa = 1` in the monotone part (rows `kappa`);
-- in exploratory runs not kept as receipts, with the half-gap width: undamped steps converge linearly, with ratio about 0.87, on T2 at `n = 30`, and end with residuals of `4e2` and `4e3` after 300 steps at `n = 126` and 254; with the exact derivative `2 J_M - J_A` the steps diverge from the start.
+- in exploratory runs not kept as receipts: with the exact derivative `2 J_M - J_A` in the band the steps diverge from the start.
 
-What the paper did differently is not stated: it gives no start, no damping, no stopping rule and no `delta`.
+What else the paper did is not stated: it gives no start, no stopping rule, and no `delta` for its monotone operator.
 
 On the catalogue problems `FDFiltered` supports, with the default width and `max_iter = 200` (rows `catalogue`):
 
@@ -226,7 +272,7 @@ FO 2013 prints monotone values on the cone (`11.83e-3` with 9 points at `N = 31`
 
 ## Iterations and time
 
-With 17 points our Newton takes 3 or 4 steps on C2 (published 2), 12 to 75 on T20 (2 to 6) and stops after 11 to 26 steps on T2, or runs out of its 200 at `N = 361` (published 7 to 12); see Finding 4.
+With 17 points our Newton takes 3 or 4 steps on C2 (published 2), 12 to 75 on T20 (2 to 6) and stops after 11 to 26 steps on T2, or runs out of its 200 at `N = 361` (published 7 to 12); the paper's undamped step converges on T2 in 113 and 182 steps at `N = 31` and 63, and not from 127 on; see Finding 4.
 CPU times are 2013 MATLAB hardware and are not compared; at `N = 361` a filtered solve with 17 points takes 11 seconds on C2, 400 on T2 (200 steps), 167 on T20 and 15 on the cone (3 steps), on one core of a100server.
 `Filtered.jacobian` evaluates both parts' residuals again at the iterate where `residual` has just done so, one more residual evaluation per step, kept so that the scheme holds no state.
 

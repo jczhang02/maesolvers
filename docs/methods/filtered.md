@@ -72,6 +72,7 @@ J = diag(1 - S') J_M + diag(max(S', 0)) J_A,     S' = filter_slope((F_A - F_M) /
 the exact derivative where `S' = 1` (`J_A`) and where `S' = 0` (`J_M`), and `2 J_M` in the band, where the exact derivative is `2 J_M - J_A`.
 The paper drops `-J_A` there because a negative weight on `J_A` "can lead to poorly conditioned or ill-posed linear systems".
 So in the band Newton is a quasi-Newton method, and where a node in the band attains the max residual its direction need not decrease it; see "Known limits".
+The paper takes the full step, with no line search; `Newton` halves it until the max residual decreases, and that is where the two part ways on T2 (Known limits).
 
 ## Source paper
 
@@ -112,12 +113,14 @@ The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boun
 
   On the paper's grids it ends that way on T2 at every `N` and stencil with `boundary="narrow"` (with `"interpolate"` one solve converges: 33 points, `N = 31`, error `1.01e-3` against the published `1.74e-3`), on T20 from `N = 127` on, on the cone, and on T1 at all `N` but one.
   Three situations stop it: a node of the filter band, where the paper's Jacobian is not the derivative, attains the largest residual, and the line search finds no decrease (T2, T1; residual `1e-2` to `2e-1`); the approximate Jacobian is nearly or exactly singular, so no step decreases the residual (T5 at `n = 16`, which returns the Laplace start; the cone at `n = 62`); or the largest residual sits at a node of the accurate piece, next to a jump of `f` (T4; also the cone at `n = 126`).
-  On T2 the last iterates print as the paper's errors in 14 of 15 cells of its Table 4.1, but they are not discrete solutions, and on T1 their errors lie between the monotone and the standard scheme's.
-  Tried without success: the paper's regularised max (FO 2011's `(MA)^delta`, `delta` from `1e-4` to `0.1`, which the paper says it used), other widths, `kappa = 1`, undamped steps, the exact Jacobian `2 J_M - J_A` in the band, and starts from the monotone or the standard root (on T2 neither start converges; on T20 the monotone start stalls, while the standard root is already a filtered root).
+  The paper's own iteration takes the full Newton step, with no line search (p. 438), and on T2 it converges where `Newton` stalls: in 9 of the 15 cells of the paper's Table 4.1 (every `N` with 9 points, `N = 31` and 63 with 17 and 33), each to a root that prints as the published error, in 74 to 1141 steps; with 17 and 33 points from `N = 127` on it does not converge either.
+  It also converges on T1 at `n = 62` and 126 and on T20 at `n = 62`, and diverges on T20 at `n = 126`.
+  `Newton` keeps its line search, which halves the step until the max residual decreases, because the other presets rest on it; a small subclass of `Newton` gives the full step (`benchmarks/run_filtered.py`, `UndampedNewton`), and an opt-in option is the follow-up in issue #56.
+  Tried on the damped `Newton` without success: the paper's Jacobian floor (`jacobian_floor=1e-8`, as in FO 2011, J. Comput. Phys., Section 7.2, which the paper cites for its regularisation), the smooth max `(MA)^delta` of FO 2011, SIAM J. Numer. Anal., Section 3.5 (`delta` from `1e-4` to `0.1`), other widths, `kappa = 1`, the exact Jacobian `2 J_M - J_A` in the band, and starts from the monotone or the standard root (on T2 neither start converges; on T20 the monotone start stalls, while the standard root is already a filtered root).
 - Where the filter keeps the standard scheme, the filtered scheme has the standard scheme's non-convex roots, and Newton from `laplace u_0 = 2 sqrt(f)` can reach one: on T20 at `N = 63` it reaches exactly `FDNewton`'s root, error `1.73e-4`, against `1.34e-4` for the convex root, which is a root of the filtered scheme too (Finding 5).
   `nonconvex_fraction` is 0.07 to 0.11 there.
 - The monotone part is `Monotone17`, not the paper's operator: below zero `Monotone17` continues each pair's product with the slope `kappa = sqrt(max(f, mean f, 1))` (`monotone17.md`, "Below zero"), the paper's `sum min{D, delta}` with slope 1, so `F_A - F_M`, and with it the filter's choice, differ at nodes with a negative second difference.
-  And the paper regularises the max operator for Newton (p. 438, "as in [FO11b]", no `delta` printed), where `Monotone17` takes the bare max and min with their semi-smooth Jacobian; the regularised part composes into `Filtered` but does not make Newton converge (Finding 4).
+  And the paper regularises the max operator for Newton "as in [FO11b]" (p. 438), the JCP 2011 paper, which floors each second difference in the Jacobian at `1e-8 / (2 h^2)` (its Section 7.2): that is `FDFiltered(jacobian_floor=1e-8)`, where the default is `1e-12`; the floor changes Newton's steps, not the scheme, and does not make `Newton` converge (Finding 4).
 - The default `dtheta` is the largest angle between neighbouring stencil directions, twice Oberman's angular resolution; the paper does not define it, and its T2 columns are the evidence for this choice (Finding 3).
 
 ## Reproduction
@@ -128,7 +131,7 @@ Against Froese-Oberman 2013, Tables 4.1 and 4.2, at the levels of ADR 0002, as `
 |---|---|---|---|
 | centred `C^2` | exact against Table 4.2; order of magnitude against Table 4.1 (exact but at `N = 63`, where it prints `1.04e-5` for `1.06e-5`) | 17 points exact; 9 and 33 order of magnitude (exact from `N = 63`) | exact |
 | T20 | mismatch: a non-convex root (Finding 5) | order of magnitude (last digit) | exact |
-| T2 | mismatch: Newton does not converge (Finding 4); the last iterates print as the published values in 14 of 15 cells | exact | exact |
+| T2 | with the paper's undamped Newton: exact in 9 of 15 cells of Table 4.1 (every `N` with 9 points, `N = 31` and 63 with 17 and 33) and at `N = 31` and 63 in Table 4.2, mismatch where it does not converge (17 and 33 points from `N = 127`); `FDFiltered`'s damped Newton converges in no cell (Finding 4) | exact | exact |
 | T21 (cone) | mismatch | mismatch | exact |
 
-`tests/test_reproduction.py` pins the converged values; the full comparison and the findings are in [`benchmarks/filtered.md`](../../benchmarks/filtered.md).
+`tests/test_reproduction.py` pins the converged values, on T2 at `N = 31` with a test-local undamped Newton; the full comparison and the findings are in [`benchmarks/filtered.md`](../../benchmarks/filtered.md).
