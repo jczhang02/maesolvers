@@ -79,7 +79,7 @@ In seed 0, by contrast, `|G - g|` (1.29e-2) is the larger term, and `D N` partly
 `Result.info["network"]` records the same split at the 400 boundary collocation points (`lift_boundary_misfit`, `distance_boundary_max`), with the iterations and final gradient of each fit.
 
 How much the fits matter shows when only their tolerance changes.
-`run_penalty_mlp.py T1 --fit-tol 1e-7` (MLflow `maesolvers-penalty-mlp-T1`, runs `seed=<s> fit_tol=1e-07`, commit da3df82, CSV kept outside the repository) keeps every other setting, the cap of 10000 iterations included; no fit meets 1e-7 within it, so every fit runs the full 10000 iterations:
+`run_penalty_mlp.py T1 --fit-tol 1e-7` (MLflow `maesolvers-penalty-mlp-T1`, runs `seed=<s> fit_tol=1e-07`, commit da3df82, CPU, one thread per seed; CSV on a100server at `/jczhang02/maesolvers-data/data/penalty_mlp_t1_fit_tol.csv`, not in the repository; command under Rerun) keeps every other setting, the cap of 10000 iterations included; no fit meets 1e-7 within it, so every fit runs the full 10000 iterations:
 
 | T1, seeds 0 to 9 | `fit_tol = 1e-5` (preset) | `fit_tol = 1e-7` |
 |---|---|---|
@@ -100,8 +100,8 @@ The FD solvers report `nonconvex_fraction` 0 on T1.
 
 ## Finding 4: dense BFGS lowers the loss but not the max error
 
-`DirichletICNN` trains only with SciPy's dense BFGS (`icnn.md`, Finding 1), so the penalty MLP was also trained with `BFGS()` in place of `LBFGS()`, every other setting the preset's, the fits of `G` and `D` included.
-`run_penalty_mlp.py T1 --optimizer bfgs` (MLflow `maesolvers-penalty-mlp-T1`, runs `seed=<s> optimizer=bfgs`, commit 6adc9a1, CPU, one thread per seed, CSV kept outside the repository):
+`DirichletICNN` reaches its accuracy only with SciPy's dense BFGS (`icnn.md`, Finding 1), so the penalty MLP was also trained with `BFGS()` in place of `LBFGS()`, every other setting the preset's, the fits of `G` and `D` included.
+`run_penalty_mlp.py T1 --optimizer bfgs` (MLflow `maesolvers-penalty-mlp-T1`, runs `seed=<s> optimizer=bfgs`, commit 6adc9a1, CPU, one thread per seed; CSV on a100server at `/jczhang02/maesolvers-data/data/penalty_mlp_t1_bfgs.csv`, not in the repository; command under Rerun):
 
 | T1, seeds 0 to 9 | `LBFGS()` (preset) | `BFGS()` |
 |---|---|---|
@@ -112,9 +112,9 @@ The FD solvers report `nonconvex_fraction` 0 on T1.
 
 - In the eight seeds other than 1 and 8, BFGS ends with a loss 40 to 15000 times lower and a mean interior error 8% to 54% lower, but the max error agrees with L-BFGS's to within 1.2%: it sits on the boundary, where it is the misfit of `G` and the leak `D N` (Finding 2), and the fits of `G` and `D` do not depend on the optimizer of `N`.
 - Seeds 1 and 8 stop early on a failed line search and end worse: max errors 2.55e-2 and 5.95e-1 against 1.79e-2 and 1.50e-2, both from the leak `D N` (2.62e-2 and 5.80e-1).
+  The paper, when the line search fails, trains a few hundred epochs with Adam at a learning rate of the order 1e-7 and then goes on with BFGS (p. 10), which we do not do, so these two seeds, and the top of the BFGS band, show the stall, not the paper's procedure.
 
-So the optimizer that makes the ICNN train does not close the gap of the penalty MLP to Figure 1 (median 7.05e-3 against about 5.7e-3); the fits of the ansatz do (Finding 2, `fit_tol = 1e-7`).
-The preset keeps `LBFGS()`, and the level stays figure only.
+So dense BFGS does not change the max error, which the fits of `G` and `D` set (Finding 2); Figure 1's 5.7e-3 stays inside the band, the preset keeps `LBFGS()`, and the level stays figure only.
 
 ## Conventions that differ
 
@@ -153,4 +153,11 @@ just remote-bg pmlp-t1 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchm
 just remote-bg pmlp-t6 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchmarks/run_penalty_mlp.py T6
 ```
 
-Each takes about 8 minutes on a100server with ten CPU threads; run them one after the other, to stay within 16 threads.
+The two diagnostics of T1 (Findings 2 and 4) write their CSVs to the data directory, not to the receipts:
+
+```sh
+just remote-bg pmlp-fit-tol-t1 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchmarks/run_penalty_mlp.py T1 --fit-tol 1e-7 --out /jczhang02/maesolvers-data/data/penalty_mlp_t1_fit_tol.csv
+just remote-bg pmlp-bfgs-t1 env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python benchmarks/run_penalty_mlp.py T1 --optimizer bfgs --out /jczhang02/maesolvers-data/data/penalty_mlp_t1_bfgs.csv
+```
+
+Each takes 8 to 10 minutes on a100server with ten CPU threads; run them one after the other, to stay within 16 threads.
