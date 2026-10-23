@@ -353,7 +353,8 @@ class SecondBoundary(Scheme):
     and the directions and upwind differences of :func:`admissible` and
     :func:`upwind_gradient`. A source domain that is not the square is
     embedded in it, with ``f`` zero at the nodes outside the closed domain
-    (their Section 2.3).
+    (their Section 2.3). A subclass that overrides :meth:`interior_operator`
+    and :meth:`interior_jacobian` puts another scheme inside the square.
 
     Parameters
     ----------

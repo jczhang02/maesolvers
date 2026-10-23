@@ -8,6 +8,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from maesolvers import (
     SOLVERS,
@@ -242,6 +243,40 @@ def test_the_jacobian_is_the_derivative_of_the_residual(interior, stencil):
         scheme.residual(grid, u + eps * step) - scheme.residual(grid, u - eps * step)
     ) / (2.0 * eps)
     assert np.allclose(scheme.jacobian(grid, u) @ step, difference, atol=1e-4)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _Laplace(SecondBoundary):
+    """A subclass with its own interior: ``MA[u] = (u_xx + u_yy)^2 / 4``."""
+
+    def interior_operator(self, grid, v):
+        return 0.25 * ((grid.dxx + grid.dyy) @ v) ** 2
+
+    def interior_jacobian(self, grid, v):
+        laplace = (grid.dxx + grid.dyy).tocsr()
+        return sp.csr_matrix(sp.diags(0.5 * (laplace @ v)) @ laplace)
+
+
+def test_a_subclass_puts_its_own_scheme_inside_the_square():
+    scheme = _Laplace(n=8)
+    grid = scheme.discretize(STRETCH)
+    u = _stretch(grid.box_grid.nodes)
+    residual = scheme.residual(grid, u)
+    # (2 + 1)^2 / 4 - f - u(x_0) inside, the unchanged boundary rows outside
+    assert np.allclose(residual[grid.interior], 9 / 4 - 2.0 - u[grid.anchor])
+    reference = SecondBoundary(n=8)
+    assert np.array_equal(
+        residual[~grid.interior], reference.residual(grid, u)[~grid.interior]
+    )
+    rng = np.random.default_rng(3)
+    step, eps = rng.standard_normal(u.size), 1e-7
+    difference = (
+        scheme.residual(grid, u + eps * step) - scheme.residual(grid, u - eps * step)
+    ) / (2 * eps)
+    interior = grid.interior
+    assert np.allclose(
+        (scheme.jacobian(grid, u) @ step)[interior], difference[interior], atol=1e-5
+    )
 
 
 def test_the_start_solves_its_neumann_problem():
