@@ -32,7 +32,7 @@ from typing import Any, get_args, get_type_hints
 
 import numpy as np
 
-from maesolvers import CATALOGUE, SOLVERS, Monotone17, Problem, Solver
+from maesolvers import CATALOGUE, SOLVERS, Monotone17, Problem, QuadraticForm, Solver
 from maesolvers.catalogue import SHARED_TEST_SET
 from maesolvers.classical.monotone import stencil_dimension
 from maesolvers.metrics import shared_grid, summarize_errors
@@ -149,8 +149,10 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     the solver does not declare; then, for a solver on :class:`Monotone17`,
     the stencils of the problem's dimension when the scheme's stencil is of
     another (``3D: stencil=19`` for ``FDMonotone``'s default 17-point stencil
-    on a 3D problem); ``unsupported`` if none of these is the reason (unequal
-    sides of a box, say).
+    on a 3D problem); for a solver on :class:`QuadraticForm`, the reason
+    :meth:`QuadraticForm.refusal` gives for its reference point (``f(x0) <=
+    0`` for ``DirichletQSPINN`` on T20); ``unsupported`` if none of these is
+    the reason (unequal sides of a box, say).
     """
     if not isinstance(problem.boundary, solver.boundaries):
         return "/".join(kind.__name__ for kind in solver.boundaries) + " only"
@@ -164,6 +166,9 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
         return f"{problem.dim}D: stencil=" + "/".join(
             str(s) for s in stencils if stencil_dimension(s) == problem.dim
         )
+    network = getattr(solver, "network", None)
+    if isinstance(network, QuadraticForm):
+        return network.refusal(problem) or "unsupported"
     return "unsupported"
 
 

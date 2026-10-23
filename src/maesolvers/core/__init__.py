@@ -2,8 +2,8 @@
 
 Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
 :class:`Result`; the solvers live in :mod:`maesolvers.classical`.
-:func:`integer`, :func:`positive`, :func:`nonnegative` and :func:`boolean`
-check constructor parameters, and :func:`check_part` a part passed to a
+:func:`integer`, :func:`positive`, :func:`nonnegative`, :func:`floats` and
+:func:`boolean` check constructor parameters, and :func:`check_part` a part passed to a
 solver or to another part, for solvers and parts of your own as for the
 shipped ones. :func:`signed_distance`, :func:`support_function`,
 :func:`closest_boundary_point`, :func:`volume`, :func:`integrate` and
@@ -13,7 +13,7 @@ predicates :func:`knows_support_function` and :func:`can_check_mass_balance`;
 your own.
 """
 
-from maesolvers.core._params import boolean, integer, nonnegative, positive
+from maesolvers.core._params import boolean, floats, integer, nonnegative, positive
 from maesolvers.core.boundary import BoundaryCondition, Dirichlet, Transport
 from maesolvers.core.callbacks import Callback
 from maesolvers.core.domains import (
@@ -77,6 +77,7 @@ __all__ = [
     "check_mass_balance",
     "check_part",
     "closest_boundary_point",
+    "floats",
     "integer",
     "integrate",
     "knows_support_function",

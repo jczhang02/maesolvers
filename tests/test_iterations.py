@@ -18,6 +18,7 @@ from maesolvers import (
     T12,
     T16,
     DirichletICNN,
+    DirichletQSPINN,
     FDFiltered,
     FDHybrid,
     FDMonotone,
@@ -34,6 +35,7 @@ from maesolvers import (
     SchemeIteration,
     Standard9,
     TransportICNN,
+    TransportQSPINN,
     UnsupportedProblemError,
 )
 from maesolvers.classical import iterations
@@ -247,6 +249,8 @@ def test_the_registry_lists_the_presets_read_only():
         "PenaltyMLP": PenaltyMLP,
         "DirichletICNN": DirichletICNN,
         "TransportICNN": TransportICNN,
+        "DirichletQSPINN": DirichletQSPINN,
+        "TransportQSPINN": TransportQSPINN,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]

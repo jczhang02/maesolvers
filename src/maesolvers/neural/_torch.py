@@ -26,13 +26,15 @@ _CHUNK = 16384
 
 
 class _Squeeze(torch.nn.Module):
-    """Drop the last axis, of length 1: values of shape ``(M,)``, not ``(M, 1)``."""
+    """Drop the last axis if it has length 1: values of shape ``(M,)``, not ``(M, 1)``."""
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.squeeze(-1)
 
 
-def mlp(dim: int, width: int, depth: int, activation: str) -> torch.nn.Module:
+def mlp(
+    dim: int, width: int, depth: int, activation: str, outputs: int = 1
+) -> torch.nn.Sequential:
     """Make a feed-forward network with standard normal initial weights and biases.
 
     Parameters
@@ -43,17 +45,20 @@ def mlp(dim: int, width: int, depth: int, activation: str) -> torch.nn.Module:
         Units per hidden layer and number of hidden layers.
     activation
         A key of the activations: ``"sigmoid"``, ``"tanh"``, ``"softplus"``.
+    outputs
+        Output units of the linear output layer.
 
     Returns
     -------
-    torch.nn.Module
-        Maps ``(M, dim)`` to ``(M,)``.
+    torch.nn.Sequential
+        Maps ``(M, dim)`` to ``(M,)`` for one output, to ``(M, outputs)``
+        for more; its last but one module is the linear output layer.
     """
     sizes = [dim] + [width] * depth
     layers: list[torch.nn.Module] = []
     for fan_in, fan_out in itertools.pairwise(sizes):
         layers += [torch.nn.Linear(fan_in, fan_out), _ACTIVATIONS[activation]()]
-    layers += [torch.nn.Linear(width, 1), _Squeeze()]
+    layers += [torch.nn.Linear(width, outputs), _Squeeze()]
     network = torch.nn.Sequential(*layers)
     with torch.no_grad():
         for parameter in network.parameters():
@@ -185,10 +190,11 @@ class InputConvex(torch.nn.Module):
 
     ``z_1 = s(L_0 x + b_0)``, ``z_{j+1} = s(W_j z_j + L_j x + b_j)`` for the
     later hidden layers, and the output ``W_k z_k + L_k x + b_k``, with
-    ``s`` the softplus. Each ``W_j`` is the elementwise square of the trained
-    parameter ``V_j``, so it is non-negative whatever ``V_j`` is; the
-    ``L_j`` and ``b_j`` are free. Every parameter starts from the normal
-    distribution with mean 0 and standard deviation ``std``.
+    ``s`` the softplus, plus ``alpha |x|^2 / 2`` when ``alpha > 0``. Each
+    ``W_j`` is the elementwise square of the trained parameter ``V_j``, so
+    it is non-negative whatever ``V_j`` is; the ``L_j`` and ``b_j`` are
+    free. Every parameter starts from the normal distribution with mean 0
+    and standard deviation ``std``.
 
     Parameters
     ----------
@@ -198,9 +204,14 @@ class InputConvex(torch.nn.Module):
         Units per hidden layer and number of hidden layers.
     std
         Standard deviation of the initial parameters.
+    alpha
+        Coefficient of the added ``|x|^2 / 2``, at least 0; with 0 nothing
+        is added.
     """
 
-    def __init__(self, dim: int, width: int, depth: int, std: float) -> None:
+    def __init__(
+        self, dim: int, width: int, depth: int, std: float, alpha: float = 0.0
+    ) -> None:
         super().__init__()
         self.inputs = torch.nn.ModuleList(
             [torch.nn.Linear(dim, width) for _ in range(depth)]
@@ -210,6 +221,7 @@ class InputConvex(torch.nn.Module):
             [torch.nn.Parameter(torch.empty(width, width)) for _ in range(depth - 1)]
             + [torch.nn.Parameter(torch.empty(1, width))]
         )
+        self.alpha = alpha
         with torch.no_grad():
             for parameter in self.parameters():
                 parameter.normal_(std=std)
@@ -226,7 +238,93 @@ class InputConvex(torch.nn.Module):
             z = z @ weight.T + inputs(x)
             if layer < len(later) - 1:
                 z = torch.nn.functional.softplus(z)
-        return z.squeeze(-1)
+        u = z.squeeze(-1)
+        if self.alpha > 0.0:
+            u = u + 0.5 * self.alpha * x.pow(2).sum(dim=-1)
+        return u
+
+
+class QuadraticForm(torch.nn.Module):
+    """The QS form ``(x - x0)^T A^T A (x - x0) + b . x + c`` with ``A = alpha (I + B)``.
+
+    ``B = smooth_scaling(Z, ratio)`` for the output ``Z`` of a plain
+    network, reshaped to ``d x d``, so ``|B|_op < ratio < 1``.
+    ``alpha = alpha_start exp(s)`` with ``s`` a trained scalar that starts
+    at 0, so ``alpha`` is positive for every value of the parameters and
+    ``A`` is invertible at every point, with singular values in
+    ``alpha (1 - ratio, 1 + ratio)``. ``b`` and ``c`` are trained
+    constants that start at 0. The output layer of the plain network starts
+    at 0, so the training starts from ``A = alpha_start I`` everywhere,
+    ``u = alpha_start^2 |x - x0|^2``.
+
+    Parameters
+    ----------
+    dim
+        Input dimension ``d``.
+    width, depth, activation
+        The plain network, as :func:`mlp` takes them, with ``d^2`` outputs.
+    ratio
+        ``epsilon / alpha``, in ``(0, 1)``.
+    reference
+        The reference point ``x0``, ``d`` numbers.
+    alpha_start
+        The start of ``alpha``, positive.
+    report
+        Plain values the solver records as ``Result.info["network"]``;
+        :attr:`report` adds the current ``alpha`` to them.
+    """
+
+    reference: torch.Tensor
+
+    def __init__(
+        self,
+        dim: int,
+        width: int,
+        depth: int,
+        activation: str,
+        ratio: float,
+        reference: Sequence[float],
+        alpha_start: float,
+        report: dict,
+    ) -> None:
+        super().__init__()
+        self.inner = mlp(dim, width, depth, activation, outputs=dim * dim)
+        output = self.inner[-2]
+        assert isinstance(output, torch.nn.Linear)
+        with torch.no_grad():
+            output.weight.zero_()
+            output.bias.zero_()
+        self.log_scale = torch.nn.Parameter(torch.zeros(()))
+        self.b = torch.nn.Parameter(torch.zeros(dim))
+        self.c = torch.nn.Parameter(torch.zeros(()))
+        self.register_buffer("reference", torch.tensor([float(v) for v in reference]))
+        self.dim, self.ratio, self.alpha_start = dim, ratio, alpha_start
+        self.report = report
+
+    @property
+    def alpha(self) -> torch.Tensor:
+        """``alpha = alpha_start exp(s)``, a positive scalar tensor."""
+        return self.alpha_start * torch.exp(self.log_scale)
+
+    @property
+    def report(self) -> dict:
+        """The report given, with ``alpha``, its current value, added."""
+        return {**self._report, "alpha": float(self.alpha.detach())}
+
+    @report.setter
+    def report(self, value: dict) -> None:
+        self._report = {key: v for key, v in value.items() if key != "alpha"}
+
+    def matrix(self, x: torch.Tensor) -> torch.Tensor:
+        """Return ``A`` at points of shape ``(M, d)``: shape ``(M, d, d)``."""
+        z = self.inner(x).reshape(-1, self.dim, self.dim)
+        eye = torch.eye(self.dim, dtype=x.dtype, device=x.device)
+        return self.alpha * (eye + functional.smooth_scaling(z, self.ratio))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return functional.quadratic_form(
+            self.matrix(x), x, self.reference, self.b, self.c
+        )
 
 
 class Switching(torch.optim.Optimizer):

@@ -179,6 +179,68 @@ def hessian(u: Function, x: torch.Tensor, create_graph: bool = True) -> torch.Te
     )
 
 
+def smooth_scaling(z: torch.Tensor, epsilon: float) -> torch.Tensor:
+    """``epsilon Z / sqrt(1 + |Z|_F^2)`` for each matrix ``Z``: a smooth map into a ball.
+
+    The smooth norm constraint of the QS-PINN note (Section 6, eq. (11)): it
+    maps every matrix into the open Frobenius ball of radius ``epsilon``,
+    so ``|P(Z)|_op <= |P(Z)|_F < epsilon``, and it is infinitely
+    differentiable and ``epsilon``-Lipschitz, where the hard projection
+    ``epsilon Z / max(1, |Z|)`` is not differentiable on the sphere.
+
+    Parameters
+    ----------
+    z
+        Matrices of shape ``(..., n, n)``.
+    epsilon
+        Radius of the ball, positive.
+
+    Returns
+    -------
+    torch.Tensor
+        The shape of ``z``.
+    """
+    norm2 = z.pow(2).sum(dim=(-2, -1), keepdim=True)
+    return epsilon * z / torch.sqrt(1.0 + norm2)
+
+
+def quadratic_form(
+    matrix: torch.Tensor,
+    x: torch.Tensor,
+    reference: torch.Tensor,
+    b: torch.Tensor,
+    c: torch.Tensor,
+) -> torch.Tensor:
+    """``(x - x0)^T A^T A (x - x0) + b . x + c`` at each point: the QS form.
+
+    The solution of QS-PINN (note, Definition 3.1) for a matrix ``A`` per
+    point. Whatever ``A`` is, the quadratic term is ``|A (x - x0)|^2 >= 0``,
+    so ``u`` lies above its tangent plane ``c + b . x`` at ``x0``, where its
+    gradient is ``b`` and its Hessian ``2 A^T A`` when ``A`` is smooth
+    (Proposition 3.3).
+
+    Parameters
+    ----------
+    matrix
+        ``A`` at the points, shape ``(M, d, d)``.
+    x
+        Points of shape ``(M, d)``.
+    reference
+        The reference point ``x0``, shape ``(d,)``.
+    b
+        The constant gradient at ``x0``, shape ``(d,)``.
+    c
+        The constant term, a scalar tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(M,)``.
+    """
+    image = (matrix @ (x - reference).unsqueeze(-1)).squeeze(-1)
+    return image.pow(2).sum(dim=-1) + x @ b + c
+
+
 def monge_ampere_residual(hess: torch.Tensor, f: torch.Tensor) -> torch.Tensor:
     """Pointwise residual ``det D^2 u - f``.
 

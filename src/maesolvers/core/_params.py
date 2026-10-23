@@ -136,6 +136,60 @@ def nonnegative(name: str, value: object) -> float:
     return out
 
 
+def floats(name: str, value: object) -> tuple[float, ...]:
+    """Check a sequence of finite real numbers and return it as a tuple of floats.
+
+    Parameters
+    ----------
+    name : str
+        The parameter's name, used in the error messages.
+    value : object
+        The value given; a sequence (a tuple, a list, a numpy array) of
+        Python or numpy real numbers.
+
+    Returns
+    -------
+    tuple of float
+        ``value`` as a tuple of plain ``float``, so that ``hparams`` and
+        configurations hold no numpy scalars.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is a str or bytes, is not iterable, or holds a bool or
+        an element that is not a real number:
+        ``"<name> must be a sequence of numbers, got <value>"``.
+    ValueError
+        If ``value`` is empty: ``"<name> must hold one or more numbers"``; or
+        if an element is infinite or NaN: ``"<name> must be finite, got
+        <value>"``.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a frozen dataclass, for a point:
+
+    >>> object.__setattr__(self, "x0", floats("x0", self.x0))  # doctest: +SKIP
+    """
+    error = TypeError(f"{name} must be a sequence of numbers, got {value!r}")
+    if isinstance(value, (str, bytes)):
+        raise error
+    try:
+        items = tuple(value)  # type: ignore[arg-type]
+    except TypeError:
+        raise error from None
+    if any(
+        isinstance(v, (bool, np.bool_)) or not isinstance(v, numbers.Real)
+        for v in items
+    ):
+        raise error
+    out = tuple(float(v) for v in items)
+    if not out:
+        raise ValueError(f"{name} must hold one or more numbers")
+    if not all(np.isfinite(out)):
+        raise ValueError(f"{name} must be finite, got {out}")
+    return out
+
+
 def boolean(name: str, value: object) -> bool:
     """Check a bool parameter and return it as a plain ``bool``.
 

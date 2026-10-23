@@ -10,13 +10,13 @@ shape ``(...)``. Every domain is a frozen dataclass that satisfies the
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from maesolvers.core._params import integer, points
+from maesolvers.core._params import floats, integer, points
 
 Field = Callable[[np.ndarray], np.ndarray]
 """Maps points of shape ``(..., d)`` to values of shape ``(...)``."""
@@ -163,16 +163,6 @@ def _allocate(n: int, sizes: np.ndarray) -> np.ndarray:
     return counts
 
 
-def _floats(values: Sequence[float], name: str) -> tuple[float, ...]:
-    try:
-        out = tuple(float(v) for v in values)
-    except TypeError:
-        raise TypeError(f"{name} must be a sequence of numbers") from None
-    if not all(np.isfinite(out)):
-        raise ValueError(f"{name} must be finite, got {out}")
-    return out
-
-
 @dataclass(frozen=True)
 class Box:
     """Axis-aligned box ``[lo[0], hi[0]] x ... x [lo[d-1], hi[d-1]]``.
@@ -188,10 +178,10 @@ class Box:
     hi: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        lo, hi = _floats(self.lo, "Box.lo"), _floats(self.hi, "Box.hi")
-        if len(lo) == 0 or len(lo) != len(hi):
+        lo, hi = floats("Box.lo", self.lo), floats("Box.hi", self.hi)
+        if len(lo) != len(hi):
             raise ValueError(
-                f"Box.lo and Box.hi need the same length >= 1, got {lo} and {hi}"
+                f"Box.lo and Box.hi need the same length, got {lo} and {hi}"
             )
         if not all(a < b for a, b in zip(lo, hi, strict=True)):
             raise ValueError(f"Box needs lo < hi in every coordinate, got {lo}, {hi}")
@@ -270,8 +260,8 @@ class Ellipse:
     semi_axes: tuple[float, float]
 
     def __post_init__(self) -> None:
-        center = _floats(self.center, "Ellipse.center")
-        axes = _floats(self.semi_axes, "Ellipse.semi_axes")
+        center = floats("Ellipse.center", self.center)
+        axes = floats("Ellipse.semi_axes", self.semi_axes)
         if len(center) != 2 or len(axes) != 2:
             raise ValueError(
                 f"Ellipse is 2D: center and semi_axes need length 2, got {center}, {axes}"
@@ -356,7 +346,7 @@ class Disk:
     radius: float
 
     def __post_init__(self) -> None:
-        center = _floats(self.center, "Disk.center")
+        center = floats("Disk.center", self.center)
         if len(center) != 2:
             raise ValueError(f"Disk is 2D: center needs length 2, got {center}")
         radius = float(self.radius)
