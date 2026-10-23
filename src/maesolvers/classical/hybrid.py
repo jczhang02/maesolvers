@@ -168,12 +168,12 @@ class Hybrid(Scheme):
 
     domains: ClassVar[tuple[type, ...]] = Monotone17.domains
     boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
-    dims: ClassVar[tuple[int, ...]] = Monotone17.dims
+    dims: ClassVar[tuple[int, ...]] = (2,)
 
     standard: Standard9 = field(init=False, repr=False)
     monotone: Monotone17 = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 33] = 17  # Monotone17's default, a 2D stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     spline_degree: int = Monotone17.spline_degree
@@ -188,6 +188,11 @@ class Hybrid(Scheme):
             jacobian_floor=self.jacobian_floor,
             spline_degree=self.spline_degree,
         )
+        if monotone.dim != 2:
+            raise ValueError(
+                f"Hybrid's stencil must be 9, 17 or 33 points, got {monotone.stencil}: "
+                "its standard scheme, Standard9, is 2D"
+            )
         standard = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
         object.__setattr__(self, "monotone", monotone)
         object.__setattr__(self, "standard", standard)

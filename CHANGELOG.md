@@ -11,6 +11,13 @@ Every change to the public interface is listed here; 0.x may break the interface
   For even `n` the nodes of `BoxGrid(box, n // 2)` are the nodes with even indices.
 - The pure functions `reach(index, n, direction)` (the fraction of a step of index offsets that stays in the box, at any nodes; `BoxGrid.reach` and `directional_difference` call it), `stencil(n, offsets, weights)` (any linear stencil of width 1 at the interior nodes, as a sparse matrix; the offsets must have an integer dtype), `second_differences(n, h)` (the centred second differences `D_kl`, `k <= l`, keyed `(k, l)`: 9 points in 2D, 19 in 3D, 33 in 4D), `centred_hessian(grid, values)` (the discrete Hessian at the nodes, NaN on the boundary ring, the shape `Result.node_hessian` takes) and `tensor_spline(axes, values, degree)` (the tensor-product interpolating spline of degree 1 to 5) in `maesolvers.classical.grid`.
   In 2D `tensor_spline` is FITPACK's spline, as in 0.1; in any other dimension it is the tensor product of `make_interp_spline` fitted axis by axis and evaluated by scipy's `NdBSpline`, the same spline on the box to rounding (about `1e-15` times the largest value, checked on 2D axes); the spline is defined on the box only: off it FITPACK clamps the points to the box and `NdBSpline` extends the end polynomials; on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D) it fits and evaluates in well under a second (`benchmarks/nd_grids.md`).
+- `Monotone17(stencil=19)`, the 3D monotone scheme of Froese-Oberman 2011 (SIAM J. Numer. Anal., Section 7, Table 4) on a cube: the minimum over the four orthogonal triples of the 19-point stencil (the axes, and each axis with the two diagonals of the plane perpendicular to it) of the product of the positive parts of the three second differences, continued below zero with the slope `kappa = max(f, mean f, 1)^(2/3)` (issue #27).
+  `stencil` is typed `Literal[9, 17, 19, 33]`, and the stencil decides the dimension: 9, 17 and 33 points support 2D problems only, 19 points 3D problems only; `Monotone17.dims` is `(2, 3)`.
+  So `FDMonotone(n=31, stencil=19).solve(T9)` solves the 3D catalogue problems T9 and T22 by semi-smooth Newton; `FDMonotone.dims` is `(2, 3)`, and its `UnsupportedProblemError` names the stencil's dimension when that is what is missing.
+  The 19-point arms never leave the box, so `boundary` does not change a 3D solve.
+- `Monotone17.dim`, the dimension of its stencil, and the pure function `stencil_dimension(points)` in `maesolvers.classical.monotone`.
+- The pure function `frame_jacobian(operators, weights)` in `maesolvers.classical.monotone`: `sum over frames p and directions k of diag(weights[p, k]) D_pk`, the sparse assembly of `Monotone17.jacobian`, so a subclass that changes only the coefficients does not repeat it.
+- `angular_resolution(19)`: the covering angle of the 19-point directions on the sphere, `acos(sqrt(2/3))` (about 35.3 degrees, at the body diagonals).
 - `maesolvers.core.transport`, the shared helpers of the second boundary value problem (issue #26), pure numpy functions exported from `maesolvers.core`, for the target sets `Box` (any dimension), `Disk` and `Ellipse` (`TypeError` for another set; the `Domain` protocol is unchanged):
   `signed_distance(target, y)`, the signed distance to the target's boundary, positive outside and negative inside (`H` of Benamou-Froese-Oberman 2014, eq. (3));
   `support_function(target, n)`, `sup_{y in Y} y . n` for any direction `n` (their `H*`, eq. (5));
@@ -26,7 +33,14 @@ Every change to the public interface is listed here; 0.x may break the interface
 - scipy 1.12 or later is required (was 1.10), for `NdBSpline`.
 - `Standard9` and `Monotone17` build their grids with `BoxGrid` and `difference_operators(n, hx, hy)` returns the 2D case of `second_differences`; `Monotone17` reports `centred_hessian` and `BoxGrid.interpolant`; every 2D result is bit for bit what 0.1 computes (`benchmarks/check_2d_bit_for_bit.py`).
   `MonotoneGrid`, the working context of `Monotone17`, holds its `box_grid` in place of the fields `x` and `y`; `nodes` and `interior` are now properties of it.
-  The finite-difference schemes remain 2D only (`dims = (2,)`); the private module `maesolvers.classical._grid` is gone.
+  `Standard9` and `Hybrid` remain 2D only (`dims = (2,)`), and `Monotone17` adds 3D with the 19-point stencil (above); the private module `maesolvers.classical._grid` is gone.
+- The kernels of the monotone scheme are written for frames of `d` orthogonal directions, pairs in 2D and triples in 3D, and renamed accordingly: `stencil_pairs` is `stencil_frames` (shape `(frames, d, d)`; the 2D pairs and their order are unchanged), `pair_values` is `frame_values`, `pair_jacobian_coefficients` is `frame_jacobian_coefficients`, `MonotoneGrid.pairs` is `MonotoneGrid.frames`, and `Monotone17.directional_differences` returns shape `(frames, d, m)`.
+  `directional_difference(x, y, direction, g)` is `directional_difference(grid, direction, g)`, with `grid` a `BoxGrid` of any dimension.
+  Every 2D result is bit for bit what it was (`benchmarks/check_2d_bit_for_bit.py`, `benchmarks/monotone19.md`).
+- `Newton` starts from `laplace u = d f^(1/d)` in dimension `d`, the bound of the arithmetic and geometric means of the Hessian's eigenvalues; in 2D that is the `2 sqrt(f)` of 0.1, bit for bit.
+- `Hybrid`, `FDHybrid` and `FDFiltered` keep `dims = (2,)` and raise `ValueError` for `stencil=19`, naming themselves: their standard scheme, `Standard9`, is 2D.
+  `Filtered` raises `ValueError` on construction when its parts share no dimension, such as `Standard9` with `Monotone17(stencil=19)`.
+- The comparison table gives `FDMonotone` on T9 the reason `3D: stencil=19` (the runner builds its default 17-point stencil) and on T10 `2D/3D only`; `benchmarks/comparison.py`'s `unsupported_reason` names the stencils of the problem's dimension for a preset on `Monotone17`.
 
 ## 0.1.0 (2026-10-23)
 

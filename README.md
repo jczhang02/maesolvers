@@ -166,7 +166,7 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 |---|---|---|---|---|
 | `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box`; `Disk`, `Ellipse`, `CutQuarterDisk` through Shortley-Weller stencils | Dirichlet | none; on T2 it converges to a non-convex discrete root |
 | `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | the same | Dirichlet | selects the convex branch in practice |
-| `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points), semi-smooth Newton | `Box` with equal sides | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
+| `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points in 2D; 19 points in 3D with `stencil=19`), semi-smooth Newton | `Box` with equal sides, in the stencil's dimension | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
 | `FDHybrid` | the hybrid scheme of Froese-Oberman 2011: the standard scheme where the data are regular, the monotone one near the boundary and where `f` is near 0 or infinite; Newton from the monotone root | `Box` with equal sides | Dirichlet | monotone near the possible singularities; the start puts Newton on the convex root |
 | `FDFiltered` | the filtered scheme of Froese-Oberman 2013: the standard 9-point scheme where it nearly agrees with the monotone one, the monotone scheme where they differ; Newton with the paper's approximate Jacobian | `Box` with equal sides | Dirichlet | nearly monotone; where the filter keeps the standard scheme it shares its non-convex roots (T20); its damped Newton often stalls (`converged` False on T1, T2, T4, T5, T7 and T20 at `n = 64`, on the cone), where on T2 the paper's undamped step converges with 9 points at every printed `N` (#56) |
 | `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
@@ -200,8 +200,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
 | T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
 
 **Non-convex fraction**
 
@@ -212,8 +212,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 |
 | T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 0 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 0 |
 
 **Time in seconds**
 
@@ -224,14 +224,14 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 416 | 1009 |
 | T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | 416 | 797 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1450 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 155 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 1450 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 155 |
 
 A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
-A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10.
+A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; `3D: stencil=19` on T9; `2D/3D only` on T10.
 The roadmap's 0.2 gives the finite-difference presets transport boundary conditions (T12) and n-dimensional boxes (T9 and T10).
 <!-- comparison table end -->
 
@@ -258,6 +258,7 @@ Newton on the standard scheme converges in the residual on T2 but to a non-conve
 On T7 Newton does the same from `N = 41` on, while the Poisson iteration matches the 2010 table at every printed `N`.
 
 The monotone wide-stencil scheme (`FDMonotone`) matches the 9-, 17- and 33-point columns of Froese-Oberman 2011 (SIAM J. Numer. Anal.), Table 3, on T2 at every printed `N` and on T1 from `N = 127` on; at coarse grids, on T20 and on the cone T21 the published errors differ from ours, and [`benchmarks/monotone17.md`](benchmarks/monotone17.md) records why as findings.
+In 3D its 19-point stencil (`FDMonotone(stencil=19)`) reaches, with `h = 1/N`, the order-of-magnitude level of the same paper's Table 4 on T9 and the `C^1` example and a mismatch on T22, both non-smooth levels decided by the coarsest grid `N = 7` alone (without it the `C^1` example is a mismatch and T22 order of magnitude); T9 matches the printed digits at `N = 21` and 31 (and at `N = 11`, 15 and 21 with `h = 1/(N - 1)`), and on the `C^1` example the paper's errors stay below ours ([`benchmarks/monotone19.md`](benchmarks/monotone19.md)).
 
 The hybrid scheme (`FDHybrid`) matches the column "Hybrid" of Froese-Oberman 2011 (J. Comput. Phys.), Table 3, on T2 from `N = 127` on, and at every printed `N` with `h = 1/(N - 1)`; it needs a convex start, which `FDHybrid` takes from the monotone scheme, since Newton from the Poisson start reaches a non-convex root on T2.
 On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](benchmarks/hybrid.md) records the findings.
@@ -296,7 +297,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 ## Layout
 
 - `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, the part check `check_part`, and in `transport.py` the target geometry and mass balance of transport problems.
-- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17`, `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
+- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` (2D, and 3D with 19 points), `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate`, `summarize` and the gradient-map error of transport problems; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.

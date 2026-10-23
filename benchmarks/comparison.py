@@ -28,12 +28,13 @@ import math
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 import numpy as np
 
-from maesolvers import CATALOGUE, SOLVERS, Problem, Solver
+from maesolvers import CATALOGUE, SOLVERS, Monotone17, Problem, Solver
 from maesolvers.catalogue import SHARED_TEST_SET
+from maesolvers.classical.monotone import stencil_dimension
 from maesolvers.metrics import shared_grid, summarize_errors
 from maesolvers.neural import NeuralSolver
 
@@ -144,8 +145,11 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     """Why ``solver`` does not support ``problem``, in a few words for a table cell.
 
     The first of the boundary condition, the dimension and the domain that
-    the solver does not declare; ``unsupported`` if it declares all three and
-    rejects the problem for another reason (unequal sides of a box, say).
+    the solver does not declare; then, for a solver on :class:`Monotone17`,
+    the stencils of the problem's dimension when the scheme's stencil is of
+    another (``3D: stencil=19`` for ``FDMonotone``'s default 17-point stencil
+    on a 3D problem); ``unsupported`` if none of these is the reason (unequal
+    sides of a box, say).
     """
     if not isinstance(problem.boundary, solver.boundaries):
         return "/".join(kind.__name__ for kind in solver.boundaries) + " only"
@@ -153,6 +157,12 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
         return "/".join(f"{d}D" for d in solver.dims) + " only"
     if not isinstance(problem.domain, solver.domains):
         return f"not on a {type(problem.domain).__name__}"
+    scheme = getattr(solver, "scheme", None)
+    if isinstance(scheme, Monotone17) and scheme.dim != problem.dim:
+        stencils = get_args(get_type_hints(Monotone17)["stencil"])
+        return f"{problem.dim}D: stencil=" + "/".join(
+            str(s) for s in stencils if stencil_dimension(s) == problem.dim
+        )
     return "unsupported"
 
 

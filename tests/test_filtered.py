@@ -309,7 +309,7 @@ def test_the_preset_has_flat_hparams_and_its_parts_defaults():
     assert (FDFiltered.domains, FDFiltered.boundaries, FDFiltered.dims) == (
         Monotone17.domains,
         Monotone17.boundaries,
-        Monotone17.dims,
+        Standard9.dims,
     )
 
 

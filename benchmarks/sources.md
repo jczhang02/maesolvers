@@ -228,6 +228,21 @@ Table 1, Newton iterations on the 17-point scheme: 9, 15, 32, 34, 29 at N = 31, 
 - "C^{0,1} (Lipschitz) example" (13): the cone u = |x - x0|, f = pi delta_{x0}, discretised as 4/h^2 on |x - x0| <= h/2.
 - 3D (Table 4, 19-point stencil, N^3 grid on [0,1]^3): u = exp(|x|^2/2) with f = (1+|x|^2) exp(3|x|^2/2); a C^1 example; and the ball u = -sqrt(3 - |x|^2), f = 3 (3 - |x|^2)^(-5/2).
 
+### Table 4, three dimensions (`monotone19.md`)
+
+Section 7: "These computations are done using a 19 point stencil on an N^3 grid on the square [0, 1]^3", by Newton's method; x0 = (.5, .5, .5).
+"N^3 grid" does not say whether N counts nodes or cells per side.
+The examples: (14) u = exp(|x|^2/2), f = (1 + |x|^2) exp(3 |x|^2/2), T9 in the catalogue; (15) u = ((|x - x0| - 0.2)^+)^2 / 2, f = 1 - 0.4/|x - x0| + 0.04/|x - x0|^2 for |x - x0| > 0.2 and 0 otherwise, no T id (`C1_3D` in `run_monotone19.py`); (16) u = -sqrt(3 - |x|^2), f = 3 (3 - |x|^2)^(-5/2), T22.
+Max error, Newton iterations and CPU seconds, as printed (checked against the page image, p. 1712):
+
+| N | (14) max error | its | CPU s | (15) max error | its | CPU s | (16) max error | its | CPU s |
+|---|---|---|---|---|---|---|---|---|---|
+| 7 | 0.0151 | 2 | 0.1 | 0.0034 | 1 | 0.02 | 9.6 x 10^-3 | 1 | 0.02 |
+| 11 | 0.0140 | 3 | 0.1 | 0.0022 | 1 | 0.06 | 5.3 x 10^-3 | 3 | 0.12 |
+| 15 | 0.0132 | 5 | 0.5 | 0.0019 | 1 | 0.17 | 4.7 x 10^-3 | 3 | 0.34 |
+| 21 | 0.0127 | 6 | 3.6 | 0.0020 | 2 | 1.42 | 4.3 x 10^-3 | 6 | 3.65 |
+| 31 | 0.0125 | 5 | 34.7 | 0.0019 | 2 | 16.70 | 3.9 x 10^-3 | 8 | 54.70 |
+
 ## 3. Froese, Oberman, J. Comput. Phys. (2011)
 
 B. D. Froese, A. M. Oberman, "Fast finite difference solvers for singular solutions of the elliptic Monge-Ampere equation", J. Comput. Phys. 230 (2011) 818-834, DOI 10.1016/j.jcp.2010.10.020.
@@ -348,6 +363,20 @@ Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
 - "C^1 Example" (15): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5); hybrid accuracy O(h).
 - "C^{0,1} (Lipschitz) Example" (17): the cone centred at x0 with f = pi delta_{x0}, discretised as 4/h^2 on |x - x0| <= h/2; the hybrid scheme equals the monotone scheme there.
 - 3D (Table 4, hybrid Newton, 19-point stencil, N^3 grid on [0,1]^3): exp(|x|^2/2), a C^1 example, and the ball -sqrt(3 - |x|^2).
+
+### Table 4, three dimensions, hybrid scheme (`monotone19.md`, cross-check only)
+
+Section 9: "These computations are performed on an N x N x N grid on the square [0, 1]^3. The monotone scheme used a 19 point stencil."
+The examples are the SIAM paper's (14), (15) and (16), numbered (18), (19) and (20) here; the paper calls the single Newton step on (19) "simply an artifact".
+Max error, Newton iterations and CPU seconds of the hybrid Newton's method, as printed (text layer of the PDF, p. 831):
+
+| N | (18) max error | its | CPU s | (19) max error | its | CPU s | (20) max error | its | CPU s |
+|---|---|---|---|---|---|---|---|---|---|
+| 7 | 0.0151 | 2 | 0.04 | 0.0034 | 1 | 0.02 | 9.6 x 10^-3 | 1 | 0.03 |
+| 11 | 0.0140 | 3 | 0.10 | 0.0022 | 1 | 0.09 | 5.2 x 10^-3 | 3 | 0.11 |
+| 15 | 0.0129 | 5 | 0.71 | 0.0016 | 1 | 0.22 | 4.6 x 10^-3 | 3 | 0.48 |
+| 21 | 0.0121 | 6 | 6.72 | 0.0009 | 1 | 1.03 | 4.0 x 10^-3 | 6 | 7.42 |
+| 31 | 0.0111 | 5 | 86.63 | 0.0005 | 1 | 17.12 | 2.9 x 10^-3 | 8 | 138.74 |
 
 ## 4. Loeper, Rapetti (2005)
 
