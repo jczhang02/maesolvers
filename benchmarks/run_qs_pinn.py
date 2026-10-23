@@ -382,6 +382,76 @@ def summary(path: Path) -> None:
             print(line + "; stops " + ", ".join(stops))
 
 
+def exp_hessian(y: np.ndarray) -> np.ndarray:
+    """The Hessian of ``exp(|y|^2 / 2)`` (T1, T9, T10): ``exp(|y|^2 / 2) (I + y y^T)``."""
+    return np.exp(0.5 * y @ y) * (np.eye(len(y)) + np.outer(y, y))
+
+
+def canonical_bound(
+    hessian: Any, x0: np.ndarray, points: np.ndarray, nodes: int = 20
+) -> tuple[float, float, float]:
+    """How far the canonical QS matrix of a solution lies from a multiple of ``I``.
+
+    The note's Lemma 3.2 writes ``u`` in the QS form with ``A = M^(1/2)``,
+    ``M(x) = int_0^1 (1 - t) D^2 u(x0 + t (x - x0)) dt``; ``M`` is computed
+    by Gauss-Legendre quadrature with ``nodes`` nodes at each point. Then
+    ``A = alpha (I + B)`` needs ``|B|_F = |A / alpha - I|_F`` below ``ratio``
+    at every point, and the best single ``alpha`` minimises the largest of
+    these.
+
+    Returns
+    -------
+    tuple of float
+        That ``alpha``, the largest ``|A / alpha - I|_F`` at it, and the
+        largest ratio of the extreme singular values of ``A`` at a point.
+    """
+    from scipy.optimize import minimize_scalar
+
+    t, w = np.polynomial.legendre.leggauss(nodes)
+    t, w = (t + 1.0) / 2.0, w / 2.0
+    roots = []
+    for x in points:
+        m = sum(
+            wi * (1.0 - ti) * hessian(x0 + ti * (x - x0))
+            for ti, wi in zip(t, w, strict=True)
+        )
+        values, vectors = np.linalg.eigh(m)
+        roots.append(vectors @ np.diag(np.sqrt(values)) @ vectors.T)
+    eye = np.eye(len(x0))
+
+    def worst(alpha: float) -> float:
+        return max(float(np.linalg.norm(a / alpha - eye)) for a in roots)
+
+    singular = np.array([np.linalg.svd(a, compute_uv=False) for a in roots])
+    scale = float(np.mean(singular))
+    best = minimize_scalar(
+        worst,
+        bounds=(0.1 * scale, 10.0 * scale),
+        method="bounded",
+        options={"xatol": 1e-8},
+    )
+    spread = float(np.max(singular[:, 0] / singular[:, -1]))
+    return float(best.x), float(best.fun), spread
+
+
+def canonical() -> None:
+    """Print :func:`canonical_bound` for T12, T1, T9 and T10 (``qs_pinn.md``, Finding 5).
+
+    On T12 the Hessian is ``diag(2, 1/2)`` everywhere, so one point does; on
+    the exponential problems the grid of 21, 11 and 7 points per side of
+    the unit cube, corners included, with ``x0`` its centre.
+    """
+    t12 = canonical_bound(
+        lambda y: np.diag([2.0, 0.5]), np.zeros(2), np.array([[0.5, 0.0]])
+    )
+    print(f"T12: alpha {t12[0]:.4f}, max |B|_F {t12[1]:.4f}, spread {t12[2]:.3f}")
+    for name, dim, side in (("T1", 2, 21), ("T9", 3, 11), ("T10", 4, 7)):
+        axis = np.linspace(0.0, 1.0, side)
+        grid = np.stack(np.meshgrid(*[axis] * dim), axis=-1).reshape(-1, dim)
+        alpha, bound, spread = canonical_bound(exp_hessian, np.full(dim, 0.5), grid)
+        print(f"{name}: alpha {alpha:.4f}, max |B|_F {bound:.4f}, spread {spread:.3f}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--problems", nargs="+", choices=list(PROBLEMS), default=None)
@@ -396,9 +466,17 @@ def main() -> None:
     parser.add_argument(
         "--summary", action="store_true", help="print the cells of qs_pinn.md"
     )
+    parser.add_argument(
+        "--canonical",
+        action="store_true",
+        help="print the bounds the canonical QS matrix needs (Finding 5)",
+    )
     args = parser.parse_args()
     if args.summary:
         summary(args.out or CSV)
+        return
+    if args.canonical:
+        canonical()
         return
     changed = (
         args.problems is not None
