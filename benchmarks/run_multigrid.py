@@ -29,6 +29,11 @@ repository root, writing outside the checkout so the runs see it clean::
         python benchmarks/run_multigrid.py \\
         --out /jczhang02/maesolvers-data/data/multigrid.csv
 
+``--checks`` writes multigrid_checks.csv instead (Finding 3 of
+``benchmarks/multigrid.md``): T2 at N = 128 to 1024 with the paper's root
+selection and with a smoother that takes a right-hand side ``b <= 0`` as 0,
+both orderings, up to 50 cycles each.
+
 ``--report`` prints the markdown tables of ``benchmarks/multigrid.md`` from
 the CSV instead: ours next to the published values, the ratios and the
 least-squares orders.
@@ -43,17 +48,19 @@ import resource
 import time
 from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from maesolvers import CATALOGUE, FDMultigrid, Problem, StandardBox, tracking
+from maesolvers import CATALOGUE, FDMultigrid, Multigrid, Problem, StandardBox, tracking
 from maesolvers.classical.multigrid import sweep_groups
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
 CSV = HERE / "multigrid.csv"
+CHECKS_CSV = HERE / "multigrid_checks.csv"
 
 GS_TOL = 1e-6
 """The stand-alone Gauss-Seidel solver's relative residual (the paper's 1e-6)."""
@@ -309,6 +316,63 @@ def _work(args: tuple[tuple[int, str, str, int], bool]) -> dict[str, Any]:
     return run_case(*args)
 
 
+@dataclass(frozen=True, kw_only=True)
+class ClampedBox(StandardBox):
+    """StandardBox whose relax takes a right-hand side ``b <= 0`` as 0."""
+
+    def relax(
+        self, grid: Any, u: np.ndarray, b: np.ndarray, nodes: np.ndarray
+    ) -> np.ndarray:
+        """The update of :meth:`StandardBox.relax` for ``max(b, 0)``."""
+        return super().relax(grid, u, np.maximum(b, 0.0), nodes)
+
+
+CHECK_FIELDS = (
+    "problem",
+    "ordering",
+    "n",
+    "root",
+    "error",
+    "iterations",
+    "converged",
+    "relres",
+    "commit",
+)
+
+
+def run_check(case: tuple[str, int, str], log: bool) -> dict[str, Any]:
+    """One row of multigrid_checks.csv: T2 with one root selection."""
+    ordering, n, root = case
+    scheme = StandardBox(n=n) if root == "smallest" else ClampedBox(n=n)
+    result = Multigrid(scheme=scheme, ordering=ordering).solve(CATALOGUE["T2"])
+    assert result.values is not None and result.nodes is not None
+    row = {
+        "problem": "T2",
+        "ordering": ordering,
+        "n": n,
+        "root": root,
+        "error": _error(CATALOGUE["T2"], result.values, result.nodes),
+        "iterations": result.info["iterations"],
+        "converged": result.info["converged"],
+        "relres": result.info["history"][-1],
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+    }
+    if log:
+        import mlflow
+
+        name = f"check-{root}-{ordering}-n{n}"
+        with tracking.run("maesolvers-multigrid-T2", {"root": root}, run_name=name):
+            mlflow.log_metrics(
+                {k: float(row[k]) for k in ("error", "iterations", "relres")}
+            )
+    print(", ".join(f"{k} {row[k]}" for k in CHECK_FIELDS[:-1]), flush=True)
+    return row
+
+
+def _check_work(args: tuple[tuple[str, int, str], bool]) -> dict[str, Any]:
+    return run_check(*args)
+
+
 def main(argv: Iterable[str] | None = None) -> None:
     """Parse the command line; run the cases, or print the report."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -317,9 +381,26 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--largest", type=int, default=None, help="skip larger N")
     parser.add_argument("--out", type=Path, default=CSV)
     parser.add_argument("--report", action="store_true", help="print the md tables")
+    parser.add_argument("--checks", action="store_true", help="the root selection")
     args = parser.parse_args(None if argv is None else list(argv))
     if args.report:
         report(args.out)
+        return
+    if args.checks:
+        checks = [
+            (o, n, r)
+            for o in ("red-black", "lexicographic")
+            for n in (128, 256, 512, 1024)
+            for r in ("smallest", "clamped")
+        ]
+        with ProcessPoolExecutor(args.workers) as pool:
+            rows = list(
+                pool.map(_check_work, [(c, not args.no_mlflow) for c in checks])
+            )
+        with (CHECKS_CSV if args.out == CSV else args.out).open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CHECK_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
         return
     todo = [c for c in cases() if args.largest is None or c[3] <= args.largest]
     with ProcessPoolExecutor(args.workers) as pool:
