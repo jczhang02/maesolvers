@@ -142,6 +142,23 @@ def test_the_loss_decreases_under_lbfgs():
     assert all(b <= a for a, b in itertools.pairwise(history))
 
 
+def test_the_lbfgs_part_makes_one_iteration_per_step():
+    # torch.optim.LBFGS makes up to max_iter = 20 iterations per step() by
+    # default; the training loop counts one update per step
+    x = torch.nn.Parameter(torch.tensor([3.0, -2.0], dtype=torch.float64))
+    optimizer = LBFGS().build([x])
+
+    def closure():
+        optimizer.zero_grad()
+        loss = x[0] ** 2 + 10 * x[1] ** 2
+        loss.backward()
+        return loss
+
+    for _ in range(3):
+        optimizer.step(closure)
+    assert optimizer.state[x]["n_iter"] == 3
+
+
 def test_a_seed_fixes_the_result_and_leaves_torch_as_it_was():
     torch.manual_seed(123)
     state, dtype = torch.get_rng_state(), torch.get_default_dtype()

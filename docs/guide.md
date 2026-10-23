@@ -548,7 +548,8 @@ What each part does:
   `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
 - `__post_init__` checks every parameter with `integer`, `positive`, `nonnegative` or `boolean`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
 - A loss term built on `functional.mean_squared_misfit` raises `ValueError` when its points are empty, so a boundary term cannot drop out because the sampler gave no boundary points.
-- An optimizer's `build(parameters)` returns a torch optimizer of the trainable parameters; the training loop calls its `step(closure)` once per training step, so a line-search method such as `torch.optim.LBFGS` runs one iteration per step.
+- An optimizer's `build(parameters)` returns a torch optimizer of the trainable parameters whose `step(closure)` makes one update (one iteration, with its line search if it has one): the training loop counts its steps by the calls of `step`, so `max_steps` and the step count in the result and in MLflow mean one update each.
+  `torch.optim.LBFGS` makes up to `max_iter` iterations per call, 20 by default, and stops on its own tolerances; build it with `max_iter=1`, `tolerance_grad=0` and `tolerance_change=0`, as the shipped `LBFGS` part does, which is the model to copy for a line-search method.
 
 Use them like the shipped parts.
 

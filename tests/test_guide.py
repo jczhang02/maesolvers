@@ -110,3 +110,10 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
     finally:
         for module in ("my_methods", "my_parts"):  # the guide's, not another test's
             sys.modules.pop(module, None)
+
+
+def test_the_guide_builds_torch_lbfgs_with_one_iteration_per_step():
+    # torch.optim.LBFGS makes up to 20 iterations per step() by default, which
+    # would break the training loop's count of steps
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "`max_iter=1`, `tolerance_grad=0` and `tolerance_change=0`" in text
