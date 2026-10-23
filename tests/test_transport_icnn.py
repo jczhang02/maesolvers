@@ -109,10 +109,10 @@ def test_nearest_squared_distances_refuse_an_empty_set():
 
 
 def test_the_exact_map_leaves_a_transport_term_at_independent_points():
-    # The floor of benchmarks/icnn.md, Finding 3: T12's exact map, the
-    # preset's boundary and target points of seeds 0 to 2 (also
-    # `run_icnn_transport.py --floor`).
-    floors = []
+    # The exact map's level of benchmarks/icnn.md, Finding 3: T12's exact
+    # map, the preset's boundary and target points of seeds 0 to 2 (also
+    # `run_icnn_transport.py --exact-map`).
+    terms = []
     for seed in range(3):
         points = TransportSampler().sample(T12, np.random.default_rng(seed))
         x = points.boundary
@@ -120,9 +120,9 @@ def test_the_exact_map_leaves_a_transport_term_at_independent_points():
         into, onto = F.nearest_squared_distances(
             _tensor(image), _tensor(points.target_boundary)
         )
-        floors.append((float(into.mean()), float(onto.mean())))
-    assert floors[0] == pytest.approx((4.349e-5, 6.773e-5), rel=1e-3)
-    assert [into + onto for into, onto in floors] == pytest.approx(
+        terms.append((float(into.mean()), float(onto.mean())))
+    assert terms[0] == pytest.approx((4.349e-5, 6.773e-5), rel=1e-3)
+    assert [into + onto for into, onto in terms] == pytest.approx(
         [1.112e-4, 1.675e-4, 1.339e-4], rel=1e-3
     )
 

@@ -43,9 +43,11 @@ Two modes train nothing and log nothing. ``--summary`` prints the cells of
 the T12 tables in icnn.md from the receipt (or --out): per schedule and
 column the mean (std) as Table 2 prints them, the median [5%, 95%] over the
 seeds, and a bootstrap 5% to 95% band of the mean over the seeds, all to
-three significant digits. ``--floor`` prints, for each seed of --seeds, the
-transport term of eq. (3.4) that T12's exact map leaves at the preset's
-collocation points (icnn.md, Finding 3).
+three significant digits. ``--exact-map`` prints, for each seed of --seeds,
+the transport term of eq. (3.4) that T12's exact map leaves at the preset's
+collocation points, a reference level, not a bound on what a trained network
+reaches, next to the ``lbfgs`` row of the seed in the receipt (or --out), if
+it has one (icnn.md, Finding 3).
 """
 
 from __future__ import annotations
@@ -259,7 +261,7 @@ def summary(path: Path) -> None:
             )
 
 
-def exact_map_floor(
+def exact_map_term(
     seed: int, parametric: bool = False, target_points: int = 800
 ) -> tuple[float, float]:
     """The two halves of eq. (3.4) that T12's exact map leaves at a seed's points.
@@ -286,17 +288,41 @@ def exact_map_floor(
     return float(into.mean()), float(onto.mean())
 
 
-def floor(seeds: list[int]) -> None:
-    """Print :func:`exact_map_floor` of each seed: as drawn, parametric, 8000 targets."""
+def exact_map(seeds: list[int], path: Path) -> None:
+    """Print :func:`exact_map_term` of each seed next to its trained ``lbfgs`` row.
+
+    For each seed: the exact map's two halves at the points as drawn, its
+    term with parametric target points and with 8000 target points, and,
+    if ``path`` holds the seed's ``lbfgs`` row, the trained network's final
+    loss and transport term and the ratio of that loss to the exact map's
+    term.
+    """
+    trained = {}
+    if path.exists():
+        with path.open(newline="") as file:
+            trained = {
+                int(row["seed"]): row
+                for row in csv.DictReader(file)
+                if row["schedule"] == "lbfgs"
+            }
     for seed in seeds:
-        into, onto = exact_map_floor(seed)
-        par = sum(exact_map_floor(seed, parametric=True))
-        many = exact_map_floor(seed, target_points=8000)
-        print(
+        into, onto = exact_map_term(seed)
+        par = sum(exact_map_term(seed, parametric=True))
+        many = exact_map_term(seed, target_points=8000)
+        line = (
             f"seed {seed}: into {into:.3e} + onto {onto:.3e} = {into + onto:.3e}; "
             f"parametric target {par:.3e}; "
             f"8000 targets: into {many[0]:.3e}, onto {many[1]:.3e}"
         )
+        if seed in trained:
+            row = trained[seed]
+            loss = float(row["loss"])
+            transport = float(row["into"]) + float(row["onto"])
+            line += (
+                f"; trained loss {loss:.3e}, transport {transport:.3e}, "
+                f"loss / exact map's term {loss / (into + onto):.3f}"
+            )
+        print(line)
 
 
 def main() -> None:
@@ -324,14 +350,16 @@ def main() -> None:
         "--summary", action="store_true", help="print the tables' cells from the CSV"
     )
     mode.add_argument(
-        "--floor", action="store_true", help="print the exact map's transport term"
+        "--exact-map",
+        action="store_true",
+        help="print the exact map's transport term next to the trained loss",
     )
     args = parser.parse_args()
     if args.summary:
         summary(args.out or CSV)
         return
-    if args.floor:
-        floor(args.seeds)
+    if args.exact_map:
+        exact_map(args.seeds, args.out or CSV)
         return
     options = {name: getattr(args, name) for name in OPTIONS}
     changed = {
