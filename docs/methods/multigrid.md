@@ -11,7 +11,7 @@ from maesolvers.metrics import evaluate
 
 result = FDMultigrid(n=32).solve(T9)  # the preset
 same = Multigrid(scheme=StandardBox(n=32), ordering="lexicographic").solve(T9)
-print(evaluate(result)["max"], result.info["iterations"])  # 1.08e-4 after one FMG cycle
+print(evaluate(result)["max"], result.info["iterations"])  # 7.58e-5 after 3 cycles
 ```
 
 ## The scheme
@@ -54,7 +54,7 @@ A sweep visits the interior nodes in one of two orders, the parameter `ordering`
 ## The multigrid cycle
 
 The grids have `n`, `ceil(n/2)`, ... cells per side down to 2, the scheme rediscretised on each by `dataclasses.replace(scheme, n=...)` (the paper's coarse operator, "the discretized equations with a coarser step size").
-For `n` a power of 2 the grids are nested, as in the paper; the transfers are its own: the residual goes down by half-weighting (`half_weighting`: the node `1/2`, each axial neighbour `1/(4 d)`, which is the paper's `[1 6 1]/12` stencil in 3D), the approximation by injection, and the correction comes up by multilinear interpolation.
+For `n` a power of 2 the grids are nested, as in the paper, and the transfers are the paper's: the residual goes down by half-weighting (`half_weighting`: the node `1/2`, each axial neighbour `1/(4 d)`, which is the paper's `[1 6 1]/12` stencil in 3D), the approximation by injection, and the correction comes up by multilinear interpolation.
 Other `n` take the same operators through `resample`, the linear interpolation between two grids of the same box, which is injection onto a nested coarse grid and multilinear prolongation from one.
 
 One V-cycle on a grid (Algorithm 1) from `w` for `S(w) = b`, with `S` the scheme's operator `det D^2_h`:
@@ -65,12 +65,23 @@ One V-cycle on a grid (Algorithm 1) from `w` for `S(w) = b`, with `S` the scheme
 4. `w += P(u_H - w_H)`, the interpolated correction;
 5. `post_sweeps` sweeps (2).
 
-The FMG cycle (Algorithm 2) starts on the coarsest grid, `coarsest_sweeps` sweeps from 0 inside, and on each finer grid interpolates the coarser solution by a cubic spline (`cubic_resample`: the paper says "cubic interpolation" and no more; ours is the tensor-product not-a-knot spline, of degree 2 from the 3-node grid), puts the Dirichlet data on the ring, and runs one V-cycle.
+Algorithm 1, step (4), prints two restrictions of `w`: the half-weighted `u_H` as the start of the coarse cycle and the injected `w_H` for the FAS shift.
+Ours starts the coarse cycle from the injected `w_H` as well, because from the half-weighted start the discrete solution is not a fixed point of the cycle: one FMG cycle on T1 (lexicographic) then stops at an error of about `2.2e-4` at every `n` from 128 to 512, against `5.4e-6` to `3.4e-7` with ours (`benchmarks/multigrid.md`, Conventions; `multigrid_checks.csv`).
+
+The FMG cycle (Algorithm 2) starts on the coarsest grid, `coarsest_sweeps` sweeps from 0 inside, and on each finer grid interpolates the coarser solution by `Multigrid.interpolate_fmg`, puts the boundary data on the ring, and runs one V-cycle.
+The paper says "cubic interpolation" and no more; `interpolate_fmg` is `cubic_resample`, the tensor-product not-a-knot spline (of degree 2 from the 3-node grid), and a subclass may replace it.
+The choice matters on the smooth 3D examples: the 4-point cubic interpolation (weights `(-1, 9, 9, -1)/16` at a midpoint) lowers the error after one FMG cycle on T9 and T46 by up to a third (`benchmarks/multigrid.md`, Finding 1).
 `Multigrid.initial_guess` does all of this below the finest grid, so that step 1 is the finest grid's V-cycle and completes the FMG cycle, and every later step is one more V-cycle; `Result.info["iterations"]` therefore counts as the paper's "Iter" does, 1 for the FMG cycle alone.
 
-The stopping rule is the paper's: the discrete L2 norm of the residual `f - S(u)` at most `tol = 1e-6` times that of the reference, `Result.info["history"]` the ratio after each cycle.
-The paper does not say what the reference of the FMG-FAS method is; ours is the residual of the node values that are 0 inside, with the Dirichlet data on the ring, the iterate from which the coarsest grid starts.
-With it the iteration counts on T2 match Table 1, but the relative residuals after one cycle differ from the printed ones, mostly below them (`benchmarks/multigrid.md`, Finding 2).
+## Stopping rule
+
+`Multigrid` stops, and reports `converged`, when the RMS over the unknowns of the residual `S(u) - f` is at most `tol * max(1, max |f|)`, the bound `Newton` uses with the RMS for the max; it does not depend on the grid.
+`Result.info["history"]` and the callbacks report the paper's measure instead, the relative residual: that RMS over the RMS of the residual of a reference iterate.
+The paper stops when the relative residual is at most `1e-6` and does not say what the reference of the FMG-FAS method is; ours is the node values that are 0 inside, with the boundary data on the ring, the iterate from which the coarsest grid starts.
+With it the paper's iteration counts on T2 come out as in Table 1, but the reference's residual grows like `n^(2d)` at the nodes next to the ring, so on fine grids the relative residual meets `1e-6` after the FMG cycle whatever the error: on T22 at `n = 128` it does so while the residual is `10^3` to `10^5` near the corner (`benchmarks/multigrid.md`, Findings 2 and 4).
+So the paper's rule is not the stopping rule; the receipt runs it, to compare with the paper's "Iter", as a subclass whose `converged` returns `measure <= tol` (`PaperStop` in `benchmarks/run_multigrid.py`).
+With the default `tol = 1e-6` the smooth examples take 2 to 3 cycles, one FMG cycle and one or two V-cycles, where the paper's rule takes 1; the error changes in the third digit at most (`benchmarks/multigrid.md`, Iterations).
+`tol` has a floor: the residual of `det D^2_h u` carries the rounding of `u` divided by `h^2`, about `1e-10` on T1 at `n = 256`, so a `tol` far below `1e-6` is not met on fine grids, and the solve then runs `max_iter` cycles and reports `converged = False`.
 
 ## Source paper
 
@@ -90,23 +101,26 @@ The 2D Gauss-Seidel update is that of J.-D. Benamou, B. D. Froese, A. M. Oberman
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `scheme` | | a scheme on a box with a field `n`, unknowns at the interior nodes of `BoxGrid(problem.domain, n)` in flat order, and `residual` and `relax`, such as `StandardBox` |
+| `scheme` | | a scheme on a box with a field `n`, unknowns at the interior nodes of `BoxGrid(problem.domain, n)` in flat order, and `values`, `residual` and `relax` (`Multigrid.requires`), such as `StandardBox` |
 | `ordering` | `"lexicographic"` | the order of the Gauss-Seidel sweeps, `"lexicographic"` or `"red-black"` |
 | `pre_sweeps`, `post_sweeps` | 2, 2 | sweeps before and after the coarse-grid correction |
 | `coarsest_sweeps` | 1 | sweeps on the grid of 2 cells per side |
 | `max_iter` | 50 | most cycles, the FMG cycle included |
-| `tol` | `1e-6` | the relative residual at which it stops |
+| `tol` | `1e-6` | stop when the residual's RMS is at most `tol * max(1, max \|f\|)` |
 
-A scheme of your own runs under `Multigrid` if it has these: `residual(grid, v)` (the multigrid operator is `residual + rhs`) and `relax(grid, u, b, nodes)`, which returns the new values at the flat node indices `nodes` from the values `u` at every node and the right-hand side `b` at those nodes, each node from the values it is given.
+A scheme of your own runs under `Multigrid` if it has these: `values(grid, v)`, the values at every node of the box grid from the unknowns, the scheme's boundary data on the ring; `residual(grid, v)` (the multigrid operator is `residual + rhs`); and `relax(grid, u, b, nodes)`, which returns the new values at the flat node indices `nodes` from the values `u` at every node and the right-hand side `b` at those nodes, each node from the values it is given.
+The scheme decides the boundary treatment through `values`; the iteration takes only the layout of the nodes from `BoxGrid`.
+A frozen-dataclass subclass of `StandardBox` that overrides `relax` is the smallest such scheme (`tests/test_multigrid.py`; `benchmarks/run_multigrid.py`, `ClampedBox`).
 
 ## Known limits
 
-- A box with Dirichlet data in 2D or 3D only; `StandardBox` and `Multigrid` refuse other problems.
+- A box with Dirichlet data in 2D or 3D only; `StandardBox` refuses other problems.
+- `Multigrid` refuses a box with unequal sides, which `StandardBox` alone supports: the pointwise smoother and the isotropic transfers need the same spacing along every axis, and on `Box((0, 0, 0), (1, 2, 0.5))` a V-cycle cuts the residual by a factor of about 0.75, against 0.06 to 0.16 on a cube (in 2D, `Box((0, 0), (1, 2))` takes 6 to 7 cycles); line or semi-coarsening smoothers would lift this.
 - The smoother selects the convex root node by node, but the scheme is not monotone, and the paper's convergence argument covers fixed points only: on degenerate data (`f = 0` on a set, T20, T4, T5) the paper reports that the method may break down, and nothing proves the cycles converge on singular solutions; on the paper's T2, T3 and T28 they do, on T22 up to `n = 64`.
-- On the paper's 3D smooth examples one FMG cycle stops with a larger error than the paper prints, by up to a factor 2 (T9) or 1.6 (T46), though the paper's own Gauss-Seidel column, and ours, show the same discrete solution (`benchmarks/multigrid.md`, Finding 1).
-- On T22 at `n = 128` the V-cycles do not settle on a discrete solution: the iterates repeat with a period of 15 (red-black) or 20 (lexicographic) cycles, with a residual of up to `1e5` at the nodes next to the singular corner (`benchmarks/multigrid.md`, Finding 4); the FMG cycle and the paper's stopping rule still stop within 25 percent of the paper's error.
+- On the paper's 3D smooth examples one FMG cycle stops with a larger error than the paper prints, by up to a factor 2 (T9) or 1.6 (T46), though the paper's own Gauss-Seidel column, and ours, show the same discrete solution; the unspecified FMG interpolation accounts for about half of the gap (`benchmarks/multigrid.md`, Finding 1).
+- On T22 at `n = 128` the V-cycles do not settle on a discrete solution: the iterates repeat with a period of 15 (red-black) or 20 (lexicographic) cycles, with a residual of up to `1e5` at the nodes next to the singular corner, so the solve runs `max_iter` cycles and reports `converged = False` (`benchmarks/multigrid.md`, Finding 4); the paper's stopping rule stops after the FMG cycle, within 25 percent of the paper's error.
 - The lexicographic sweep takes `3 n` (2D) or `6 n` (3D) vectorised steps, so on small grids its fixed cost per step dominates and it is slower than red-black; on large ones both are linear in the unknowns.
-- The paper sees rounding (a division by `h^6`) cost the second order on T9 at `n = 128` (its Section 4.2); in float64 ours keeps it there (the discrete solution's error falls by a factor 4.0 from `n = 64`), but the residual of `det D^2_h` carries that rounding, so a tolerance far below the paper's `1e-6` may not be reached on finer 3D grids.
+- The paper sees rounding (a division by `h^6`) cost the second order on T9 at `n = 128` (its Section 4.2); in float64 ours keeps it there (the discrete solution's error falls by a factor 4.0 from `n = 64`), but the residual of `det D^2_h` carries that rounding, so a `tol` far below `1e-6` is not met on fine grids (see the stopping rule).
 
 ## Reproduction
 

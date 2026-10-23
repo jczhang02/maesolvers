@@ -23,10 +23,10 @@ The levels follow ADR 0002; the convergence order of a column is the least-squar
 |---|---|---|---|
 | 1 (red-black) | T1, T3, T2 | order of magnitude (ratios 0.94 to 1.08, orders equal to 0.02; "Iter" equal in all 21 cells) | |
 | 2 (lexicographic) | T1, T3, T2 | order of magnitude (ratios 0.92 to 1.05, orders equal to 0.01; "Iter" equal in 19 of 21 cells) | |
-| 3 | T9 | order of magnitude (ratios 1.14 to 1.99; Finding 1) | exact; same sweeps |
-| 5 | T46 | order of magnitude (ratios 1.09 to 1.60; Finding 1) | exact; same sweeps |
+| 3 | T9 | order of magnitude (ratios 1.14 to 1.99, 0.75 to 1.38 with the 4-point FMG interpolation; Finding 1) | exact; same sweeps |
+| 5 | T46 | order of magnitude (ratios 1.09 to 1.60, 0.95 to 1.24 with the 4-point FMG interpolation; Finding 1) | exact; same sweeps |
 | 6 | T28 | order of magnitude (ratios 0.80 to 0.84) | exact; same sweeps at `N = 8`, 16, one fewer at 32 |
-| 7 | T22 | mismatch at `N = 32` (ratio 0.25; Finding 4), order of magnitude at every other `N` | exact; same sweeps at `N = 8`, 16, three fewer at 32 |
+| 7 | T22 | mismatch (Finding 4: ratio 0.25 at `N = 32`; 0.97 to 1.24 at the other four `N`) | exact; same sweeps at `N = 8`, 16, three fewer at 32 |
 
 `tests/test_reproduction.py` pins the Gauss-Seidel errors to the printed digits and the sweep counts at `N = 8` on the four 3D problems and at `N = 16` on T9.
 
@@ -77,7 +77,7 @@ After one cycle ours is 6 percent above the discrete solution's error with red-b
 | 128 | 6.2e-06 | 7.065e-06 | **7.1e-06** | 1.14 | 5.905e-06 | 4.730e-06 | 1, 1 |
 
 Orders: published 1.95, ours 1.94.
-Level: order of magnitude, with the ratio at `N = 64` at the edge of `[1/2, 2]` (Finding 1).
+Level: order of magnitude, with the ratio at `N = 64` at the edge of `[1/2, 2]`; the ratio of 1.99 depends on the FMG interpolation, which the paper does not specify, and is 1.35 with the 4-point cubic one (Finding 1).
 The paper's order drops to 1.2 from `N = 64` to 128, which it puts down to rounding (the operator divides by `h^6`); the discrete solution's error falls by a factor 4.0 there (1.891e-5 to 4.730e-6), so in our float64 runs the second order holds at 128.
 The Gauss-Seidel column:
 
@@ -143,7 +143,7 @@ Level: exact.
 | 128 | 1.6e-03 | 1.987e-03 | **2.0e-03** | 1.24 | 4.059e-03 | (6.372e-04) |
 
 Orders: published -0.10, ours -0.18; one cycle at every `N` in both.
-Level: mismatch at `N = 32` (Finding 4); at the other four `N` the ratio lies in `[0.97, 1.24]`.
+Level: mismatch (Finding 4), since the ratio at `N = 32` is 0.25; at the other four `N` it lies in `[0.97, 1.24]`.
 
 | N | Gauss-Seidel published | Ours | Sweeps (pub., ours) |
 |---|---|---|---|
@@ -160,9 +160,23 @@ On T9 and T46 the published FMG errors lie below the error of the discrete solut
 The discrete solution is the one the paper solves: its own Gauss-Seidel column, which stops near it, agrees with ours to the printed digits and to the sweep at every `N`, a sweep-by-sweep test of the scheme, the root selection and the lexicographic order.
 So the published FMG iterate carries an algebraic error that cancels part of the discretisation error, while ours, after the same one cycle with the lexicographic order, lies 30 to 49 percent (T9) and 8 to 22 percent (T46) above the discrete solution's error.
 Our red-black cycle shows that the sign of the algebraic error depends on the details: on T46 it lands 3 to 11 percent below the discrete solution's error, on T9 21 to 27 percent above.
-What differs is not in the paper: the "cubic interpolation" of the FMG step (ours: the not-a-knot cubic spline, `docs/methods/multigrid.md`), the order of the loops within a lexicographic sweep (on these problems, symmetric in the axes, a permutation of the axes cannot matter), or the residual the paper measures.
+The paper leaves one choice open that moves this: the "cubic interpolation" of the FMG step.
+Ours is the tensor-product not-a-knot spline (`cubic_resample`); the 4-point cubic interpolation, which takes `(-1, 9, 9, -1)/16` at an inner midpoint (Keys' cubic convolution with `a = -1/2`, the "cubic" of MATLAB's `interp2` and `interp3` on a uniform grid, so a natural reading of a MATLAB paper) and the cubic through the 4 nodes next to an end at the midpoint there, `(5, 15, -5, 1)/16` (MATLAB's end rule may differ; we did not check it), gives after the same one cycle (`multigrid_checks.csv`, variant `keys`, `KeysFMG` in `run_multigrid.py`):
+
+| N | T9 published | T9 spline (ours) | T9 4-point | T9 converged | T46 published | T46 spline (ours) | T46 4-point | T46 converged |
+|---|---|---|---|---|---|---|---|---|
+| 8 | 1.2e-03 | 1.507e-03 | 1.351e-03 | 1.157e-03 | 1.7e-02 | 1.854e-02 | 1.614e-02 | 1.712e-02 |
+| 16 | 2.7e-04 | 4.107e-04 | 3.295e-04 | 2.977e-04 | 3.3e-03 | 4.999e-03 | 4.045e-03 | 4.304e-03 |
+| 32 | 5.7e-05 | 1.083e-04 | 7.856e-05 | 7.551e-05 | 8.1e-04 | 1.296e-03 | 1.005e-03 | 1.078e-03 |
+| 64 | 1.4e-05 | 2.786e-05 | 1.894e-05 | 1.891e-05 | 2.1e-04 | 3.276e-04 | 2.501e-04 | 2.695e-04 |
+| 128 | 6.2e-06 | 7.065e-06 | 4.622e-06 | 4.730e-06 | 5.2e-05 | 8.218e-05 | 6.250e-05 | 6.738e-05 |
+
+The ratios to the published values drop from 1.26, 1.52, 1.90, 1.99 and 1.14 to 1.13, 1.22, 1.38, 1.35 and 0.75 on T9, and from 1.09, 1.51, 1.60, 1.56 and 1.58 to 0.95, 1.23, 1.24, 1.19 and 1.20 on T46.
+From `N = 16` to 64 the 4-point interpolation closes 56 to 66 percent of the gap between ours and the published value, so the interpolation explains about half of it, and it decides whether Table 3 sits at the edge of the order-of-magnitude level (ratio 1.99 at `N = 64`) or well inside it (1.35).
+On T28, T1 and T3 it changes the error by less than 2 percent (T28 +0.1 to +0.3, T1 -1.5 to -1.9, T3 -0.3 percent).
+The rest of the gap stays open: with the 4-point interpolation one cycle on T9 still lies above the discrete solution's error up to `N = 64` (1.894e-5 against 1.891e-5 there), where the published value lies 26 percent below it, and on T46 it lies 6 to 7 percent below it, against the published 22 to 25 percent; nothing else the paper states (the 3D sweep is lexicographic, Section 2) differs from ours.
 On T28 the published errors lie 31 to 46 percent above the discrete solution's and ours 9 to 21 percent above it; in 2D, where the same paper's FMG errors also lie above the discrete solution's (T1: 4.5e-6 against 4.20e-6 at `N = 128`), ours agree with the published ones to within 8 percent.
-The levels stand, but on T9 at `N = 64` only just (ratio 1.99).
+The receipts use the spline; whether `cubic_resample` should become the 4-point interpolation, which would move the Table 3 and 5 columns to the values above, is open (PR #68).
 
 ## Finding 2: the reference of the relative residual
 
@@ -182,7 +196,8 @@ The alternative of clamping `b` at 0 (the positive semidefinite limit) stalls th
 ## Finding 4: T22 at `N = 32`, and the cycles next to the corner
 
 The published FMG error on T22 jumps from 1.4e-3 at `N = 16` to 4.3e-3 at 32 and falls again (2.2e-3, 1.6e-3); the paper's own Gauss-Seidel column, and ours, give 1.1e-3 at 32, and our FMG cycle gives 1.09e-3, within 1.4 percent of the discrete solution's error, so the published value is 4 times all three.
-So `N = 32` is a mismatch; the paper prints nothing that would explain it.
+The published value is not a lone misprint of the error cell: the paper's Order column prints -1.7 at `N = 32` (and 1.0 at 64), which is what 4.3e-3 gives against its neighbours (`log2(1.4e-3 / 4.3e-3) = -1.6` from the rounded values).
+So Table 7 is a mismatch; the paper prints nothing that would explain it.
 
 At `N = 64` and 128 our FMG cycle stops above the discrete solution's error too (2.36e-3 against 8.37e-4 at 64), with a residual of order `10^3` to `10^4` at the nodes next to the corner `(1, 1, 1)`, where `f` grows like `h^-5`, and a few nodes with an indefinite discrete Hessian there (non-convex fraction 7.2e-5 at 64, 1.1e-5 at 128); the relative residual meets `1e-6` because its reference is dominated by the ring.
 `multigrid_checks.csv` runs more cycles: at `N = 64` they converge (the error 8.3671e-4 from cycle 10 on, the residual's max 1e-9 from cycle 20), at `N = 128` they do not.
@@ -196,6 +211,11 @@ T2, the 2D version, converges (10 cycles bring the relative residual to `1e-11`)
 
 - Grid: `N` cells per side, `h = 1/N` (`pi / N` on T46); the paper defines its grid this way (Section 2), so ADR 0001 is the paper's own statement here.
 - The paper does not say which cubic interpolation the FMG step uses, nor what `r_0` is (Findings 1, 2).
+- Algorithm 1, step (4), prints two restrictions of the fine iterate: `u_H := I_h^H w_h`, half-weighting, as the start of the coarse cycle, and `w_H := I~_h^H w_h`, injection, for the FAS right-hand side `S_H(w_H) + r_H` and the correction `u_H - w_H`.
+  Ours starts the coarse cycle from the injected `w_H` too.
+  From the half-weighted start the discrete solution is not a fixed point of the cycle: on T1 (lexicographic) one FMG cycle stops at an error of 2.23e-4, 2.20e-4 and 2.19e-4 at `N = 128`, 256 and 512, against 5.36e-6, 1.34e-6 and 3.36e-7 from the injected start, and on T9 at 7.4e-4 at `N = 64` against 2.79e-5 (`multigrid_checks.csv`, variant `half-weighted-start`).
+- Table 3 prints a DOFs column, 216 to 2,000,376, which is `(N - 2)^3`; the grid of Section 2 (`x_i = i h`, `h = 1/N`, the Dirichlet data at `i = 0` and `N`) has `(N - 1)^3` unknowns, and Table 4's DOFs column is `(N - 1)^3`.
+  The Gauss-Seidel columns settle it: on `h = 1/N` with `(N - 1)^3` unknowns ours match them to the printed digits and to the sweep, so we read Table 3's DOFs as a misprint.
 - The red-black order updates each colour at once; with the diagonal neighbours of a 9- or 19-point stencil in the same colour this is a Jacobi step within the colour, as in the paper's vectorised MATLAB (Section 4.1).
 - In 3D the paper sweeps lexicographically only; our red-black columns are ours.
 
@@ -211,17 +231,18 @@ The times are recorded, not compared (ADR 0002).
 
 Table 4 reprints, for Example 4.4 (T9), the "Wide-stencil FD" errors of Froese-Oberman (J. Comput. Phys. 2011, its Table 4, the 3D hybrid scheme) and the quadratic and cubic interior-penalty elements of Brenner-Neilan (2012); it is not a target of this method.
 Its DOFs (343 to 29791) are `(N - 1)^3`, so on its grids `N` counts cells, `h = 1/N`: the Froese-Oberman grids of `N = 7` to 31 read as `N - 1 = 7` to 31 interior nodes per side, a third reading of their `N` besides the two of `monotone19.md` (Finding 1 there).
-`multigrid_table4.csv` (`run_multigrid.py --table4` at commit 2b0f5ad, MLflow `maesolvers-multigrid-T9`, runs `table4-n<N>`) solves T9 on these grids with the 19-point monotone scheme of #27, `FDMonotone(n=N, stencil=19)`, and with `FDMultigrid(n=N)`:
+This reading is tentative: the DOF columns of this paper are not consistent with each other, since Table 3's are `(N - 2)^3` (Conventions), so they are weak evidence of how Liu et al. read Froese-Oberman's `N`.
+`multigrid_table4.csv` (`run_multigrid.py --table4 --workers 3` at commit 3d31695, clean checkout, MLflow `maesolvers-multigrid-T9`, runs `table4-n<N>`) solves T9 on these grids with the 19-point monotone scheme of #27, `FDMonotone(n=N, stencil=19)`, and with `FDMultigrid(n=N)` and its stopping rule (3 or 4 cycles):
 
 | N | DOFs | Wide-stencil FD (reprinted) | `FDMonotone(stencil=19)` | Ratio | `FDMultigrid` |
 |---|---|---|---|---|---|
-| 8 | 343 | 1.51e-02 | 1.466e-02 | 0.97 | 1.507e-03 |
-| 12 | 1331 | 1.40e-02 | 1.325e-02 | 0.95 | 7.155e-04 |
-| 16 | 3375 | 1.29e-02 | 1.283e-02 | 0.99 | 4.107e-04 |
-| 22 | 9261 | 1.21e-02 | 1.263e-02 | 1.04 | 2.150e-04 |
-| 32 | 29791 | 1.11e-02 | 1.246e-02 | 1.12 | 1.083e-04 |
+| 8 | 343 | 1.51e-02 | 1.466e-02 | 0.97 | 1.158e-03 |
+| 12 | 1331 | 1.40e-02 | 1.325e-02 | 0.95 | 5.243e-04 |
+| 16 | 3375 | 1.29e-02 | 1.283e-02 | 0.99 | 2.986e-04 |
+| 22 | 9261 | 1.21e-02 | 1.263e-02 | 1.04 | 1.597e-04 |
+| 32 | 29791 | 1.11e-02 | 1.246e-02 | 1.12 | 7.582e-05 |
 
-The monotone scheme lies within 12 percent of the reprinted hybrid values, which is all a cross-check can ask of two different schemes, and stalls near `1.25e-2`, the limit its angular resolution sets (`monotone19.md`); the standard scheme under multigrid is 10 to 115 times more accurate on this smooth solution, as the paper argues.
+The monotone scheme lies within 12 percent of the reprinted hybrid values, which is all a cross-check can ask of two different schemes, and stalls near `1.25e-2`, the limit its angular resolution sets (`monotone19.md`); the standard scheme under multigrid is 13 to 164 times more accurate on this smooth solution, as the paper argues.
 The interior-penalty columns wait for the 0.3 finite elements.
 
 ## Not compared
