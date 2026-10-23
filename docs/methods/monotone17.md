@@ -31,7 +31,7 @@ MA_M[u](x)   = min over pairs (nu, nu') of (D_nu nu u)^+ (D_nu' nu' u)^+ = f(x).
 ```
 
 A stencil of width `w` holds every grid direction `(a, b)` with coprime components and `max(|a|, |b|) <= w`; each direction is paired with its perpendicular `(-b, a)`.
-Widths 1, 2 and 3 are the 9-, 17- and 33-point stencils, with 2, 4 and 8 orthogonal pairs (`stencil_pairs`); the pairs are orthogonal in space only on square cells, hence the equal sides.
+Widths 1, 2 and 3 are the 9-, 17- and 33-point stencils, with 2, 4 and 8 orthogonal pairs (`stencil_frames`, which calls a pair a frame); the pairs are orthogonal in space only on square cells, hence the equal sides.
 
 Each term is nondecreasing in the differences `u_j - u_i`, so the scheme is monotone (degenerate elliptic), and Barles-Souganidis theory gives convergence to the viscosity solution as `h` and the angular resolution `dtheta` of the stencil go to zero.
 The consistency error is `O(h^2 + dtheta)`: for a fixed stencil the error stops decreasing once the angular error dominates, which is what the tables show for the 9-point stencil on T1.
