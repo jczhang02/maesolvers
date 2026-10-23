@@ -195,11 +195,11 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
 |---|---|---|---|---|---|---|---|
-| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 7.06e-3 [4.57e-3, 1.66e-2], 10/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 |
+| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 7.06e-3 [4.57e-3, 1.66e-2], 9/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 |
 | T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 |
 | T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
 | T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
-| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
 | T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
 | T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
 
@@ -211,7 +211,7 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 7.39% | 0 |
 | T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 |
 | T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
-| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
 | T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
 | T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
 
@@ -219,18 +219,19 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
 |---|---|---|---|---|---|---|---|
-| T1 | 7.29 | 2.55 | 52.8 | 63.9 | 30.5 \* | 373 | 910 |
-| T2 | 36.4 | 5.08 | 132 | 132 | 39.7 \* | 384 | 503 |
-| T20 | 64.2 | 33.3 | 116 | 219 | 129 \* | 379 | 912 |
-| T8 | 2.49 | 3.51 | not on a Disk | not on a Disk | not on a Disk | 364 | 744 |
-| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1295 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 148 |
+| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 418 | 991 |
+| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 419 | 550 |
+| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 416 | 1009 |
+| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | 416 | 797 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1450 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 155 |
 
-A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers (`h = 1/n`, ADR 0001), at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
-A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's largest absolute value there; the non-convex fraction and the time are medians, and a failed seed counts as an infinite error (ADR 0007).
-Every run used one CPU thread on a100server; the neural presets train on the CPU, their default.
-A cell with a reason marks a preset that does not support the problem: `unsupported until 0.2` for the transport boundary condition of T12, `2D only` for a 2D method on T9 (3D) and T10 (4D), `not on a Disk` for a box-only scheme.
+A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
+A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
+The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
+Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
+A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10.
 <!-- comparison table end -->
 
 ## Reproduction
