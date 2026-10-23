@@ -27,6 +27,22 @@ interpolates them, so these are the node differences to rounding. For T16,
 one-sided differences there. With --problems only those problems run, and
 their rows replace the same problems' rows of the CSV given by --out.
 
+With --checks it writes bfo2014_checks.csv (or --out) instead,
+the evidence for Findings 2 and 3 of bfo2014.md, at N = 32, 64 and 128 with
+N_Y = 512: the preset on the ellipse and T12 (``preset``); filter widths 3
+and 1e6, the latter the standard 9-point scheme alone, on the ellipse
+(``width``); the paper's full Newton step (``undamped``, run_filtered's
+UndampedNewton, 300 steps) on the filtered scheme from the Poisson start
+and from the monotone root, on T12 and the ellipse; and ``u(x_0)`` added to
+``f`` inside the ellipse only (``anchor_inside``, filter width 1e6). Besides
+the errors and the iteration counts, each row holds statistics of the last
+iterate on the whole square: the smallest eigenvalue of the centred Hessian
+at the interior nodes outside the domain and the share of those nodes where
+it is negative, the same share inside, the gauge of the domain at the node
+of the largest residual and the filter's argument there, and how far the
+one-sided gradient on the square's boundary ring lies off the target's
+boundary.
+
 Every solve is one MLflow run in maesolvers-bfo2014-<problem> (T16, T12,
 ellipse, halfdisks) unless --no-mlflow is given; the solves run in
 --processes worker processes, one thread each. Run it on a100server from the
@@ -34,20 +50,27 @@ repository root::
 
     just remote-bg bfo2014 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
         MKL_NUM_THREADS=1 python benchmarks/run_bfo2014.py --processes 16
+    just remote-bg bfo2014-checks env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
+        MKL_NUM_THREADS=1 python benchmarks/run_bfo2014.py --checks \\
+        --out /jczhang02/maesolvers-data/data/bfo2014_checks.csv
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import time
 import warnings
+from contextlib import nullcontext
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import scipy.sparse as sp
+from run_filtered import UndampedNewton
 
 from maesolvers import (
     T12,
@@ -58,10 +81,14 @@ from maesolvers import (
     FDTransport,
     Newton,
     Problem,
+    SecondBoundary,
     Solver,
     Transport,
     tracking,
 )
+from maesolvers.classical.schemes import monge_ampere
+from maesolvers.classical.second_boundary import SecondBoundaryGrid
+from maesolvers.core.domains import Domain
 from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
 
 HERE = Path(__file__).parent
@@ -351,6 +378,181 @@ def run(task: tuple[str, str, int, int | None, bool]) -> dict[str, Any]:
     }
 
 
+CHECK_GRIDS = (32, 64, 128)
+"""N_X of the checks."""
+UNDAMPED_STEPS = 300
+"""Full Newton steps of the ``undamped`` check."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AnchorInside(SecondBoundary):
+    """SecondBoundary with ``u(x_0)`` added to ``f`` inside the source domain only.
+
+    SecondBoundary, as the paper, adds it at every interior node of the
+    square; this variant leaves the equation ``MA[u] = 0`` at the nodes
+    outside the closed domain.
+    """
+
+    def residual(self, grid: SecondBoundaryGrid, v: np.ndarray) -> np.ndarray:
+        """SecondBoundary's residual without ``- u(x_0)`` outside the domain."""
+        out = super().residual(grid, v)
+        out[_outside(grid)] += v[grid.anchor]
+        return out
+
+    def jacobian(self, grid: SecondBoundaryGrid, v: np.ndarray) -> sp.csc_matrix:
+        """SecondBoundary's Jacobian without the ``-1`` of ``x_0`` outside."""
+        rows = np.flatnonzero(_outside(grid))
+        undo = sp.csc_matrix(
+            (np.ones(len(rows)), (rows, np.full(len(rows), grid.anchor))),
+            shape=(len(v), len(v)),
+        )
+        return sp.csc_matrix(super().jacobian(grid, v) + undo)
+
+
+def _outside(grid: SecondBoundaryGrid) -> np.ndarray:
+    """The interior nodes of the square outside the closed source domain."""
+    return grid.interior & ~grid.inside
+
+
+def gauge(domain: Domain, x: np.ndarray) -> np.ndarray:
+    """``|A^-1 (x - c)|`` for an ellipse ``c + A B_1``: 1 on its boundary."""
+    if isinstance(domain, MatrixEllipse):
+        return np.linalg.norm(x @ np.linalg.inv(np.asarray(domain.matrix)).T, axis=-1)
+    if isinstance(domain, Disk):
+        return np.linalg.norm(x - np.asarray(domain.center), axis=-1) / domain.radius
+    assert isinstance(domain, Ellipse)
+    offset = (x - np.asarray(domain.center)) / np.asarray(domain.semi_axes)
+    return np.linalg.norm(offset, axis=-1)
+
+
+def check_solver(check: str, name: str, N: int, variant: Any) -> Newton:
+    """The solver of one row of bfo2014_checks.csv, ``n = N`` cells."""
+    box = SQUARES[name]
+    if check == "preset":
+        return FDTransport(n=N, box=box)
+    if check == "width":
+        return FDTransport(n=N, epsilon=variant, box=box)
+    if check == "undamped":
+        start = (
+            Newton(
+                scheme=SecondBoundary(n=N, interior="monotone", box=box), max_iter=200
+            )
+            if variant == "monotone"
+            else None
+        )
+        scheme = SecondBoundary(n=N, box=box)
+        return UndampedNewton(scheme=scheme, start=start, max_iter=UNDAMPED_STEPS)
+    assert check == "anchor_inside"
+    monotone = AnchorInside(n=N, interior="monotone", box=box)
+    scheme = AnchorInside(n=N, epsilon=variant, box=box)
+    return Newton(
+        scheme=scheme, start=Newton(scheme=monotone, max_iter=200), max_iter=200
+    )
+
+
+def iterate_statistics(
+    problem: Problem, scheme: SecondBoundary, v: np.ndarray
+) -> dict[str, float]:
+    """Statistics of the unknowns ``v`` on the whole square, for the findings."""
+    assert isinstance(problem.boundary, Transport)
+    grid = scheme.discretize(problem)
+    box_grid, interior = grid.box_grid, grid.interior
+    uxx, uyy, uxy = grid.dxx @ v, grid.dyy @ v, grid.dxy @ v
+    smallest = 0.5 * (uxx + uyy) - np.hypot(0.5 * (uxx - uyy), uxy)
+    outside = ~grid.inside[interior]
+    residual = np.abs(scheme.residual(grid, v))
+    worst = int(np.argmax(residual))
+    argument = float("nan")  # on the ring, or no filter
+    if interior[worst] and grid.width is not None:
+        at = int(np.sum(interior[:worst]))  # its row among the interior nodes
+        monotone = scheme.interior_operator(dataclasses.replace(grid, width=None), v)
+        accurate = monge_ampere(uxx, uyy, uxy)
+        argument = float((accurate[at] - monotone[at]) / grid.width)
+    n = box_grid.n
+    h = box_grid.h[0]
+    values = v.reshape(n + 1, n + 1)
+    gradient = np.stack(np.gradient(values, h, edge_order=1), axis=-1).reshape(-1, 2)
+    ring = gauge(problem.boundary.target, gradient[~interior])
+    return {
+        "min_eigenvalue_outside": float(np.min(smallest[outside])),
+        "nonconvex_outside": float(np.mean(smallest[outside] < 0.0)),
+        "nonconvex_inside": float(np.mean(smallest[~outside] < 0.0)),
+        "worst_residual_gauge": float(gauge(problem.domain, box_grid.nodes[worst])),
+        "worst_residual_on_ring": float(not interior[worst]),
+        "worst_filter_argument": argument,
+        "ring_offset": float(np.max(np.abs(ring - 1.0))),
+    }
+
+
+def check_measures(name: str, solver: Newton, result: Any) -> dict[str, float]:
+    """The errors, the iteration counts and :func:`iterate_statistics` of a solve."""
+    info = result.info
+    points = result.nodes[result.interior]
+    error = np.linalg.norm(
+        gradient_fd(result.u, points, step=info["h"][0]) - exact_gradient(name, points),
+        axis=-1,
+    )
+    scheme = solver.scheme
+    assert isinstance(scheme, SecondBoundary)
+    problem = PROBLEMS[name]
+    v = result.u(scheme.discretize(problem).box_grid.nodes)  # the spline interpolates
+    nan = float("nan")
+    return {
+        "gradient_max": float(np.max(error)),
+        "gradient_median": float(np.median(error)),
+        "iterations": info["iterations"],
+        "start_iterations": info.get("start_iterations", nan),
+        "start_converged": float(info.get("start_converged", nan)),
+        "converged": float(info["converged"]),
+        "residual_max": info["residual_max"],
+        "residual_min": float(np.min(info["history"], initial=info["residual_max"])),
+        "u_anchor": info["u_anchor"],
+        "monotone_fraction": info.get("monotone_fraction", nan),
+        **iterate_statistics(problem, scheme, v),
+        "time": info["time"],
+    }
+
+
+def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
+    """One row of bfo2014_checks.csv.
+
+    ``task`` is (check, problem, N, variant, log): the variant is the filter
+    width for "width" and "anchor_inside", the start ("poisson" or
+    "monotone") for "undamped", unused for "preset". Booleans are written
+    as 0 or 1, and a value that does not apply as an empty cell.
+    """
+    check, name, N, variant, log = task
+    solver = check_solver(check, name, N, variant)
+    warnings.filterwarnings("ignore", "FDTransport does not check the mass balance")
+    run_name = f"check={check} N={N} variant={variant}"
+    experiment = f"maesolvers-bfo2014-{name}"
+    with tracking.run(experiment, run_name=run_name) if log else nullcontext():
+        callbacks = [tracking.MLflowLogger()] if log else []
+        result = solver.solve(PROBLEMS[name], callbacks=callbacks)
+        measured = check_measures(name, solver, result)
+        if log:
+            import mlflow
+
+            mlflow.log_metrics({k: v for k, v in measured.items() if np.isfinite(v)})
+    print(f"{name} {run_name}: max {measured['gradient_max']:.4f}", flush=True)
+    cells = {k: "" if np.isnan(v) else v for k, v in measured.items()}
+    return {"check": check, "problem": name, "N": N, "variant": variant, **cells}
+
+
+CHECK_TASKS: list[tuple[str, str, int, Any]] = [
+    *(("preset", name, N, "") for name in ("ellipse", "T12") for N in CHECK_GRIDS),
+    *(("width", "ellipse", N, eps) for N in CHECK_GRIDS for eps in (3.0, 1e6)),
+    *(
+        ("undamped", name, N, start)
+        for name in ("ellipse", "T12")
+        for N in CHECK_GRIDS
+        for start in ("poisson", "monotone")
+    ),
+    *(("anchor_inside", "ellipse", N, 1e6) for N in CHECK_GRIDS),
+]
+"""(check, problem, N, variant) of every row of bfo2014_checks.csv."""
+
+
 def main() -> None:
     """Parse the command line, run the solves, write the CSV."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -360,8 +562,25 @@ def main() -> None:
     parser.add_argument(
         "--problems", nargs="+", choices=list(PROBLEMS), default=list(PROBLEMS)
     )
-    parser.add_argument("--out", type=Path, default=HERE / "bfo2014.csv")
+    parser.add_argument(
+        "--checks", action="store_true", help="write bfo2014_checks.csv only"
+    )
+    parser.add_argument(
+        "--out", type=Path, help="the CSV (bfo2014.csv or bfo2014_checks.csv here)"
+    )
     args = parser.parse_args()
+    if args.checks:
+        todo_checks = [(*task, not args.no_mlflow) for task in CHECK_TASKS]
+        with Pool(args.processes) as pool:
+            found = pool.map(checks, todo_checks, 1)
+        out = args.out or HERE / "bfo2014_checks.csv"
+        with out.open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(found[0]), lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(found)
+        print(f"wrote {len(found)} rows to {out}")
+        return
+    args.out = args.out or HERE / "bfo2014.csv"
     if tuple(args.grids) != GRIDS and args.out == HERE / "bfo2014.csv":
         parser.error("--grids differs from the tables': give --out")
     todo = [
