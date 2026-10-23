@@ -163,7 +163,7 @@ def _jacobian(grid: MonotoneGrid, weights: np.ndarray) -> sp.csc_matrix:
     """``sum over pairs p and directions k of diag(weights[p, k]) D_pk``."""
     weights = weights.ravel()
     m = grid.f.size
-    rows = np.tile(np.arange(m), 2 * grid.pairs)
+    rows = np.tile(np.arange(m), 2 * grid.frames)
     collapse = sp.csr_matrix(
         (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
     )
@@ -188,7 +188,7 @@ class BareMonotone17(Monotone17):
     def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
         """The papers' floored Danskin Jacobian."""
         d = self.directional_differences(grid, v)
-        chosen = np.arange(grid.pairs)[:, None] == self._bare(grid, v).argmin(axis=0)
+        chosen = np.arange(grid.frames)[:, None] == self._bare(grid, v).argmin(axis=0)
         weights = np.maximum(d[:, ::-1], grid.floor) * chosen[:, None, :]
         return _jacobian(grid, weights)
 
@@ -223,7 +223,7 @@ class SmoothMonotone17(Monotone17):
     """The regularised scheme (MA)^delta of SINUM Section 3.5.
 
     Each positive part is max^delta(D u, 0) and the minimum over the pairs a
-    succession of min^delta, in the order of stencil_pairs, over the pairs
+    succession of min^delta, in the order of stencil_frames, over the pairs
     available at the node. Smooth, so its Jacobian is the exact one.
     """
 
@@ -247,8 +247,8 @@ class SmoothMonotone17(Monotone17):
         local = dplus * plus[:, ::-1]
         # value, and its derivative in each pair's product, built pair by pair
         value = np.full(grid.f.size, np.nan)
-        dvalue = np.zeros((grid.pairs, grid.f.size))
-        for p in range(grid.pairs):
+        dvalue = np.zeros((grid.frames, grid.f.size))
+        for p in range(grid.frames):
             use = grid.available[p]
             first = use & np.isnan(value)
             value[first] = products[p, first]

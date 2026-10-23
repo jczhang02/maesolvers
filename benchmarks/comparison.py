@@ -144,8 +144,10 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     """Why ``solver`` does not support ``problem``, in a few words for a table cell.
 
     The first of the boundary condition, the dimension and the domain that
-    the solver does not declare; ``unsupported`` if it declares all three and
-    rejects the problem for another reason (unequal sides of a box, say).
+    the solver does not declare; then the dimension of its scheme's stencil,
+    when the scheme has one (``FDMonotone``'s default 17-point stencil is 2D,
+    its 19-point stencil 3D); ``unsupported`` if none of these is the reason
+    (unequal sides of a box, say).
     """
     if not isinstance(problem.boundary, solver.boundaries):
         return "/".join(kind.__name__ for kind in solver.boundaries) + " only"
@@ -153,6 +155,9 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
         return "/".join(f"{d}D" for d in solver.dims) + " only"
     if not isinstance(problem.domain, solver.domains):
         return f"not on a {type(problem.domain).__name__}"
+    stencil_dim = getattr(getattr(solver, "scheme", None), "dim", problem.dim)
+    if stencil_dim != problem.dim:
+        return f"{stencil_dim}D stencil"
     return "unsupported"
 
 

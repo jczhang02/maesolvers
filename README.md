@@ -200,8 +200,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
 | T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
+| T9 | 2D only | 2D only | 2D stencil | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
 
 **Non-convex fraction**
 
@@ -212,8 +212,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 |
 | T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+| T9 | 2D only | 2D only | 2D stencil | 2D only | 2D only | 2D only | 0 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 0 |
 
 **Time in seconds**
 
@@ -224,14 +224,14 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 416 | 1009 |
 | T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | 416 | 797 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1450 |
-| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 155 |
+| T9 | 2D only | 2D only | 2D stencil | 2D only | 2D only | 2D only | 1450 |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 155 |
 
 A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
-A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10.
+A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; `2D stencil` on T9; `2D/3D only` on T10.
 The roadmap's 0.2 gives the finite-difference presets transport boundary conditions (T12) and n-dimensional boxes (T9 and T10).
 <!-- comparison table end -->
 

@@ -12,8 +12,10 @@ matrices of ``difference_operators`` and ``directional_difference``.
 ``compare A.npz B.npz`` prints how many arrays differ, by shape, dtype or
 ``numpy.array_equal`` (NaN equal to NaN), and exits 1 if any does.
 
-The script imports only names that maesolvers has had since 0.1, so one copy
-snapshots any checkout from 4fdd5da on. On a100server, from the repository
+The script imports only names that maesolvers has had since 0.1, and calls
+``directional_difference`` in its 0.1 signature ``(x, y, direction, g)`` or
+its later one ``(grid, direction, g)``, so one copy snapshots any checkout
+from 4fdd5da on. On a100server, from the repository
 root of the branch under test (nd_grids.md)::
 
     git worktree add --detach /tmp/ref 4fdd5da
@@ -27,6 +29,7 @@ Nothing is logged to MLflow: the check produces no numbers, only equality.
 from __future__ import annotations
 
 import argparse
+import inspect
 import sys
 from typing import Any
 
@@ -73,6 +76,18 @@ def cases() -> list[tuple[str, Any, Any]]:
     return out
 
 
+def _directional_difference(
+    x: np.ndarray, y: np.ndarray, direction: tuple[int, int], g: Any
+) -> Any:
+    """``directional_difference`` on the axes ``x`` and ``y``, in either signature."""
+    if "grid" not in inspect.signature(directional_difference).parameters:
+        return directional_difference(x, y, direction, g)  # 0.1
+    from maesolvers import Box, BoxGrid
+
+    box = Box((float(x[0]), float(y[0])), (float(x[-1]), float(y[-1])))
+    return directional_difference(BoxGrid(box, len(x) - 1), direction, g)
+
+
 def snapshot() -> dict[str, np.ndarray]:
     """Every array the check compares, by name."""
     out: dict[str, np.ndarray] = {}
@@ -96,7 +111,7 @@ def snapshot() -> dict[str, np.ndarray]:
     x = np.linspace(-0.5, 0.9, 8)
     y = np.linspace(0.0, 1.4, 8)
     for direction in ((1, 0), (0, 1), (1, 1), (2, 1), (-1, 2), (3, -1)):
-        a, c, full = directional_difference(
+        a, c, full = _directional_difference(
             x, y, direction, lambda q: np.exp(q[..., 0]) * q[..., 1]
         )
         a = a.tocsr()
