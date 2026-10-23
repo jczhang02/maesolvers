@@ -15,6 +15,11 @@ row holds these measures of the same network:
 - ``nonconvex_fraction``, ``eigmin``: from ``evaluate``, on the shared grid;
 - ``iterations``, ``stop`` and the loss terms of the trained network.
 
+With --mean-equation the loss is the preset's divided by the number of
+equation points, so its equation term is a mean (icnn.md, Finding 2); with
+--boundary-weight 340000 it is the mean reading of eq. (3.8), with the
+boundary weight 100 of Example 4.2.
+
 Each seed is one MLflow run in maesolvers-icnn-<problem>, named by its seed
 and the settings that differ from the preset, after the prefix --name if
 given; --workers seeds train at a time, each in its own process with
@@ -23,8 +28,8 @@ THREADS_PER_SEED CPU threads (default 1), on the CPU, as for the penalty MLP
 
     python benchmarks/run_icnn.py T1
     python benchmarks/run_icnn.py T6 --max-steps 5000 --out /tmp/t6-5000.csv
-    python benchmarks/run_icnn.py T6 --boundary-weight 340000 \\
-        --name "diagnostic mean-equation" --out /tmp/t6-mean.csv
+    python benchmarks/run_icnn.py T6 --mean-equation --boundary-weight 340000 \\
+        --name diagnostic --out /tmp/t6-mean.csv
 """
 
 from __future__ import annotations
@@ -34,14 +39,20 @@ import csv
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from run_penalty_mlp import POINTS, POINTS_SEED, band, paper_measure
 
 from maesolvers import CATALOGUE, DirichletICNN, tracking
 from maesolvers.metrics import evaluate
+from maesolvers.neural import Batch, NeuralSolver, PenaltyLoss
+
+if TYPE_CHECKING:
+    import torch
 
 HERE = Path(__file__).parent
 
@@ -69,6 +80,41 @@ FIELDS = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class MeanEquationLoss(PenaltyLoss):
+    """``PenaltyLoss`` divided by the number of points the equation term sums over.
+
+    The equation term becomes a mean and the boundary term ``1 / (M + K)``
+    times its weight; the logged terms other than ``loss`` stay unscaled.
+    """
+
+    def __call__(self, u: torch.nn.Module, batch: Batch) -> dict[str, torch.Tensor]:
+        terms = dict(super().__call__(u, batch))
+        points = batch.interior.shape[0]
+        if self.equation_at_boundary:
+            points += batch.boundary.shape[0]
+        terms["loss"] = terms["loss"] / points
+        return terms
+
+
+def mean_equation(preset: DirichletICNN) -> NeuralSolver:
+    """The preset with its loss replaced by :class:`MeanEquationLoss`, same weights."""
+    return NeuralSolver(
+        network=preset.network,
+        loss=MeanEquationLoss(
+            convexity_weight=0.0,
+            boundary_weight=preset.boundary_weight,
+            equation_at_boundary=True,
+        ),
+        sampler=preset.sampler,
+        optimizer=preset.optimizer,
+        max_steps=preset.max_steps,
+        tol=preset.tol,
+        seed=preset.seed,
+        accelerator=preset.accelerator,
+    )
+
+
 def boundary_max(result, n: int = POINTS // 10) -> float:
     """Max ``|u - g|`` at ``n`` uniform random boundary points."""
     problem = result.problem
@@ -76,14 +122,21 @@ def boundary_max(result, n: int = POINTS // 10) -> float:
     return float(np.max(np.abs(result.u(points) - problem.boundary.g(points))))
 
 
-def run_seed(problem_id: str, seed: int, options: dict, name: str) -> dict:
-    """Train one seed, log it to MLflow as run ``name.format(seed)``, return its row."""
+def run_seed(
+    problem_id: str, seed: int, options: dict, name: str, mean: bool = False
+) -> dict:
+    """Train one seed, log it to MLflow as run ``name.format(seed)``, return its row.
+
+    With ``mean`` the preset's loss is replaced by :class:`MeanEquationLoss`.
+    """
     import mlflow
     import torch
 
     torch.set_num_threads(int(os.environ.get("THREADS_PER_SEED", "1")))
     problem = CATALOGUE[problem_id]
     solver = DirichletICNN(seed=seed, **options)
+    if mean:
+        solver = mean_equation(solver)
     logger = tracking.MLflowLogger()
     with tracking.run(f"maesolvers-icnn-{problem_id}", run_name=name.format(seed)):
         result = solver.solve(problem, callbacks=[logger])
@@ -128,6 +181,11 @@ def main() -> None:
     )
     parser.add_argument("--tol", type=float, default=DirichletICNN.tol)
     parser.add_argument("--accelerator", default=DirichletICNN.accelerator)
+    parser.add_argument(
+        "--mean-equation",
+        action="store_true",
+        help="divide the loss by the number of equation points (icnn.md, Finding 2)",
+    )
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument(
@@ -136,6 +194,8 @@ def main() -> None:
     args = parser.parse_args()
     options = {name: getattr(args, name) for name in OPTIONS}
     changed = {k: v for k, v in options.items() if v != getattr(DirichletICNN, k)}
+    if args.mean_equation:
+        changed["mean_equation"] = True
     if changed and args.out is None:
         parser.error(f"{', '.join(changed)} differ from the preset: give --out")
     label = " ".join(f"{k}={v}" for k, v in changed.items()) or "preset"
@@ -145,7 +205,8 @@ def main() -> None:
     context = get_context("spawn")  # CUDA cannot be forked
     with ProcessPoolExecutor(args.workers, mp_context=context) as pool:
         futures = [
-            pool.submit(run_seed, args.problem, s, options, name) for s in args.seeds
+            pool.submit(run_seed, args.problem, s, options, name, args.mean_equation)
+            for s in args.seeds
         ]
         rows = sorted((f.result() for f in futures), key=lambda r: r["seed"])
     with out.open("w", newline="") as file:
