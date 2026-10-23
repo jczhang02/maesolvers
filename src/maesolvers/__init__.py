@@ -45,6 +45,7 @@ from maesolvers.classical import (
     Scheme,
     SchemeIteration,
     Standard9,
+    StandardBox,
 )
 from maesolvers.config import from_config
 from maesolvers.core import (
@@ -133,6 +134,7 @@ __all__ = [
     "Solution",
     "Solver",
     "Standard9",
+    "StandardBox",
     "Trace",
     "Transport",
     "UniformSampler",
