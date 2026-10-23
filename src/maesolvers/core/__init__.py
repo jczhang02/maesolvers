@@ -5,7 +5,9 @@ Everything here needs numpy only. :mod:`maesolvers.metrics` evaluates a
 :func:`integer`, :func:`positive`, :func:`nonnegative` and :func:`boolean`
 check constructor parameters, and :func:`check_part` a part passed to a
 solver or to another part, for solvers and parts of your own as for the
-shipped ones.
+shipped ones. :func:`signed_distance`, :func:`support_function`,
+:func:`closest_boundary_point`, :func:`volume`, :func:`integrate` and
+:func:`check_mass_balance` serve the solvers of transport problems.
 """
 
 from maesolvers.core._params import boolean, integer, nonnegative, positive
@@ -32,6 +34,14 @@ from maesolvers.core.solver import (
     UnsupportedProblemError,
     check_part,
 )
+from maesolvers.core.transport import (
+    check_mass_balance,
+    closest_boundary_point,
+    integrate,
+    signed_distance,
+    support_function,
+    volume,
+)
 
 __all__ = [
     "BoundaryCondition",
@@ -56,8 +66,14 @@ __all__ = [
     "Transport",
     "UnsupportedProblemError",
     "boolean",
+    "check_mass_balance",
     "check_part",
+    "closest_boundary_point",
     "integer",
+    "integrate",
     "nonnegative",
     "positive",
+    "signed_distance",
+    "support_function",
+    "volume",
 ]
