@@ -192,6 +192,23 @@ class _NewtonScheme(Protocol):
     def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
 
 
+class _LaplaceScheme(Protocol):
+    """The scheme methods :func:`_convex_start` calls."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+def _convex_start(scheme: _LaplaceScheme, problem: Problem, grid: Any) -> np.ndarray:
+    """Solve ``laplace u = d f^(1/d)``, the trace of the convex branch, for the unknowns.
+
+    In 2D ``laplace u = 2 sqrt(f)``: numpy takes the square root for
+    ``** 0.5``, so the 2D start is ``2 sqrt(f)`` exactly.
+    """
+    d = problem.dim
+    return scheme.solve_laplace(grid, d * scheme.rhs(grid) ** (1.0 / d))
+
+
 class _PoissonScheme(Protocol):
     """The scheme methods :class:`PoissonIteration` calls: ``rhs`` and its ``requires``."""
 
@@ -374,11 +391,7 @@ class Newton(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        d = problem.dim
-        # numpy takes the square root for ** 0.5, so 2D starts are 2 sqrt(f) exactly
-        return self._scheme.solve_laplace(
-            context, d * self._scheme.rhs(context) ** (1.0 / d)
-        )
+        return _convex_start(self._scheme, problem, context)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
@@ -552,13 +565,18 @@ class PolicyIteration(SchemeIteration):
     operators, ``max over policies of A v - F``, each step finds the optimal
     policy at the current unknowns and solves its linear system,
     ``A v_new = F`` (Chen-Wan-Lin 2018, Section 5.1; Howard 1960). When the
-    matrix of every policy is an M-matrix, as for a monotone scheme, the
-    iteration converges from any start (Bokanowski, Maroso and Zidani 2009);
-    it is Newton's method with full steps and the policy's matrix as the
-    Jacobian.
+    matrix of every policy is an M-matrix and the set of policies does not
+    depend on ``v``, as for a monotone scheme, the iteration converges from
+    any start (Bokanowski, Maroso and Zidani 2009); it is Newton's method
+    with full steps and the policy's matrix as the Jacobian. A scheme whose
+    set of competing policies depends on ``v``, such as :class:`MixedHJB
+    <maesolvers.classical.mixed.MixedHJB>` with its default
+    ``wide_search``, has no such guarantee: the iteration can cycle and
+    stop at ``max_iter``.
 
-    Starts from ``laplace u = 2 sqrt(f)``, the solution for the control
-    ``a = 1/2`` (Chen-Wan-Lin 2018, eq. (50)).
+    Starts from ``laplace u = d f^(1/d)``, as :class:`Newton` does; in 2D
+    ``laplace u = 2 sqrt(f)``, the solution for the control ``a = 1/2``
+    (Chen-Wan-Lin 2018, eq. (50)).
 
     Parameters
     ----------
@@ -574,8 +592,9 @@ class PolicyIteration(SchemeIteration):
     krylov_tol
         None solves each policy's system by sparse LU. A positive value
         solves it by BiCGSTAB to that relative residual, preconditioned by
-        an incomplete LU (drop tolerance ``1e-4``), and by LU if BiCGSTAB
-        fails; the paper uses GMRES with an incomplete LU. Needed where the
+        an incomplete LU (drop tolerance ``1e-4``), and by LU, with a
+        ``RuntimeWarning``, if BiCGSTAB fails; the paper uses GMRES with an
+        incomplete LU. Needed where the
         LU fills in, as for the 17-point wide stencil at many nodes from
         ``n = 256`` on.
 
@@ -609,7 +628,7 @@ class PolicyIteration(SchemeIteration):
         return cast(_PolicyScheme, self.scheme)
 
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = 2 sqrt(f)``.
+        """Solve ``laplace u = d f^(1/d)``, in 2D ``laplace u = 2 sqrt(f)``.
 
         Parameters
         ----------
@@ -623,9 +642,7 @@ class PolicyIteration(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return self._scheme.solve_laplace(
-            context, 2.0 * np.sqrt(self._scheme.rhs(context))
-        )
+        return _convex_start(self._scheme, problem, context)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
@@ -681,6 +698,13 @@ class PolicyIteration(SchemeIteration):
             )
             if info == 0:
                 return np.asarray(new)
+            warnings.warn(
+                f"BiCGSTAB stopped with info {info} on a policy system of "
+                f"{rhs.size} unknowns; solving it by sparse LU, which "
+                "can take long and much memory on a large grid",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         return np.asarray(spsolve(matrix, rhs))
 
     def converged(self, problem: Problem, context: Any, measure: float) -> bool:

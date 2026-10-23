@@ -1,9 +1,13 @@
 """The monotone mixed scheme of Chen-Wan-Lin 2018, its kernels, policy iteration and the preset."""
 
+import sys
+import textwrap
+
 import numpy as np
 import pytest
 import scipy.sparse as sp
 
+import maesolvers.classical.iterations as iterations
 from maesolvers import (
     SOLVERS,
     T1,
@@ -355,6 +359,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
         "init_args": {
             "n": 64,
             "angles": None,
+            "wide_search": "outside",
             "spline_degree": 3,
             "max_iter": 100,
             "tol": 1e-6,
@@ -362,6 +367,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
         },
     }
     assert FDMixed().scheme == MixedHJB()
+    assert FDMixed(wide_search="only").scheme == MixedHJB(wide_search="only")
     assert SOLVERS["FDMixed"] is FDMixed
     assert isinstance(FDMixed().scheme.n, int)
 
@@ -370,12 +376,13 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
     "solver",
     [
         FDMixed(n=10, angles=4),
+        FDMixed(n=10, wide_search="everywhere"),
         PolicyIteration(
             scheme=MixedHJB(n=10, wide_search="everywhere"), max_iter=9, krylov_tol=1e-9
         ),
         Newton(scheme=MixedHJB(n=10)),
     ],
-    ids=["preset", "composed", "newton"],
+    ids=["preset", "preset-everywhere", "composed", "newton"],
 )
 def test_hparams_rebuild_the_solver(solver):
     pytest.importorskip("jsonargparse")
@@ -386,3 +393,98 @@ def test_the_policy_matrix_is_sparse():
     grid = MixedHJB(n=10).discretize(T1)
     matrix, _ = MixedHJB(n=10).policy_system(grid, np.zeros(81))
     assert sp.issparse(matrix) and matrix.shape == (81, 81)
+
+
+def test_a_failed_krylov_solve_warns_and_falls_back_to_lu(monkeypatch):
+    def failing(matrix, rhs, x0=None, **kwargs):
+        return x0, 7
+
+    monkeypatch.setattr(iterations, "bicgstab", failing)
+    scheme = MixedHJB(n=12)
+    lu = PolicyIteration(scheme=scheme).solve(T2)
+    with pytest.warns(RuntimeWarning, match="BiCGSTAB stopped with info 7"):
+        krylov = PolicyIteration(scheme=scheme, krylov_tol=1e-12).solve(T2)
+    assert krylov.info["converged"]
+    assert np.array_equal(krylov.values, lu.values)
+
+
+# The wide stencil's arm on a box of side L
+
+
+def test_the_wide_stencil_resolution_is_set_by_cells_per_side_of_the_box():
+    """The arm sqrt(h) spans sqrt(n / L) cells. On the unit square the wide
+    stencil serves a quadratic off the 7-point controls and the error falls
+    with n; on a box of side 10 its bilinear interpolation overestimates the
+    convex u so much that it wins at no node, and the error of the 7-point
+    controls alone does not fall (docs/methods/chen_wan_lin2018.md, Known
+    limits)."""
+
+    def solve(side, n):
+        half = side / 2
+        problem = _quadratic_problem(
+            [[1.0, 1.5], [1.5, 4.0]], Box((-half, -half), (half, half))
+        )
+        result = FDMixed(n=n).solve(problem)
+        assert result.info["converged"]
+        exact = problem.exact(result.nodes)
+        error = np.max(np.abs(result.values - exact)) / np.max(np.abs(exact))
+        return error, result.info["wide_fraction"]
+
+    (coarse, wide_coarse), (fine, wide_fine) = solve(1.0, 16), solve(1.0, 32)
+    assert wide_coarse > 0.1 and wide_fine > 0.1 and fine < 0.5 * coarse
+    with pytest.warns(RuntimeWarning, match="fewer than 2"):
+        (coarse, wide_coarse), (fine, wide_fine) = solve(10.0, 16), solve(10.0, 32)
+    assert wide_coarse == wide_fine == 0.0
+    assert fine == pytest.approx(coarse, rel=0.01) and fine > 5e-3
+
+
+def test_an_arm_shorter_than_two_cells_warns():
+    big = Problem(
+        "big", Box((0.0, 0.0), (50.0, 50.0)), _constant(1.0), Dirichlet(_constant(0.0))
+    )
+    with pytest.warns(RuntimeWarning, match="n >= 4 L"):
+        grid = MixedHJB(n=16).discretize(big)
+    assert grid.arm < grid.h  # shorter than one cell
+    grid = MixedHJB(n=16).discretize(T1)
+    assert grid.arm / grid.h == pytest.approx(4.0)
+
+
+# A scheme of one's own under PolicyIteration
+
+
+@pytest.fixture
+def linear_hjb(tmp_path, monkeypatch):
+    """A user's module with an HJB scheme of one policy, ``laplace u = f``."""
+    (tmp_path / "my_hjb.py").write_text(
+        textwrap.dedent(
+            """
+            from dataclasses import dataclass
+
+            from maesolvers import Standard9
+
+
+            @dataclass(frozen=True, kw_only=True)
+            class LinearHJB(Standard9):
+                def policy_system(self, grid, v):
+                    boundary = (grid.bxx + grid.byy) @ grid.boundary_values
+                    return -(grid.axx + grid.ayy), boundary - grid.f
+            """
+        )
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    import my_hjb
+
+    yield my_hjb
+    sys.modules.pop("my_hjb", None)
+
+
+def test_a_scheme_of_one_policy_converges_in_one_solve(linear_hjb):
+    scheme = linear_hjb.LinearHJB(n=16)
+    result = PolicyIteration(scheme=scheme).solve(T1)
+    assert result.info["converged"] and result.info["iterations"] == 2
+    grid = scheme.discretize(T1)
+    poisson = scheme.solve_laplace(grid, grid.f)
+    assert np.max(np.abs(result.values[grid.interior] - poisson)) < 1e-10
+    pytest.importorskip("jsonargparse")
+    solver = PolicyIteration(scheme=scheme, max_iter=5)
+    assert from_config(solver.hparams) == solver

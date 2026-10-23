@@ -64,6 +64,9 @@ HERE = Path(__file__).parent
 NS = (32, 64, 128, 256, 512)
 HALF = Box((-0.5, -0.5), (0.5, 0.5))
 KRYLOV_TOL = 1e-12
+POISSON_MAX_ITER = 300_000
+"""Steps of the Poisson iteration of Table 5's standard column; the default
+10 000 stops it unconverged from N = 128 on (chen_wan_lin2018.md, Table 5)."""
 SEVEN_POINT_CONE_MASS = 4.0 * math.sqrt(2.0) - 2.0
 """The mass at which the exact cone solves the 7-point equation at its tip (Finding 3)."""
 
@@ -290,10 +293,11 @@ def solver_for(scheme: str, n: int, problem: str, **options: Any) -> Solver:
     T7-half) from n = 256 on: there the LU fills in (tens of GB and hours per
     policy at n = 512), and BiCGSTAB with an incomplete LU solves it to a
     relative residual of 1e-12. Where the LU is cheap it stays, since that
-    tolerance moves the fourth digit of the 7-point errors at n = 512.
+    tolerance moves the fourth digit of the 7-point errors at n = 512. The
+    Poisson iteration of the "standard" column gets POISSON_MAX_ITER steps.
     """
     if scheme == "standard":
-        return FDPoisson(n=n)
+        return FDPoisson(n=n, max_iter=POISSON_MAX_ITER)
     wide = scheme in ("wide only", "everywhere") or problem in WIDE_PROBLEMS
     iteration = {"krylov_tol": KRYLOV_TOL} if wide and n >= 256 else {}
     if scheme == "mixed":

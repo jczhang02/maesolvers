@@ -1,4 +1,4 @@
-"""The monotone mixed scheme of Chen, Wan and Lin (2018).
+"""The mixed scheme of Chen, Wan and Lin (2018).
 
 The scheme (Chen-Wan-Lin, J. Sci. Comput. 76 (2018) 1839-1867) solves the
 Monge-Ampere equation of a convex function in its HJB form (their Theorem 1
@@ -23,10 +23,11 @@ The discretisation depends on the control. Where ``a11 >= |a12|`` and
 semi-Lagrangian wide stencil, first order, is: the second differences along
 the turned axes with arms of length ``sqrt(h)``, the values at the arms'
 ends interpolated bilinearly, an arm that leaves the box shortened to it
-with the Dirichlet data there (their eq. (16) to (19)). At every node the
-discrete equation is the maximum over the controls, each with its own
-stencil, so every linearisation is an M-matrix, and the paper proves
-convergence to the viscosity solution (their Section 6).
+with the Dirichlet data there (their eq. (16) to (19)). Each control's
+operator, with its own stencil, has an M-matrix. Where the discrete
+equation is the maximum over all controls at every node, the scheme is
+monotone and the paper proves convergence to the viscosity solution (their
+Section 6).
 
 The maximum over the 7-point controls has closed forms (their eq. (30) to
 (34)); over the wide-stencil controls it is a search over ``M`` angles, each
@@ -34,7 +35,10 @@ with its best ``a`` in closed form (their eq. (36) to (38)). Where the
 stationary point of a 7-point objective, eq. (30), lies in its region, it
 maximises that objective over all controls, and the paper's algorithm takes
 it without the wide-stencil search; its tables match only this rule
-(``benchmarks/chen_wan_lin2018.md``, Finding 2).
+(``benchmarks/chen_wan_lin2018.md``, Finding 2). The rule makes the set of
+competing controls depend on ``u``, so the scheme is no longer a maximum of
+monotone operators: it can have a second root, and policy iteration can
+cycle (Finding 5).
 :class:`MixedHJB` composes these into a
 :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.PolicyIteration` (Howard's
@@ -49,6 +53,7 @@ The numerical kernels are module-level pure functions:
 # No `from __future__ import annotations` here: jsonargparse reads the field
 # types (ADR 0005); see maesolvers.classical.iterations.
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar, Literal, NamedTuple
@@ -64,6 +69,9 @@ from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, Field
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
+
+_MIN_ARM_CELLS = 2
+"""Fewest cells the wide stencil's arm spans before :meth:`MixedHJB.discretize` warns."""
 
 
 def control_coefficients(
@@ -377,10 +385,6 @@ class MixedGrid:
     ----------
     box_grid
         The grid of ``n`` cells per side over the box.
-    n
-        Cells per side.
-    h
-        The grid step.
     index
         Shape ``(m, 2)``, int: the grid indices ``(i, j)`` of the unknowns,
         ``box_grid.interior_index``.
@@ -398,16 +402,12 @@ class MixedGrid:
         The length ``sqrt(h)`` of the wide stencil's arms.
     angles
         The ``M`` angles of the wide-stencil search, in ``[-pi/4, pi/4)``.
-    wide_search
-        :attr:`MixedHJB.wide_search`.
     laplace
         Solves the 5-point ``(D_xx + D_yy) v = rhs`` by a sparse LU
         factorisation.
     """
 
     box_grid: BoxGrid
-    n: int
-    h: float
     index: np.ndarray
     f: np.ndarray
     g: Field
@@ -418,8 +418,17 @@ class MixedGrid:
     dxy2: sp.csr_matrix
     arm: float
     angles: np.ndarray
-    wide_search: str
     laplace: Callable[[np.ndarray], np.ndarray]
+
+    @property
+    def n(self) -> int:
+        """Cells per side."""
+        return self.box_grid.n
+
+    @property
+    def h(self) -> float:
+        """The grid step, equal on both axes."""
+        return self.box_grid.h[0]
 
     @property
     def nodes(self) -> np.ndarray:
@@ -558,21 +567,33 @@ class _Policy(NamedTuple):
 
 @dataclass(frozen=True, kw_only=True)
 class MixedHJB(Scheme):
-    """The monotone mixed scheme of Chen, Wan and Lin (2018) on a 2D box.
+    """The mixed scheme of Chen, Wan and Lin (2018) on a 2D box.
 
     At every interior node the discrete equation is the maximum over the
     controls ``(a, theta)`` of the HJB operator, each control with its own
     stencil: the standard 7-point stencil where it is monotone, the
     semi-Lagrangian wide stencil with arms ``sqrt(h)`` elsewhere (module
     docstring); ``wide_search`` sets where the wide-stencil controls
-    compete. Each control's operator is linear in ``u`` with an M-matrix,
-    so :class:`PolicyIteration
+    compete. Each control's operator is linear in ``u`` with an M-matrix.
+    With ``wide_search="everywhere"`` or ``"only"`` the set of controls is
+    the same at every ``u``, the scheme is monotone, and :class:`PolicyIteration
     <maesolvers.classical.iterations.PolicyIteration>` converges from any
-    start. The 7-point controls are optimised in closed form, the
-    wide-stencil ones over ``angles`` angles, so the scheme is consistent
-    when ``angles`` grows with ``n``. Where the optimal control at every
-    node is a 7-point one (T1, T2), the scheme is second order; where the
-    wide stencil enters, first order at most.
+    start. The default ``"outside"``, the rule the paper's tables follow,
+    lets the set depend on ``u``: the scheme is then not monotone
+    everywhere, can have a second root, and policy iteration can cycle
+    (``benchmarks/chen_wan_lin2018.md``, Findings 2 and 5). The 7-point
+    controls are optimised in closed form, the wide-stencil ones over
+    ``angles`` angles, so the scheme is consistent when ``angles`` grows
+    with ``n``. Where the optimal control at every node is a 7-point one
+    (T1, T2), the scheme is second order; where the wide stencil enters,
+    first order at most.
+
+    The arm ``sqrt(h)`` is the paper's, and it does not scale with the
+    box: on a box of side ``L`` it spans ``sqrt(n / L)`` cells, so the wide
+    stencil's resolution is set by ``n / L``, and a box of side ``L`` needs
+    about ``L`` times the cells of the unit square
+    (``docs/methods/chen_wan_lin2018.md``, Known limits). :meth:`discretize`
+    warns when the arm spans fewer than 2 cells.
 
     Parameters
     ----------
@@ -688,6 +709,13 @@ class MixedHJB(Scheme):
             If :meth:`supports` is False.
         ValueError
             If ``f`` is negative or not finite at an interior node.
+
+        Warns
+        -----
+        RuntimeWarning
+            If the wide stencil's arm ``sqrt(h)`` spans fewer than
+            ``2`` cells, ``n < 4 L`` on a box of side ``L``: the wide
+            stencil then reaches no further than the 7-point one.
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
@@ -704,13 +732,20 @@ class MixedHJB(Scheme):
                 f"MixedHJB needs a finite f >= 0 at the interior nodes, and "
                 f"{problem.name} has f from {np.min(f)} to {np.max(f)} there"
             )
+        if np.sqrt(h) < _MIN_ARM_CELLS * h:
+            warnings.warn(
+                f"MixedHJB(n={n}) on {problem.name}: the wide stencil's arm "
+                f"sqrt(h) = {np.sqrt(h):.3g} spans {1 / np.sqrt(h):.3g} cells, "
+                f"fewer than {_MIN_ARM_CELLS}; a box of side L needs n >= "
+                f"{_MIN_ARM_CELLS**2} L",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         dxx, dyy, _ = difference_operators(n, h, h)
         dxy1, dxy2 = _cross_differences(n, h)
         count = n if self.angles is None else self.angles
         return MixedGrid(
             box_grid=box_grid,
-            n=n,
-            h=h,
             index=box_grid.interior_index,
             f=f,
             g=g,
@@ -721,7 +756,6 @@ class MixedHJB(Scheme):
             dxy2=dxy2,
             arm=float(np.sqrt(h)),
             angles=-0.25 * np.pi + 0.5 * np.pi * np.arange(count) / count,
-            wide_search=self.wide_search,
             laplace=factorized(sp.csr_matrix(dxx + dyy)[:, interior].tocsc()),
         )
 
@@ -750,20 +784,20 @@ class MixedHJB(Scheme):
         """Find the optimal control at every unknown and the objective's value there."""
         u = self._values(grid, v)
         rows = np.arange(v.size)
-        if grid.wide_search == "only":
+        if self.wide_search == "only":
             value = np.full(v.size, -np.inf)
             a, theta, case = np.zeros(v.size), np.zeros(v.size), np.zeros(v.size, int)
         else:
             value, a, theta, case, stationary = seven_point_controls(
                 grid.dxx @ u, grid.dyy @ u, grid.dxy1 @ u, grid.dxy2 @ u, grid.f
             )
-            if grid.wide_search == "outside":
+            if self.wide_search == "outside":
                 rows = rows[~stationary]
         index, f = grid.index[rows], grid.f[rows]
         for angle in grid.angles:
             dzz, dww = _wide_differences_at_angle(grid, index, angle, u, v[rows])
             weight = wide_stencil_weight(
-                dzz, dww, f, angle, restricted=grid.wide_search != "only"
+                dzz, dww, f, angle, restricted=self.wide_search != "only"
             )
             wide = wide_stencil_value(dzz, dww, weight, f)
             chosen = wide > value[rows]
@@ -778,8 +812,9 @@ class MixedHJB(Scheme):
         """Return the linear system ``A v = F`` of the optimal control at ``v``.
 
         Chen-Wan-Lin (2018), eq. (22) to (28): at each unknown the control
-        that maximises the objective, and the row of its stencil. ``A v - F``
-        is the residual at ``v``; ``A`` is an M-matrix.
+        that maximises the objective over the controls that
+        :attr:`wide_search` lets compete at ``v``, and the row of its
+        stencil. ``A v - F`` is the residual at ``v``; ``A`` is an M-matrix.
 
         Parameters
         ----------
@@ -835,7 +870,11 @@ class MixedHJB(Scheme):
         return full[:, grid.interior].tocsc(), -constant
 
     def residual(self, grid: MixedGrid, v: np.ndarray) -> np.ndarray:
-        """Return the maximum over the controls of the discrete HJB operator at the unknowns.
+        """Return the discrete HJB operator at the unknowns, maximised over the controls.
+
+        The maximum is over the controls that :attr:`wide_search` lets
+        compete at ``v``; with the default ``"outside"`` that set depends on
+        ``v`` (class docstring).
 
         Parameters
         ----------
@@ -906,7 +945,9 @@ class MixedHJB(Scheme):
             at the boundary nodes. ``info`` holds the spacing ``h``;
             ``residual_max``, the max absolute residual; ``wide_fraction``,
             the share of unknowns whose optimal control takes the wide
-            stencil; and ``angles``, the ``M`` of the search.
+            stencil; and ``angles``, the ``M`` of the search. These come
+            from one more evaluation of the optimal policy at ``v``, which
+            costs as much as a policy iteration's search.
         """
         u = self._values(grid, v)
         n, h = grid.n, grid.h
