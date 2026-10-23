@@ -16,7 +16,9 @@ from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17
+from maesolvers.classical.multigrid import Multigrid, Ordering
 from maesolvers.classical.schemes import Standard9
+from maesolvers.classical.standard_box import StandardBox
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
 
@@ -398,3 +400,64 @@ class FDFiltered(_FilteredPreset, Newton):
 
     start: None = field(default=None, init=False, repr=False)
     max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _StandardBoxPreset:
+    """The fields and support of a preset on :class:`StandardBox`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from ``n`` and ``spline_degree`` before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = StandardBox.domains
+    boundaries: ClassVar[tuple[type, ...]] = StandardBox.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = StandardBox.dims
+
+    scheme: StandardBox = field(init=False, repr=False)
+    n: int = StandardBox.n
+    spline_degree: int = StandardBox.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = StandardBox(n=self.n, spline_degree=self.spline_degree)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDMultigrid(_StandardBoxPreset, Multigrid):
+    """The standard scheme on a 2D or 3D box solved by full multigrid.
+
+    ``FDMultigrid(n=n, spline_degree=k, ...)`` is
+    ``Multigrid(scheme=StandardBox(n=n, spline_degree=k), ...)``, the
+    FMG-FAS method of Liu, Froese, Oberman and Xiao (2017): one full
+    multigrid cycle, then FAS V-cycles until the relative residual is at
+    most ``tol``, with the nonlinear Gauss-Seidel smoother that picks the
+    convex root at each node (``docs/methods/multigrid.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit box, ADR 0001), at least 2;
+        a power of 2 gives the paper's nested grids.
+    ordering
+        ``"lexicographic"`` or ``"red-black"``, the order of the Gauss-Seidel
+        sweeps.
+    pre_sweeps, post_sweeps
+        Sweeps before and after the coarse-grid correction.
+    coarsest_sweeps
+        Sweeps on the grid of 2 cells per side.
+    max_iter
+        Most cycles, the full multigrid cycle included.
+    tol
+        Stop when the residual's discrete L2 norm is at most ``tol`` times
+        that of the start (0 inside, the Dirichlet data on the ring).
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
+    """
+
+    ordering: Ordering = "lexicographic"

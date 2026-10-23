@@ -22,7 +22,7 @@ import pytest
 from scipy.special import erfi
 
 import maesolvers
-from maesolvers import FDNewton, FDPoisson
+from maesolvers import FDMultigrid, FDNewton, FDPoisson
 from maesolvers.catalogue import CATALOGUE, SHARED_TEST_SET
 from maesolvers.core import (
     Box,
@@ -476,7 +476,9 @@ def test_t7_reports_u_at_the_origin():
 # evaluate reports finite numbers, or it refuses with UnsupportedProblemError.
 
 
-@pytest.mark.parametrize("solver", [FDPoisson(n=8), FDNewton(n=8)], ids=repr)
+@pytest.mark.parametrize(
+    "solver", [FDPoisson(n=8), FDNewton(n=8), FDMultigrid(n=8)], ids=repr
+)
 @pytest.mark.parametrize("name", list(CATALOGUE))
 def test_every_solver_solves_or_refuses_every_problem(solver, name):
     problem = CATALOGUE[name]
