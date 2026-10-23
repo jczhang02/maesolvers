@@ -123,6 +123,8 @@ RECTANGLE = Problem("RECT", Box((0.0, 0.0), (1.0, 2.0)), T1.f, T1.boundary)
         ("FDMonotone", T10, "2D/3D only"),
         ("FDMonotone", T8, "not on a Disk"),
         ("FDMonotone", RECTANGLE, "unsupported"),
+        ("DirichletQSPINN", T20, "f(x0) = 0"),
+        ("TransportQSPINN", T8, "Transport only"),
     ],
 )
 def test_unsupported_reason_says_why(solver, problem, reason):
