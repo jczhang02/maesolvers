@@ -572,7 +572,7 @@ class Monotone17(Scheme):
         shape = (len(frames), dim, (n - 1) ** dim)
         full = np.array([part[2] for part in parts]).reshape(shape)
         if self.boundary == "narrow":
-            available = full.all(axis=1)  # every direction of a frame
+            available = np.asarray(full.all(axis=1))  # every direction of a frame
         else:
             available = np.ones((len(frames), (n - 1) ** dim), dtype=bool)
         f = problem.f(nodes[interior])
