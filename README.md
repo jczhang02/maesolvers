@@ -284,7 +284,7 @@ The transport scheme of Benamou-Froese-Oberman 2014 (`FDTransport`) matches the 
 
 The monotone mixed scheme of Chen-Wan-Lin 2018 (`FDMixed`) matches its Table 1 (T1 on `[-1, 1]^2`) to every printed digit at every `N`, with `h = 1/N` and with the wide stencil searched only where no 7-point stationary point lies in its region, the rule the tables follow (Finding 2).
 Table 2 (T2) is a mismatch: it agrees to every printed digit up to `N = 128`, but from `N = 256` on policy iteration from the paper's start reaches a second root of the scheme, 10 to 65 times less accurate (Finding 5).
-T20c and the paper's Table 5 are at the order-of-magnitude level; the cone of Table 4 is a mismatch with the Dirac mass `pi / h^2`, and comes within 19% only with a mass fitted to the exact solution ([`benchmarks/chen_wan_lin2018.md`](benchmarks/chen_wan_lin2018.md), Finding 3).
+T20c is at the order-of-magnitude level, and so is the paper's Table 5 with `wide_search="everywhere"`, which converges at every `N` where the default rule cycles at `N = 256` and gives the same values elsewhere; the cone of Table 4 is a mismatch with the Dirac mass `pi / h^2`, and comes within 19% only with a mass fitted to the exact solution ([`benchmarks/chen_wan_lin2018.md`](benchmarks/chen_wan_lin2018.md), Finding 3).
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).

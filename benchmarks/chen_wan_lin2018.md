@@ -11,13 +11,13 @@ Problems (the paper's Examples 1 to 5, with Dirichlet data from the exact soluti
 - Example 4, the cone T21, `u = |x|`, `f = pi delta_0` on `(-0.5, 0.5)^2`, built per grid with a discrete Dirac mass at the origin (Finding 3);
 - Example 5, `f = 1`, `g = 0` on `(-0.5, 0.5)^2`, built as `T7-half`: T7 under `x -> 2x`, `u -> (u - 1)/4`; the paper reports `u_h(0, 0)`.
 
-Columns: "mixed" is `FDMixed(n=N)`, `PolicyIteration` on `MixedHJB` with the defaults; "wide only" is `PolicyIteration(scheme=MixedHJB(n=N, wide_search="only"))`, the pure semi-Lagrangian scheme of Feng-Jensen 2017 that the paper compares with; Table 5's non-monotone column is the standard 9-point scheme, `FDPoisson(n=N, max_iter=300000)`.
+Columns: "mixed" is `FDMixed(n=N)`, `PolicyIteration` on `MixedHJB` with the defaults; "wide only" is `PolicyIteration(scheme=MixedHJB(n=N, wide_search="only"))`, the pure semi-Lagrangian scheme of Feng-Jensen 2017 that the paper compares with; Table 5 adds "everywhere", `PolicyIteration(scheme=MixedHJB(n=N, wide_search="everywhere"))`, the monotone maximum of the paper's Section 5.2 (Finding 2), and its non-monotone column is the standard 9-point scheme, `FDPoisson(n=N, max_iter=300000)`.
 `n = N` cells per side, `M = N` angles, the paper's tolerance `1e-6` on the residual of the HJB equation.
 Each policy's linear system is solved by sparse LU, except in the columns where the wide stencil enters at many nodes (the pure semi-Lagrangian scheme, T21, Table 5) from `N = 256` on: there BiCGSTAB with an incomplete LU solves it to a relative residual of `1e-12` (`krylov_tol`), since the LU fills in to tens of GB and does not finish in hours at `N = 512`.
 The paper uses GMRES with an incomplete LU throughout; where the LU is cheap it stays, because that tolerance moves the fourth digit of a 7-point error at `N = 512` (T1: `4.70448e-6` by BiCGSTAB, an MLflow run at commit 1f96a1b, against `4.70454e-6` by LU and the published `4.705e-6`).
 The errors are the paper's: `||e||_inf`, the max at the nodes, and `||e||_2 = sqrt(h^2 sum e^2)` over the nodes (Finding 1).
 
-Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 55da491, after the standard column's step budget was raised; its mixed rows are those of the earlier run at 9c24bcb to every digit) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 55da491, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 9c24bcb, and a start of the Table 5 run at 55da491 stopped within a minute; some KILLED), which the receipts do not use.
+Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 63b3dc1, which added the "everywhere" column; its mixed and standard rows are those of the earlier runs at 9c24bcb and 55da491 to every digit, apart from the run times) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 63b3dc1, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 55da491; some KILLED), which the receipts do not use.
 
 ## Verdict
 
@@ -27,7 +27,7 @@ Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` 
 | 2 | T2 | mismatch (ADR 0002 level 5): every printed digit at `N = 32` to 128, but at 256 and 512 policy iteration from the paper's start reaches a second root of the scheme, 10 to 65 times less accurate, with orders of -1.33 and 0.15 (Finding 5) | order of magnitude: within 3% |
 | 3 | T20c | order of magnitude: 6 of the 10 printed values exact, the rest within 0.7% (Finding 4) | order of magnitude: within 3% |
 | 4 | T21 | mismatch for the paper's `f = pi delta`: with the mass `pi/h^2` the error is `0.039` at every `N`; with `(4 sqrt 2 - 2)/h^2`, a mass fitted to the exact solution, within 19%, orders within 0.11 (Finding 3) | not printed |
-| 5 | `f = 1`, `g = 0` | the mixed scheme: order of magnitude, `u_h(0, 0)` within `1.0e-4`; the published value at `N = 512`, and at 256 by an iterate that did not converge (policy iteration cycles) | the standard 9-point scheme: within `2e-5`, exact at `N = 256` and 512, every `N` converged |
+| 5 | `f = 1`, `g = 0` | the mixed scheme: order of magnitude with `wide_search="everywhere"`, converged at every `N`, `u_h(0, 0)` within `1.0e-4` and the published value at `N = 256` and 512; the default rule gives the same values where it converges, but cycles at `N = 256` | the standard 9-point scheme: order of magnitude, within `2e-5`, the published value at `N = 256` and 512, every `N` converged |
 
 ### Table 1 (1), T1 on [-1, 1]^2, mixed scheme
 
@@ -116,7 +116,8 @@ The tables follow the cost estimate.
 
 - on T1 the wide stencil never wins, and on T20c the same few nodes take it under either rule, so both solutions are unchanged;
 - on T2 it takes the wide stencil at 0.7% of the nodes, next to the corner `(1, 1)`, where the Hessian of the solution is near the edge of diagonal dominance: the max error is `8.82e-4`, `7.77e-4`, `5.10e-4` at `N = 32`, 64, 128 against the published `2.359e-4`, `8.211e-5`, `2.882e-5`, and the order drops from 1.5 to 0.2 and 0.6;
-- on the cone it fails, with max errors of 1.5 to 3.7 that grow with `N`: near the tip the wide stencil's arms of length `sqrt(h)` see smaller second differences of the cone than the 7-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by `O(1)`.
+- on the cone it fails, with max errors of 1.5 to 3.7 that grow with `N`: near the tip the wide stencil's arms of length `sqrt(h)` see smaller second differences of the cone than the 7-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by `O(1)`;
+- on Table 5's problem both rules give the same `u_h(0, 0)` to 6 digits wherever the default converges, so Table 5 does not show which rule the paper used (the "everywhere" column of `chen_wan_lin2018_table5.csv`); Tables 2 and 4 do.
 
 The skip makes the scheme switch between two stencils at a node as `u` moves a stationary point across the edge of its region, so it is no longer the maximum of monotone operators everywhere that the paper's Section 6 proves convergent; Finding 5 shows the consequences, a second root and policy iteration that cycles.
 
@@ -147,16 +148,19 @@ The agreement at `N = 32` to 128, and the exact 7-point root from the exact solu
 
 ## Table 5
 
-| N | mixed, paper | mixed, ours | policy iterations | standard, paper | standard, ours (`-u_min` of `FDPoisson`) |
-|---|---|---|---|---|---|
-| 32 | -0.18380 | -0.18370 | 8 | 0.18063 | 0.18065 |
-| 64 | -0.18444 | -0.18447 | 11 | 0.18312 | 0.18313 |
-| 128 | -0.18461 | -0.18463 | 15 | 0.18436 | 0.18437 |
-| 256 | -0.18485 | -0.18485 (not converged) | 100, not converged | 0.18499 | 0.18499 |
-| 512 | -0.18507 | -0.18507 | 24 | 0.18530 | 0.18530 |
+| N | mixed, paper | everywhere, ours | policy iterations | default rule, ours | policy iterations | standard, paper | standard, ours (`-u_min` of `FDPoisson`) |
+|---|---|---|---|---|---|---|---|
+| 32 | -0.18380 | -0.18370 | 8 | -0.18370 | 8 | 0.18063 | 0.18065 |
+| 64 | -0.18444 | -0.18447 | 10 | -0.18447 | 11 | 0.18312 | 0.18313 |
+| 128 | -0.18461 | -0.18463 | 14 | -0.18463 | 15 | 0.18436 | 0.18437 |
+| 256 | -0.18485 | -0.18485 | 18 | | 100, not converged | 0.18499 | 0.18499 |
+| 512 | -0.18507 | -0.18507 | 26 | -0.18507 | 24 | 0.18530 | 0.18530 |
 
-The mixed scheme's `u_h(0, 0)` is the published value at `N = 512` and within `1.0e-4` at the coarser grids; at every `N` the wide stencil enters at 7% to 17% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
-At `N = 256` policy iteration cycles between policies with a residual near `0.07` and stops after 100 steps unconverged, the default rule's cycling of Finding 5; its last iterate prints the published value, but it is not a root of the scheme, so that row is no evidence of an exact match.
+Table 5 prints `u_h(0, 0)`, not an error, so ADR 0002's level 2 is judged on the ratio ours / published of `u_h(0, 0)` at every printed `N`, and its clause on the convergence orders has nothing to compare.
+With `wide_search="everywhere"` policy iteration converges at every `N` in 8 to 26 policy iterations, to residuals below the tolerance `1e-6`, and `u_h(0, 0)` is the published value at `N = 256` and 512 and within `1.0e-4` at the coarser grids, a ratio within `6e-4` of 1: order of magnitude, the level of the column, although the agreement is much closer than the level asks.
+At every `N` the wide stencil enters at 7% to 17% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
+The default rule gives the same `u_h(0, 0)` to 6 digits at `N = 32`, 64, 128 and 512, so Table 5 does not show which rule the paper used (Finding 2).
+At `N = 256` it cycles between policies with a residual near `0.07` and stops after 100 steps unconverged, the default rule's cycling of Finding 5; its last iterate prints the published value, but it is not a root of the scheme, so the cell is left empty, and with the default rule alone the column would be a mismatch at `N = 256`.
 The non-monotone column is the standard 9-point scheme, whose equation is even in `u` when `g = 0`: its concave solution is minus its convex one, which `FDPoisson` computes, so the column prints `-u_h(0, 0)` of `FDPoisson`; it matches within `2e-5`, and to every digit at `N = 256` and 512.
 The Poisson iteration takes 952, 3338, 11 593, 39 438 and 130 107 steps until successive iterates agree to `1e-12`, so `run_chen_wan_lin2018.py` gives it 300 000 (its default of 10 000 stopped it unconverged from `N = 128` on in an earlier run, with the same printed values).
 `T7-half` is T7 scaled, so Benamou-Froese-Oberman's `u_min = 0.2682` of T7 at 61 nodes per side gives `(0.2682 - 1)/4 = -0.1830` here, consistent with both columns.
