@@ -375,6 +375,8 @@ class Residual(Loss):
     def __call__(self, u, batch):
         if batch.g is not None:
             raise AssertionError("a transport problem has no Dirichlet data")
+        if batch.target is not T16.boundary.target:
+            raise AssertionError("a transport problem passes its target")
         hess = F.hessian(u, batch.interior)
         return {"loss": F.monge_ampere_residual(hess, batch.f).pow(2).mean()}
 
@@ -387,7 +389,7 @@ def test_a_batch_has_no_dirichlet_data_for_another_boundary_condition():
         optimizer=Adam(),
         max_steps=2,
     )
-    result = solver.solve(T16)  # Box, Transport: Residual checks batch.g is None
+    result = solver.solve(T16)  # Residual checks batch.g and batch.target
     assert result.info["iterations"] == 2
 
 
