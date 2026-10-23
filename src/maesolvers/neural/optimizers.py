@@ -113,6 +113,43 @@ class LBFGS(Optimizer):
 
 
 @dataclass(frozen=True, kw_only=True)
+class BFGS(Optimizer):
+    """BFGS with a dense inverse Hessian approximation, one iteration per step.
+
+    The iteration of SciPy's ``minimize(method="BFGS")``, with which
+    Nystrom-Vestberg 2023 trained, line search included, so that it takes
+    SciPy's iterates up to rounding: the approximation starts as the
+    identity and gets the BFGS update after every iteration, and the step
+    comes from SciPy's strong Wolfe line search. When the line search fails
+    (SciPy's "precision loss"), the step changes nothing, and the training
+    stops as ``"stalled"``. Unlike :class:`LBFGS` it keeps every curvature pair, in
+    ``n^2`` numbers for ``n`` parameters, so it suits small networks; on
+    the input convex network of the paper (563 parameters) it trains much
+    further in the same number of steps (``benchmarks/icnn.md``, Finding 1).
+    It has no parameters, and no stopping test of its own: the solver stops
+    on its ``tol``.
+    """
+
+    def build(
+        self, parameters: "Iterable[torch.nn.Parameter]"
+    ) -> "torch.optim.Optimizer":
+        """Make the dense BFGS optimizer.
+
+        Parameters
+        ----------
+        parameters
+            The parameters to train.
+
+        Returns
+        -------
+        torch.optim.Optimizer
+        """
+        from maesolvers.neural._bfgs import DenseBFGS
+
+        return DenseBFGS(parameters)
+
+
+@dataclass(frozen=True, kw_only=True)
 class Adam(Optimizer):
     """Adam with a constant learning rate, one update per step.
 

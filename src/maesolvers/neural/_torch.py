@@ -7,7 +7,7 @@ Imported only inside methods that run during a solve, so that
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 
 import numpy as np
@@ -126,6 +126,55 @@ def fit(
     }
 
 
+class InputConvex(torch.nn.Module):
+    """An input convex network (Amos et al. 2017; Nystrom-Vestberg 2023, eq. (3.7)).
+
+    ``z_1 = s(L_0 x + b_0)``, ``z_{j+1} = s(W_j z_j + L_j x + b_j)`` for the
+    later hidden layers, and the output ``W_k z_k + L_k x + b_k``, with
+    ``s`` the softplus. Each ``W_j`` is the elementwise square of the trained
+    parameter ``V_j``, so it is non-negative whatever ``V_j`` is; the
+    ``L_j`` and ``b_j`` are free. Every parameter starts from the normal
+    distribution with mean 0 and standard deviation ``std``.
+
+    Parameters
+    ----------
+    dim
+        Input dimension.
+    width, depth
+        Units per hidden layer and number of hidden layers.
+    std
+        Standard deviation of the initial parameters.
+    """
+
+    def __init__(self, dim: int, width: int, depth: int, std: float) -> None:
+        super().__init__()
+        self.inputs = torch.nn.ModuleList(
+            [torch.nn.Linear(dim, width) for _ in range(depth)]
+            + [torch.nn.Linear(dim, 1)]
+        )
+        self.roots = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.empty(width, width)) for _ in range(depth - 1)]
+            + [torch.nn.Parameter(torch.empty(1, width))]
+        )
+        with torch.no_grad():
+            for parameter in self.parameters():
+                parameter.normal_(std=std)
+
+    def weights(self) -> list[torch.Tensor]:
+        """Return the hidden-to-hidden and hidden-to-output weights ``W_j = V_j^2``."""
+        return [root.square() for root in self.roots]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        first, *later = self.inputs
+        z = torch.nn.functional.softplus(first(x))
+        weights = self.weights()
+        for layer, (inputs, weight) in enumerate(zip(later, weights, strict=True)):
+            z = z @ weight.T + inputs(x)
+            if layer < len(later) - 1:
+                z = torch.nn.functional.softplus(z)
+        return z.squeeze(-1)
+
+
 class Ansatz(torch.nn.Module):
     """``u = G + D N`` with ``G`` and ``D`` frozen: the module of HardDirichlet.
 
@@ -180,6 +229,31 @@ def building(seed: int) -> Iterator[None]:
 def trainable(module: torch.nn.Module) -> list[torch.nn.Parameter]:
     """Return the parameters of ``module`` that require a gradient."""
     return [p for p in module.parameters() if p.requires_grad]
+
+
+def flat_grad(params: Sequence[torch.Tensor]) -> torch.Tensor:
+    """Concatenate the gradients of ``params`` into one vector.
+
+    A parameter without a gradient (one the loss does not reach, such as the
+    output bias of a network whose Hessian is all the loss sees) contributes
+    zeros.
+
+    Parameters
+    ----------
+    params
+        The parameters, in the order of the vector.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(n,)`` for ``n`` parameter entries.
+    """
+    return torch.cat(
+        [
+            torch.zeros_like(p).view(-1) if p.grad is None else p.grad.view(-1)
+            for p in params
+        ]
+    )
 
 
 def _chunks(points: np.ndarray, dim: int) -> tuple[Iterator[torch.Tensor], tuple]:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import numbers
 import operator
 
+import numpy as np
+
 
 def integer(name: str, value: object, minimum: int) -> int:
     """Check an integer parameter and return it as a plain ``int``.
@@ -130,3 +132,35 @@ def nonnegative(name: str, value: object) -> float:
     if not 0.0 <= out < float("inf"):
         raise ValueError(f"{name} must be nonnegative and finite, got {out}")
     return out
+
+
+def boolean(name: str, value: object) -> bool:
+    """Check a bool parameter and return it as a plain ``bool``.
+
+    Parameters
+    ----------
+    name : str
+        The parameter's name, used in the error message.
+    value : object
+        The value given; a Python or numpy bool.
+
+    Returns
+    -------
+    bool
+        ``value`` as a plain ``bool``.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is not a bool (an int such as 1, or a str such as
+        ``"yes"``): ``"<name> must be a bool, got <type>"``.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a frozen dataclass:
+
+    >>> object.__setattr__(self, "flag", boolean("flag", self.flag))  # doctest: +SKIP
+    """
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a bool, got {type(value).__name__}")
+    return bool(value)

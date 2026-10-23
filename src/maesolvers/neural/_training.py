@@ -94,13 +94,7 @@ class TrainingModule(lightning.LightningModule):
 
     def on_fit_start(self) -> None:
         """Move the collocation points and data to the training device."""
-        data, device = self.data, self.device
-        self.data = Batch(
-            interior=data.interior.to(device),
-            f=data.f.to(device),
-            boundary=data.boundary.to(device),
-            g=None if data.g is None else data.g.to(device),
-        )
+        self.data = self.data.to(self.device)
 
     def _torch_optimizer(self) -> LightningOptimizer:
         optimizer = self.optimizers()
@@ -131,11 +125,7 @@ class TrainingModule(lightning.LightningModule):
         if not torch.isfinite(loss):
             self._finish("diverged")
             return
-        # A parameter the loss does not reach (the output bias of a network
-        # whose Hessian is all the loss sees) has no gradient: it is zero.
-        gradient = parameters_to_vector(
-            [torch.zeros_like(p) if p.grad is None else p.grad for p in parameters]
-        )
+        gradient = _torch.flat_grad(parameters)
         if float(gradient.abs().max()) <= self._tol:
             self._finish("converged")
             return
