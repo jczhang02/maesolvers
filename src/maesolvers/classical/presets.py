@@ -9,6 +9,7 @@ like every solver they declare their support on the class.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import ClassVar, Generic, Literal, TypeVar
 
@@ -21,7 +22,7 @@ from maesolvers.classical.second_boundary import SecondBoundary
 from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
-from maesolvers.core.transport import check_mass_balance
+from maesolvers.core.transport import can_check_mass_balance, check_mass_balance
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -456,9 +457,9 @@ class FDTransport(_SecondBoundaryPreset, Newton):
     by Newton from the root of the monotone scheme on the same grid, which
     Newton on the filtered scheme does not reach from the Poisson start on
     a domain embedded in the square (``benchmarks/bfo2014.md``). Its
-    ``check`` also runs :func:`~maesolvers.core.transport.check_mass_balance`,
-    so a target whose volume it does not know needs the composed solver and
-    a balance check by the caller.
+    ``check`` also runs :func:`~maesolvers.core.transport.check_mass_balance`
+    where that can compute both sides; on a domain or target of your own it
+    warns that the balance is unchecked and solves.
 
     Parameters
     ----------
@@ -492,6 +493,15 @@ class FDTransport(_SecondBoundaryPreset, Newton):
     def check(self, problem: Problem) -> None:
         """Raise unless the scheme supports the problem and its mass balances.
 
+        The balance is checked where
+        :func:`~maesolvers.core.transport.can_check_mass_balance` is True:
+        a :class:`~maesolvers.core.domains.Box`,
+        :class:`~maesolvers.core.domains.Disk` or
+        :class:`~maesolvers.core.domains.Ellipse` domain and target. On
+        another domain or target, which the scheme supports through its
+        support function, it warns instead; an imbalance then shows in
+        ``Result.info["u_anchor"]``, the constant that absorbs it.
+
         Parameters
         ----------
         problem
@@ -504,10 +514,22 @@ class FDTransport(_SecondBoundaryPreset, Newton):
         ValueError
             If the problem is out of mass balance
             (:func:`~maesolvers.core.transport.check_mass_balance`).
-        TypeError
-            If :func:`~maesolvers.core.transport.volume` does not know the
-            target, or :func:`~maesolvers.core.transport.integrate` the
-            domain.
+
+        Warns
+        -----
+        UserWarning
+            If the mass balance cannot be checked.
         """
         super().check(problem)
-        check_mass_balance(problem)
+        if can_check_mass_balance(problem):
+            check_mass_balance(problem)
+        else:
+            warnings.warn(
+                f"FDTransport does not check the mass balance of {problem.name}: "
+                "check_mass_balance integrates over a Box, Disk or Ellipse domain "
+                "and knows the volume of such a target only; compare the integral "
+                "of f with the target's volume yourself, or read "
+                'Result.info["u_anchor"]',
+                UserWarning,
+                stacklevel=3,
+            )

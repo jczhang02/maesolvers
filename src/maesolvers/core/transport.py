@@ -42,8 +42,58 @@ _SLAB_POINTS = 2**20
 """Most points :func:`integrate` passes to ``f`` at once on a box."""
 
 
+_KNOWN = (Box, Disk, Ellipse)
+"""The domain types whose geometry every function here knows."""
+
+
 def _unsupported(what: str, domain: object) -> TypeError:
     return TypeError(f"{what} knows Box, Disk and Ellipse, got {type(domain).__name__}")
+
+
+def knows_support_function(target: object) -> bool:
+    """Whether :func:`support_function` takes a target.
+
+    True for a :class:`Box`, a :class:`Disk`, an :class:`Ellipse` and a
+    target with the method of
+    :class:`~maesolvers.core.domains.SupportFunction`; it calls no method of
+    the target, so a solver's ``supports`` can ask it.
+
+    Parameters
+    ----------
+    target
+        Any object.
+
+    Returns
+    -------
+    bool
+    """
+    return isinstance(target, (*_KNOWN, SupportFunction))
+
+
+def can_check_mass_balance(problem: Problem) -> bool:
+    """Whether :func:`check_mass_balance` can compute both sides of a problem.
+
+    True for a :class:`~maesolvers.core.boundary.Transport` problem whose
+    domain :func:`integrate` knows and whose target :func:`volume` knows,
+    each a :class:`Box`, a :class:`Disk` or an :class:`Ellipse`. A solver
+    that runs the check in its ``check`` asks this first, so that a problem
+    it supports on another domain or target does not raise ``TypeError``.
+
+    Parameters
+    ----------
+    problem
+        Any problem.
+
+    Returns
+    -------
+    bool
+    """
+    boundary = problem.boundary
+    return (
+        isinstance(boundary, Transport)
+        and isinstance(problem.domain, _KNOWN)
+        and isinstance(boundary.target, _KNOWN)
+    )
 
 
 def support_function(target: Domain, n: np.ndarray) -> np.ndarray:

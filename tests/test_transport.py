@@ -26,9 +26,11 @@ from maesolvers import (
     UnsupportedProblemError,
 )
 from maesolvers.core import (
+    can_check_mass_balance,
     check_mass_balance,
     closest_boundary_point,
     integrate,
+    knows_support_function,
     signed_distance,
     support_function,
     volume,
@@ -293,6 +295,20 @@ def test_support_function_asks_a_target_of_ones_own():
     # The other helpers keep to the shapes they know.
     with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
         signed_distance(target, n)
+
+
+def test_the_predicates_name_what_the_helpers_know():
+    target = _Rotated()
+    for known in (*TARGETS, target):
+        assert knows_support_function(known)
+    assert not knows_support_function(CutQuarterDisk())
+    assert can_check_mass_balance(T12) and can_check_mass_balance(T16)
+    assert not can_check_mass_balance(T1)  # Dirichlet
+    square = Box((-1.0, -1.0), (1.0, 1.0))
+    own_target = Problem("t", square, lambda x: x[..., 0], Transport(target))
+    own_domain = Problem("d", CutQuarterDisk(), lambda x: x[..., 0], Transport(square))
+    assert not can_check_mass_balance(own_target)
+    assert not can_check_mass_balance(own_domain)
 
 
 # volume, integrate and the mass balance

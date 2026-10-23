@@ -39,7 +39,12 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
 
-from maesolvers.classical.filtered import filter_function, filter_slope
+from maesolvers.classical.filtered import (
+    filter_slope,
+    filter_width,
+    filtered_jacobian,
+    filtered_value,
+)
 from maesolvers.classical.grid import (
     BoxGrid,
     centred_hessian,
@@ -48,8 +53,9 @@ from maesolvers.classical.grid import (
 )
 from maesolvers.classical.monotone import (
     angular_resolution,
-    pair_jacobian_coefficients,
-    pair_values,
+    monotone_jacobian,
+    monotone_kappa,
+    monotone_operator,
     stencil_pairs,
 )
 from maesolvers.classical.schemes import Scheme, monge_ampere, monge_ampere_jacobian
@@ -58,7 +64,7 @@ from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import Box, Domain
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
-from maesolvers.core.transport import support_function
+from maesolvers.core.transport import knows_support_function, support_function
 
 _ROUND = 1e-12
 """Components of a direction below this in size are set to zero."""
@@ -283,7 +289,8 @@ class SecondBoundaryGrid:
         Shape ``(pairs, m)``: where a pair enters the monotone minimum.
     kappa
         The slope of :func:`~maesolvers.classical.monotone.pair_values`
-        below zero, shape ``(m,)``.
+        below zero, :func:`~maesolvers.classical.monotone.monotone_kappa` of
+        ``f``, shape ``(m,)``.
     floor
         The monotone Jacobian floor, ``jacobian_floor / (2 h^2)``.
     width
@@ -295,10 +302,12 @@ class SecondBoundaryGrid:
         Shape ``(k,)``: ``H*(n)`` of each pair.
     owner
         Shape ``(k,)``: the ring row of each pair, nondecreasing.
-    start
-        The Neumann data ``y_0(x) . n_x`` of the start, one per ring node.
-    start_operator
-        Shape ``(ring, (n + 1)^2)``: the upwind ``grad u . n_x`` of the start.
+    neumann_data
+        The Neumann data ``y_0(x) . n_x`` of :meth:`SecondBoundary.solve_laplace`,
+        one per ring node.
+    neumann_operator
+        Shape ``(ring, (n + 1)^2)``: the upwind ``grad u . n_x`` of
+        :meth:`SecondBoundary.solve_laplace`.
     """
 
     box_grid: BoxGrid
@@ -316,8 +325,8 @@ class SecondBoundaryGrid:
     upwind: sp.csr_matrix
     support: np.ndarray
     owner: np.ndarray
-    start: np.ndarray
-    start_operator: sp.csr_matrix
+    neumann_data: np.ndarray
+    neumann_operator: sp.csr_matrix
 
     @property
     def interior(self) -> np.ndarray:
@@ -473,7 +482,8 @@ class SecondBoundary(Scheme):
         inside = np.all(
             np.asarray(square.lo) <= np.asarray(bbox.lo) + 1e-12
         ) and np.all(np.asarray(bbox.hi) <= np.asarray(square.hi) + 1e-12)
-        return bool(_square(square) and inside and _knows(problem.boundary.target))
+        target = problem.boundary.target
+        return bool(_square(square) and inside and knows_support_function(target))
 
     def discretize(self, problem: Problem) -> SecondBoundaryGrid:
         """Build the grid, the interior operators and the boundary equation.
@@ -524,7 +534,8 @@ class SecondBoundary(Scheme):
         full = np.array([part[1] for part in parts]).reshape(pairs, 2, -1)
         if self.interior == "filtered":
             if self.epsilon is None:
-                width = float(np.sqrt(h) + 2.0 * angular_resolution(self.stencil))
+                dtheta = 2.0 * angular_resolution(self.stencil)
+                width = filter_width(h, dtheta, divisor=1.0)
             else:
                 width = self.epsilon
         else:
@@ -550,14 +561,14 @@ class SecondBoundary(Scheme):
             dxy=d[0, 1],
             directional=sp.csr_matrix(sp.vstack([part[0] for part in parts])),
             available=full[:, 0] & full[:, 1],
-            kappa=np.sqrt(np.maximum(np.maximum(f, np.mean(f)), 1.0)),
+            kappa=monotone_kappa(f),
             floor=self.jacobian_floor / (2.0 * h * h),
             width=width,
             upwind=upwind_gradient(box_grid, ring[owner], directions[which]),
             support=np.asarray(support_function(target, directions))[which],
             owner=owner,
-            start=np.sum(start_map * normal, axis=1),
-            start_operator=upwind_gradient(box_grid, ring, normal),
+            neumann_data=np.sum(start_map * normal, axis=1),
+            neumann_operator=upwind_gradient(box_grid, ring, normal),
         )
 
     def _directions(self, target: Domain) -> np.ndarray:
@@ -585,14 +596,75 @@ class SecondBoundary(Scheme):
         out[grid.interior] = grid.f
         return out
 
+    def interior_operator(self, grid: SecondBoundaryGrid, v: np.ndarray) -> np.ndarray:
+        """Return the Monge-Ampere operator ``MA[v]`` at the interior nodes.
+
+        The monotone operator of
+        :func:`~maesolvers.classical.monotone.monotone_operator`, or, for the
+        filtered interior, its
+        :func:`~maesolvers.classical.filtered.filtered_value` with the
+        standard 9-point ``u_xx u_yy - u_xy^2``. With
+        :meth:`interior_jacobian`, the hook a subclass overrides to put
+        another scheme inside the square; the right-hand side, the anchor
+        ``u(x_0)`` and the boundary ring stay as they are.
+
+        Parameters
+        ----------
+        grid
+            From :meth:`discretize`.
+        v
+            The unknowns, the values at all nodes in flat order.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``((n - 1)^2,)``, in the flat order of the interior nodes.
+        """
+        mono, _, _ = self._monotone(grid, v)
+        if grid.width is None:
+            return mono
+        return filtered_value(self._accurate(grid, v), mono, grid.width)
+
+    def interior_jacobian(
+        self, grid: SecondBoundaryGrid, v: np.ndarray
+    ) -> sp.csr_matrix:
+        """Return a generalised Jacobian of :meth:`interior_operator`.
+
+        The monotone rows of
+        :func:`~maesolvers.classical.monotone.monotone_jacobian` (Danskin's
+        theorem on the pair that attains the minimum) or, for the filtered
+        interior, Froese and Oberman's
+        :func:`~maesolvers.classical.filtered.filtered_jacobian` of them and
+        the standard scheme's.
+
+        Parameters
+        ----------
+        grid
+            From :meth:`discretize`.
+        v
+            The unknowns, the values at all nodes in flat order.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Shape ``((n - 1)^2, (n + 1)^2)``.
+        """
+        mono, d, active = self._monotone(grid, v)
+        rows = monotone_jacobian(d, active, grid.kappa, grid.floor, grid.directional)
+        if grid.width is None:
+            return rows
+        uxx, uyy, uxy = grid.dxx @ v, grid.dyy @ v, grid.dxy @ v
+        slope = filter_slope((monge_ampere(uxx, uyy, uxy) - mono) / grid.width)
+        accurate = monge_ampere_jacobian(uxx, uyy, uxy, grid.dxx, grid.dyy, grid.dxy)
+        return filtered_jacobian(slope, rows, accurate)
+
     def _monotone(
         self, grid: SecondBoundaryGrid, v: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return the monotone operator, its differences and active pair, inside."""
         d = (grid.directional @ v).reshape(len(grid.available), 2, -1)
-        values = np.where(grid.available, pair_values(d, grid.kappa), np.inf)
-        active = values.argmin(axis=0)
-        return values.min(axis=0), d, active
+        value, active = monotone_operator(d, grid.available, grid.kappa)
+        return value, d, active
 
     def _accurate(self, grid: SecondBoundaryGrid, v: np.ndarray) -> np.ndarray:
         """Return the standard 9-point ``u_xx u_yy - u_xy^2`` at the interior nodes."""
@@ -612,9 +684,8 @@ class SecondBoundary(Scheme):
     def residual(self, grid: SecondBoundaryGrid, v: np.ndarray) -> np.ndarray:
         """Return the residual of every node's equation, in flat node order.
 
-        ``MA[v] - f - u(x_0)`` at the interior nodes, with ``MA`` the
-        monotone operator or ``MA_M + eps S((MA_A - MA_M) / eps)`` for the
-        filtered interior; the boundary equation on the ring.
+        ``MA[v] - f - u(x_0)`` at the interior nodes, with ``MA``
+        :meth:`interior_operator`; the boundary equation on the ring.
 
         Parameters
         ----------
@@ -628,27 +699,16 @@ class SecondBoundary(Scheme):
         numpy.ndarray
             Shape ``((n + 1)^2,)``.
         """
-        mono, _, _ = self._monotone(grid, v)
-        if grid.width is None:
-            operator = mono
-        else:
-            x = (self._accurate(grid, v) - mono) / grid.width
-            operator = mono + grid.width * filter_function(x)
         out = np.empty(len(v))
-        out[grid.interior] = operator - grid.f - v[grid.anchor]
+        out[grid.interior] = self.interior_operator(grid, v) - grid.f - v[grid.anchor]
         out[~grid.interior] = self._boundary(grid, v)[0]
         return out
 
     def jacobian(self, grid: SecondBoundaryGrid, v: np.ndarray) -> sp.csc_matrix:
         """Return a generalised Jacobian of :meth:`residual`, in flat node order.
 
-        The monotone rows differentiate the pair that attains the minimum
-        (Danskin's theorem) with the coefficients of
-        :func:`~maesolvers.classical.monotone.pair_jacobian_coefficients`;
-        the filtered rows take Froese and Oberman's
-        ``(1 - S') J_M + max(S', 0) J_A``, as
-        :class:`~maesolvers.classical.filtered.Filtered` does; every interior
-        row has ``-1`` in the column of ``x_0``. A ring row is the upwind
+        The interior rows are :meth:`interior_jacobian`, with ``-1`` in the
+        column of ``x_0``. A ring row is the upwind
         difference of the direction that attains the maximum
         (Benamou-Froese-Oberman 2014, Section 4.3.1).
 
@@ -664,29 +724,11 @@ class SecondBoundary(Scheme):
         scipy.sparse.csc_matrix
             Shape ``((n + 1)^2, (n + 1)^2)``.
         """
-        mono, d, active = self._monotone(grid, v)
-        m, pairs = len(mono), len(grid.available)
-        chosen = np.arange(pairs)[:, None] == active
-        weights = pair_jacobian_coefficients(d, grid.kappa, grid.floor)
-        weights = (weights * chosen[:, None, :]).ravel()
-        collapse = sp.csr_matrix(
-            (weights, (np.tile(np.arange(m), 2 * pairs), np.arange(weights.size))),
-            shape=(m, weights.size),
-        )
-        rows = collapse @ grid.directional
-        if grid.width is not None:
-            uxx, uyy, uxy = grid.dxx @ v, grid.dyy @ v, grid.dxy @ v
-            slope = filter_slope((monge_ampere(uxx, uyy, uxy) - mono) / grid.width)
-            accurate = monge_ampere_jacobian(
-                uxx, uyy, uxy, grid.dxx, grid.dyy, grid.dxy
-            )
-            rows = (
-                sp.diags(1.0 - slope) @ rows
-                + sp.diags(np.maximum(slope, 0.0)) @ accurate
-            )
+        rows = self.interior_jacobian(grid, v)
+        m = len(grid.f)
         anchor = sp.csr_matrix(
             (np.full(m, -1.0), (np.arange(m), np.full(m, grid.anchor))),
-            shape=rows.shape,
+            shape=(m, len(v)),
         )
         ring = grid.upwind[self._boundary(grid, v)[1]]
         return sp.csc_matrix(_in_node_order(grid, rows + anchor, ring))
@@ -716,13 +758,13 @@ class SecondBoundary(Scheme):
         size = len(grid.interior)
         laplace = (grid.dxx + grid.dyy).tocsr()
         source = np.asarray(rhs, dtype=float)[grid.interior]
-        rows = _in_node_order(grid, laplace, grid.start_operator)
+        rows = _in_node_order(grid, laplace, grid.neumann_operator)
         column = np.zeros(size)
         column[grid.interior] = -source
         pin = sp.csr_matrix(([1.0], ([0], [grid.anchor])), shape=(1, size))
         system = sp.bmat([[rows, sp.csr_matrix(column[:, None])], [pin, None]])
         data = np.zeros(size + 1)
-        data[np.flatnonzero(~grid.interior)] = grid.start
+        data[np.flatnonzero(~grid.interior)] = grid.neumann_data
         return np.asarray(spsolve(sp.csc_matrix(system), data))[:size]
 
     def solution(self, grid: SecondBoundaryGrid, v: np.ndarray) -> Solution:
@@ -791,15 +833,6 @@ def _spacing(grid: BoxGrid) -> float:
 def _square(box: Box) -> bool:
     width, height = np.subtract(box.hi, box.lo)
     return bool(np.isclose(width, height, rtol=1e-12, atol=0.0))
-
-
-def _knows(target: Domain) -> bool:
-    """Whether :func:`support_function` knows the target."""
-    try:
-        support_function(target, np.eye(target.dim))
-    except TypeError:
-        return False
-    return True
 
 
 def _ring_normals(grid: BoxGrid) -> np.ndarray:

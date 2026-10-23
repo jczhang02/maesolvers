@@ -33,6 +33,7 @@ from maesolvers.classical.second_boundary import (
     uniform_directions,
     upwind_gradient,
 )
+from maesolvers.core.transport import support_function
 from maesolvers.metrics import gradient_fd, gradient_map_error
 
 SQUARE = Box((-0.5, -0.5), (0.5, 0.5))
@@ -205,6 +206,23 @@ def test_the_scheme_supports_transport_problems_in_a_square():
         scheme.discretize(T1)
 
 
+def test_the_directions_default_to_the_face_normals_of_a_box_target():
+    disk = Problem("disk", SQUARE, _constant(np.pi / 4), Transport(Disk((0, 0), 0.5)))
+    for problem, directions, count in (
+        (T16, None, 4),  # a Box target: its face normals
+        (T16, 8, 8),
+        (disk, None, 512),
+        (disk, 8, 8),
+    ):
+        grid = SecondBoundary(n=4, directions=directions).discretize(problem)
+        target = problem.boundary.target
+        expected = face_normals() if count == 4 else uniform_directions(count)
+        allowed = admissible(grid.box_grid, expected)
+        assert len(grid.support) == np.sum(allowed)
+        _, which = np.nonzero(allowed)
+        assert np.allclose(grid.support, support_function(target, expected[which]))
+
+
 def test_the_scheme_needs_a_nonnegative_f():
     negative = dataclasses.replace(STRETCH, f=_constant(-1.0))
     with pytest.raises(ValueError, match="f >= 0"):
@@ -234,7 +252,7 @@ def test_the_start_solves_its_neumann_problem():
     laplace = (grid.dxx + grid.dyy) @ u
     k = laplace / rhs[grid.interior]
     assert np.allclose(k, k[0])  # one constant for the compatibility
-    assert np.allclose(grid.start_operator @ u, grid.start)
+    assert np.allclose(grid.neumann_operator @ u, grid.neumann_data)
     assert u[grid.anchor] == pytest.approx(0.0, abs=1e-14)
     # The start map of a box onto a box is the exact map; the one-sided
     # Neumann rows put the start within O(h) of the exact solution.
@@ -293,10 +311,8 @@ def test_a_target_of_ones_own_by_its_support_function():
         Transport(_Rotated()),
     )
     preset = FDTransport(n=32, directions=64, box=Box((-1.0, -1.0), (1.0, 1.0)))
-    with pytest.raises(TypeError, match="volume"):
-        preset.solve(problem)  # the mass balance needs the target's volume
-    composed = Newton(scheme=preset.scheme, start=preset.start, max_iter=200)
-    result = composed.solve(problem)
+    with pytest.warns(UserWarning, match="does not check the mass balance"):
+        result = preset.solve(problem)  # volume does not know the target
     assert result.info["converged"]
     error = _gradient_error(result, lambda x: x @ linear.T)
     assert error["gradient_max"] < 0.1  # 0.0549 (BFO 2014, Table 2: 0.0667)
@@ -340,6 +356,79 @@ def test_the_preset_checks_the_mass_balance():
         FDTransport(n=8).solve(unbalanced)
     with pytest.raises(UnsupportedProblemError):
         FDTransport(n=8).solve(T1)
+
+
+def _half_disk(x):
+    x = np.asarray(x, dtype=float)
+    return (x[..., 0] > 0.0) & (np.sum(x**2, axis=-1) < 0.25)
+
+
+@dataclasses.dataclass(frozen=True)
+class _HalfDisk:
+    """A source domain that ``integrate`` does not know."""
+
+    dim: ClassVar[int] = 2
+    bbox: ClassVar[Box] = Box((-0.5, -0.5), (0.5, 0.5))
+
+    def contains(self, x):
+        x = np.asarray(x, dtype=float)
+        return (x[..., 0] >= 0.0) & (np.sum(x**2, axis=-1) <= 0.25)
+
+    def interior(self, x):
+        return _half_disk(x)
+
+
+@pytest.mark.parametrize(
+    ("problem", "box", "checked"),
+    [
+        (T16, None, True),
+        (T12, None, True),
+        (
+            Problem(
+                "own target",
+                Ellipse((0.0, 0.0), (0.8, 0.4)),
+                _constant(0.44 / 0.32),
+                Transport(_Rotated()),
+            ),
+            Box((-1.0, -1.0), (1.0, 1.0)),
+            False,
+        ),
+        (
+            Problem(
+                "own domain",
+                _HalfDisk(),
+                _constant(1.0),
+                Transport(Disk((0.0, 0.0), np.sqrt(0.5) / 2)),
+            ),
+            None,
+            False,
+        ),
+        (
+            Problem(
+                "no support function",
+                SQUARE,
+                _constant(1.0),
+                Transport(CutQuarterDisk()),
+            ),
+            None,
+            None,
+        ),
+    ],
+    ids=lambda p: getattr(p, "name", None),
+)
+def test_the_preset_solves_exactly_the_problems_it_supports(problem, box, checked):
+    preset = FDTransport(n=8, directions=16, box=box)
+    if checked is None:
+        assert not preset.supports(problem)
+        with pytest.raises(UnsupportedProblemError):
+            preset.solve(problem)
+        return
+    assert preset.supports(problem)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        preset.solve(problem)
+    unchecked = [w for w in caught if "check the mass balance" in str(w.message)]
+    assert len(unchecked) == (0 if checked else 1)
 
 
 def test_the_preset_reaches_t12_and_t16():
