@@ -4,14 +4,15 @@ Problems, with Dirichlet data from the exact solution: in 2D on `(0, 1)^2`, T1 (
 Published numbers: J. Liu, B. D. Froese, A. M. Oberman, M. Xiao, Int. J. Comput. Math. 94 (2017) 1850-1866, Tables 1 and 2 (2D, red-black and lexicographic Gauss-Seidel) and Tables 3, 5, 6 and 7 (3D, lexicographic), each checked against the page images; the text layer of the PDF garbles the first rows of Tables 5 to 7 and prints Example 4.5's `|x|^2 / 2` as `(x + y + z) / 2`.
 Table 4 reprints numbers of other papers and is not a target; its wide-stencil column is cross-checked against the 19-point monotone scheme (section "Table 4").
 
-Ours: `FDMultigrid(n=N, ordering=...)`, the preset `Multigrid(scheme=StandardBox(n=N))` (ADR 0004; `docs/methods/multigrid.md`), with the paper's settings, which are the defaults: one FMG cycle, then FAS V-cycles with 2 + 2 nonlinear Gauss-Seidel sweeps and one sweep on the grid of 2 cells per side, until the relative residual is at most `1e-6`; float64.
-Every run of `multigrid.csv` converged.
+Ours: `Multigrid(scheme=StandardBox(n=N), ordering=...)`, which the preset `FDMultigrid(n=N, ordering=...)` is (ADR 0004; `docs/methods/multigrid.md`), with the paper's settings, which are the defaults: one FMG cycle, then FAS V-cycles with 2 + 2 nonlinear Gauss-Seidel sweeps and one sweep on the grid of 2 cells per side; float64.
+The columns compared with the paper stop as the paper does, at the first cycle whose relative residual is at most `1e-6` (`PaperStop` in `run_multigrid.py`, a subclass whose `converged` tests the relative residual); every run stops so after 1 or 2 cycles.
+`FDMultigrid` itself stops on its residual bound (`tol = 1e-6` times `max(1, max |f|)` on the residual's RMS); its cycles, its error and whether it converged are the `default_*` columns of `multigrid.csv` (Finding 5).
 Error: max over all grid nodes of `|u_h - u|`, `evaluate`'s `max`, `h = 1/N` (ADR 0001; `pi/N` on T46).
-"Converged" is the error of the discrete solution itself: the same preset (red-black) for ten cycles, the FMG cycle and nine V-cycles, whatever the relative residual, which is then at most `3e-16` (except on T2, `1.4e-11`, and T22 at `N = 128`, Finding 4).
-The Gauss-Seidel columns repeat the paper's stand-alone solver: lexicographic sweeps of `StandardBox.relax` from `1.01 u` at the unknowns until the residual's discrete L2 norm is `1e-6` times that of the start.
-Raw data: `multigrid.csv` (82 rows), written on a100server by `run_multigrid.py` at commit 64fe66a, clean checkout (`just remote-bg multigrid-r2 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python benchmarks/run_multigrid.py --workers 6 --out /jczhang02/maesolvers-data/data/multigrid.csv`, then copied here), and `multigrid_checks.csv` by `run_multigrid.py --checks --workers 12` at commit f11539d, whose library code is the same (its eight T2 rows with the paper's root selection repeat `multigrid.csv` to all digits).
-An earlier run at 85bcd7c gave the same values in every column but the times and the converged error, which it took with `tol=1e-12`; that tolerance stopped after the FMG cycle on the larger grids, where the reference of the relative residual is large (Finding 2).
-Every row is one run in the MLflow experiment `maesolvers-multigrid-<problem>` (T1, T2, T3, T9, T22, T28, T46), named `table<k>-<ordering>-n<N>`, `check-<root>-<ordering>-n<N>` or `check-smallest-<ordering>-n<N>-cycles<k>`, tagged with its commit and a clean checkout; the experiments also hold the earlier generation (85bcd7c, and the T2 checks at fe47d9b).
+"Converged" is the error of the discrete solution itself: `FDMultigrid` (red-black) for ten cycles, the FMG cycle and nine V-cycles, whatever the residual, after which the relative residual is at most `3e-16` (except on T2, `1.4e-11`, and T22 at `N = 128`, Finding 4).
+The Gauss-Seidel columns repeat the paper's stand-alone solver: lexicographic sweeps of `StandardBox.relax` from `1.01 u` at the unknowns until the residual's discrete L2 norm is `1e-6` times that of the start (`gauss_seidel` in `run_multigrid.py`, which `tests/test_reproduction.py` pins).
+Raw data: `multigrid.csv` (82 rows), written on a100server by `run_multigrid.py` at commit 3d31695, clean checkout (`just remote-bg multigrid-r3 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python benchmarks/run_multigrid.py --workers 8 --out /jczhang02/maesolvers-data/data/multigrid-r3.csv`, then copied here), `multigrid_checks.csv` by `run_multigrid.py --checks --workers 5` and `multigrid_table4.csv` by `run_multigrid.py --table4 --workers 3`, both at the same commit.
+The columns of the earlier generation (64fe66a, with the paper's rule as the library's stopping rule) are repeated to all digits but the times and the last bits of the relative residuals, which now take the RMS over the unknowns instead of over all nodes, the ring counting 0; the `default_*` columns and the checks of the FMG interpolation and the coarse start are new.
+Every row is one run in the MLflow experiment `maesolvers-multigrid-<problem>` (T1, T2, T3, T9, T22, T28, T46), named `table<k>-<ordering>-n<N>`, `check-<variant>-<ordering>-n<N>` or `check-<variant>-<ordering>-n<N>-cycles<k>`, or `table4-n<N>`, tagged with its commit and a clean checkout; the experiments also hold the earlier generations (85bcd7c, 64fe66a, f11539d, 2b0f5ad, and the T2 checks at fe47d9b).
 `run_multigrid.py --report` prints the tables below from the CSV.
 
 "As printed" rounds our value to the digits the paper prints; a bold value differs from the published one there.
@@ -186,6 +187,7 @@ With it the iteration counts on T2 match Table 1 in all seven cells and Table 2 
 The relative residuals after the cycle do not match: in 3D the printed value divided by ours runs from 0.1 (T46, `N = 8`, where the paper takes a second cycle) to 220 (T9, `N = 128`); it grows with `N` on T9 (3.7 to 220) and T46 (3.0 to 60 from `N = 16`), stays at 3 to 4 on T28 and between 0.9 and 11 on T22, so on the smooth examples the paper's reference grows more slowly with `N` than ours.
 For the stand-alone Gauss-Seidel solver the natural reference, the residual of the start `1.01 u`, reproduces the published sweep counts exactly, so the norm itself (the plain L2 norm over the unknowns) is the paper's.
 The stopping rule decides only whether a second cycle runs; where it does (T2 at `N = 128` and 256, and 512 lexicographic), the error changes by 0.4 to 1.7 percent.
+Because the reference grows with `N`, the rule says little about the iterate on fine grids, so `FDMultigrid` stops on another one, and the receipt applies the paper's rule only to compare with the paper (Finding 5).
 
 ## Finding 3: the smallest real root also where the coarse right-hand side is negative
 
@@ -203,9 +205,29 @@ At `N = 64` and 128 our FMG cycle stops above the discrete solution's error too 
 `multigrid_checks.csv` runs more cycles: at `N = 64` they converge (the error 8.3671e-4 from cycle 10 on, the residual's max 1e-9 from cycle 20), at `N = 128` they do not.
 There the iterates repeat: with red-black sweeps cycle 20 equals cycle 5 and cycle 30 cycle 15, with lexicographic ones cycle 30 equals cycle 10, to all digits, and the error moves between 6.4e-4 and 2.0e-3 while the residual's max stays between 3e2 and 1e5.
 So at `N = 128` the multigrid iteration has no limit near the corner, and the published 1.6e-3 and our 1.99e-3 are both points on such a path; the "converged" value of Table 7 at 128 is the tenth red-black cycle.
+`FDMultigrid`'s own stopping rule sees this: at `N = 128` it runs its 50 cycles and reports `converged = False` in both orderings, while at `N = 64` it stops after 5 (red-black) or 6 (lexicographic) cycles at the discrete solution's error, 8.367e-4 (Finding 5).
 Whether a smaller stopping step near the corner, more sweeps there, or another coarse-grid treatment would converge is not tested here.
 
 T2, the 2D version, converges (10 cycles bring the relative residual to `1e-11`), but at `N >= 512` the cycle that meets the tolerance leaves a residual of up to `3e8` at the corner node (`f` there is about `1/(8 h^2)`) and non-convex fractions of 2e-6 to 5e-5, while the error is within 2 percent of the discrete solution's.
+
+## Finding 5: the paper's stopping rule against `FDMultigrid`'s
+
+The paper's rule tests the relative residual, whose reference grows like `N^(2d)` (Finding 2), so on fine grids it holds after the FMG cycle whatever the iterate: on T22 at `N = 128` it holds while the residual is `10^3` to `10^5` near the corner and the cycles have no limit (Finding 4), and the earlier generation of `FDMultigrid`, which stopped by it, reported `converged = True` there.
+`FDMultigrid` now stops when the RMS of the residual over the unknowns is at most `tol * max(1, max |f|)` with `tol = 1e-6`, and reports the relative residual in its history only (`docs/methods/multigrid.md`, Stopping rule).
+On the paper's examples (the `default_*` columns; error change against the paper's rule, which takes 1 or 2 cycles):
+
+| Table | Problem | Cycles, red-black | Cycles, lexicographic | Error change |
+|---|---|---|---|---|
+| 1, 2 | T1 | 1 (2 at `N = 128`) | 1 (2 at `N = 128`) | -6 and -20 percent at `N = 128`, none elsewhere |
+| 1, 2 | T3 | 1 to 3 | 2 or 3 | -5 to 0 (red-black), -15 to -14 percent (lexicographic) |
+| 1, 2 | T2 | 6 to 10 | 7 to 14 | +0.1 to +1.8 percent |
+| 3 | T9 | 2 to 4 | 2 to 4 | -21 to -17 (red-black), -30 to -23 percent (lexicographic) |
+| 5 | T46 | 2 or 3 | 2 to 4 | +3 to +12 (red-black), -18 to -8 percent (lexicographic) |
+| 6 | T28 | 2 or 3 | 3 or 4 | -9 to -3 (red-black), -17 to -8 percent (lexicographic) |
+| 7 | T22 | 3 to 5; 50 at `N = 128`, not converged | 4 to 6; 50 at `N = 128`, not converged | +1 to +2 percent to `N = 32`, -64 to -68 percent at 64 |
+
+Every run but T22 at `N = 128` converges, and its error then lies within 6 percent of the discrete solution's, or 28 percent above it where one FMG cycle already meets the bound (T1, lexicographic, from `N = 256`).
+The "Iter" columns of the tables above are the paper's rule, not `FDMultigrid`'s cycle counts, and Table 7 at `N = 64` compares the iterate the paper's rule stops at (2.36e-3), not the discrete solution `FDMultigrid` reaches (8.37e-4).
 
 ## Conventions
 
@@ -221,10 +243,11 @@ T2, the 2D version, converges (10 cycles bring the relative residual to `1e-11`)
 
 ## Iterations and time
 
-The time is `Result.info["time"]` (the discretisation of every grid, the cycles and the solution fields, the spline through the node values among them) on one thread of an Intel Xeon Platinum 8358 of a100server, six runs at a time on a shared machine; the paper's is MATLAB on an Intel Core i3-3120M laptop.
-In 2D the red-black time grows by a factor of 4.6 to 5.6 per halving of `h` from `N = 1024` on, about the factor 4 of the unknowns, as the paper's does; the lexicographic one by 2.6 to 4.8, since the fixed cost of each of its `3 N` vectorised steps dominates below `N = 8192`.
-At `N = 8192` ours takes 154 s (red-black) and 125 s (lexicographic) against the paper's 67 s and 246 s.
-In 3D ours grows by 2 to 4 per halving up to `N = 128`, less than the factor 8 of the unknowns, for the same reason; at `N = 128` it takes 8 to 11 s against the paper's 133 to 137 s.
+The time is `Result.info["time"]` (the discretisation of every grid, the cycles and the solution fields, the spline through the node values among them) of the run at the paper's stopping rule, on one thread of an Intel Xeon Platinum 8358 of a100server, eight runs at a time on a machine shared with other jobs; the paper's is MATLAB on an Intel Core i3-3120M laptop.
+In 2D the red-black time grows by a factor of 4.1 to 6.0 per halving of `h` from `N = 1024` on, about the factor 4 of the unknowns, as the paper's does; the lexicographic one by 2.9 to 4.3, since the fixed cost of each of its `3 N` vectorised steps dominates below `N = 8192`.
+At `N = 8192` ours takes 155 s (red-black) and 117 s (lexicographic) on T1 against the paper's 67 s and 246 s.
+In 3D ours grows by 2 to 4 per halving up to `N = 128`, less than the factor 8 of the unknowns, for the same reason; at `N = 128` it takes 9 to 14 s against the paper's 133 to 137 s.
+`FDMultigrid`'s own rule takes more cycles (Finding 5): at `N = 8192` on T2, 643 s (lexicographic, 14 cycles) and 699 s (red-black, 10 cycles).
 The times are recorded, not compared (ADR 0002).
 
 ## Table 4: T9 against the wide-stencil scheme

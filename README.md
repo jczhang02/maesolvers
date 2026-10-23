@@ -199,8 +199,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDMultigrid` | `PenaltyMLP` | `DirichletICNN` |
 |---|---|---|---|---|---|---|---|---|
 | T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 6.81e-7 (361) | 7.06e-3 [4.57e-3, 1.66e-2], 9/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 |
-| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 5.40e-3 (361) | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 |
-| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 3.51e-5 (361) | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
+| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 5.41e-3 (361) | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 |
+| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 1.69e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
 | T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
 | T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 9.09e-7 (361) | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
@@ -211,8 +211,8 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDMultigrid` | `PenaltyMLP` | `DirichletICNN` |
 |---|---|---|---|---|---|---|---|---|
 | T1 | 0 | 0 | 0 | 0 | 0 \* | 0 | 0.00124% | 0 |
-| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 0.00463% | 7.39% | 0 |
-| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 0.722% | 2.52% | 0 |
+| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 0 | 7.39% | 0 |
+| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 5.71% \* | 2.52% | 0 |
 | T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
 | T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 0 | 2D only | 0 |
@@ -222,12 +222,12 @@ The max error is the one that ranks methods; the non-convex fraction is the shar
 
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDMultigrid` | `PenaltyMLP` | `DirichletICNN` |
 |---|---|---|---|---|---|---|---|---|
-| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 1.14 | 418 | 991 |
-| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 1.26 | 419 | 550 |
-| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 0.933 | 416 | 1009 |
+| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 0.912 | 418 | 991 |
+| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 3.93 | 419 | 550 |
+| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 19.3 \* | 416 | 1009 |
 | T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | 416 | 797 |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 187 | 2D only | 1450 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 155 | 2D only | 1450 |
 | T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D/3D only | 2D only | 155 |
 
 A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2, T20 and T9, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
@@ -268,8 +268,9 @@ On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](
 
 The filtered scheme (`FDFiltered`) matches Froese-Oberman 2013, Table 4.2, on its centred smooth example at every printed `N`, with `N` nodes per side; on T2 the preset's damped Newton stalls, while the paper's undamped Newton step on the same scheme makes the 9-point column of its Table 4.1 exact; the 17- and 33-point columns and Table 4.2's filtered column are a mismatch, because neither iteration converges there from `N = 127`; on T20 `FDFiltered` reaches a non-convex root of the standard scheme, so T20 and the cone are a mismatch ([`benchmarks/filtered.md`](benchmarks/filtered.md)).
 
-The multigrid method of Liu-Froese-Oberman-Xiao 2017 (`FDMultigrid`) reaches the order-of-magnitude level on its 2D Tables 1 and 2 (T1, T3, T2, `N = 128` to 8192, within 8 percent at every `N`, with the paper's iteration counts on T2) and on its 3D Tables 3, 5 and 6 (T9, T46, T28, `N = 8` to 128); on T22 (Table 7) the published value at `N = 32` is four times ours and four times the paper's own Gauss-Seidel column, a mismatch.
-The stand-alone Gauss-Seidel columns of the 3D tables match to the printed digits and to the sweep, so the scheme and the root selection are the paper's; on T9 and T46 one published FMG cycle lands below the discrete solution's error, ours above it ([`benchmarks/multigrid.md`](benchmarks/multigrid.md)).
+The multigrid method of Liu-Froese-Oberman-Xiao 2017 (`FDMultigrid`) reaches the order-of-magnitude level on its 2D Tables 1 and 2 (T1, T3, T2, `N = 128` to 8192, within 8 percent at every `N`, with the paper's iteration counts on T2) and on its 3D Tables 3, 5 and 6 (T9, T46, T28, `N = 8` to 128); Table 7 (T22) is a mismatch: the published value at `N = 32` is four times ours and four times the paper's own Gauss-Seidel column.
+The stand-alone Gauss-Seidel columns of the 3D tables match to the printed digits and to the sweep, so the scheme and the root selection are the paper's; on T9 and T46 one published FMG cycle lands below the discrete solution's error, ours above it, and the FMG interpolation, which the paper leaves open, explains about half of that gap ([`benchmarks/multigrid.md`](benchmarks/multigrid.md)).
+These columns stop by the paper's relative residual; `FDMultigrid` stops on a residual bound that does not depend on the grid, which takes 1 to 14 cycles there and reports T22 at `N = 128` unconverged (Finding 5 there).
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
