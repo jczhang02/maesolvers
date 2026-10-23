@@ -20,6 +20,8 @@ from maesolvers import (  # noqa: E402
     T12,
     T16,
     Adam,
+    Box,
+    CutQuarterDisk,
     Disk,
     HausdorffLoss,
     IdentityStart,
@@ -30,7 +32,7 @@ from maesolvers import (  # noqa: E402
     TransportSampler,
     UnsupportedProblemError,
 )
-from maesolvers.core import Ellipse  # noqa: E402
+from maesolvers.core import Ellipse, integrate, volume  # noqa: E402
 from maesolvers.metrics import gradient_fd, gradient_map_error  # noqa: E402
 from maesolvers.neural import Batch, NeuralSolver  # noqa: E402
 from maesolvers.neural import functional as F  # noqa: E402
@@ -104,6 +106,25 @@ def test_nearest_squared_distances_have_a_finite_gradient_at_coincident_points()
 def test_nearest_squared_distances_refuse_an_empty_set():
     with pytest.raises(ValueError, match="two non-empty sets, got 0 and 1"):
         F.nearest_squared_distances(torch.zeros(0, 2), torch.zeros(1, 2))
+
+
+def test_the_exact_map_leaves_a_transport_term_at_independent_points():
+    # The floor of benchmarks/icnn.md, Finding 3: T12's exact map, the
+    # preset's boundary and target points of seeds 0 to 2 (also
+    # `run_icnn_transport.py --floor`).
+    floors = []
+    for seed in range(3):
+        points = TransportSampler().sample(T12, np.random.default_rng(seed))
+        x = points.boundary
+        image = np.stack([2 * x[:, 0] + 3.5, 0.5 * x[:, 1]], axis=-1)
+        into, onto = F.nearest_squared_distances(
+            _tensor(image), _tensor(points.target_boundary)
+        )
+        floors.append((float(into.mean()), float(onto.mean())))
+    assert floors[0] == pytest.approx((4.349e-5, 6.773e-5), rel=1e-3)
+    assert [into + onto for into, onto in floors] == pytest.approx(
+        [1.112e-4, 1.675e-4, 1.339e-4], rel=1e-3
+    )
 
 
 # The loss
@@ -214,6 +235,46 @@ def test_switch_gives_the_first_steps_to_the_first_optimizer():
     assert float((x**2).sum()) < 1e-10  # L-BFGS solves the quadratic
 
 
+def _switching_solve(monkeypatch, adam_steps, max_steps=4):
+    """Solve T12 briefly under Switch(Adam, LBFGS); return the result and the optimizer."""
+    built = []
+    build = Switch.build
+
+    def record(self, parameters):
+        built.append(build(self, parameters))
+        return built[-1]
+
+    monkeypatch.setattr(Switch, "build", record)
+    solver = NeuralSolver(
+        network=ICNN(width=4, depth=2),
+        loss=HausdorffLoss(),
+        sampler=TransportSampler(
+            interior_points=20, boundary_points=10, target_points=10
+        ),
+        optimizer=Switch(first=Adam(lr=1e-2), then=LBFGS(), after=adam_steps),
+        max_steps=max_steps,
+    )
+    result = solver.solve(T12)
+    assert len(built) == 1
+    return result, built[0]
+
+
+def test_switch_hands_the_training_steps_to_adam_then_to_lbfgs(monkeypatch):
+    result, optimizer = _switching_solve(monkeypatch, adam_steps=2)
+    assert result.info["iterations"] == 4
+    (parameter, *_) = optimizer.param_groups[0]["params"]
+    assert int(optimizer.first.state[parameter]["step"]) == 2
+    assert optimizer.then.state[parameter]["n_iter"] == 2
+
+
+def test_switch_after_the_budget_trains_with_adam_only(monkeypatch):
+    result, optimizer = _switching_solve(monkeypatch, adam_steps=4)
+    assert result.info["iterations"] == 4
+    (parameter, *_) = optimizer.param_groups[0]["params"]
+    assert int(optimizer.first.state[parameter]["step"]) == 4
+    assert len(optimizer.then.state) == 0
+
+
 def test_switch_checks_its_parts_and_its_count():
     with pytest.raises(TypeError, match=r"Switch\.then"):
         Switch(first=Adam(), then=LBFGS, after=1)  # type: ignore[arg-type]
@@ -267,6 +328,37 @@ def test_the_preset_supports_transport_problems_only():
     assert not preset.supports(T1)
     with pytest.raises(UnsupportedProblemError):
         preset.solve(T1)
+
+
+@pytest.mark.parametrize("where", ["domain", "target"])
+def test_the_preset_refuses_a_set_whose_mass_it_cannot_check(where):
+    quarter, square = CutQuarterDisk(), Box((0.0, 0.0), (1.0, 1.0))
+    domain, target = (quarter, square) if where == "domain" else (square, quarter)
+    problem = Problem("Q", domain, lambda x: 1.0 + 0.0 * x[..., 0], Transport(target))
+    parts = NeuralSolver(
+        network=TransportICNN().network,
+        loss=HausdorffLoss(),
+        sampler=TransportSampler(),
+        optimizer=Adam(),
+    )
+    assert parts.supports(problem)  # the parts alone would take it
+    assert not TransportICNN().supports(problem)
+    with pytest.raises(UnsupportedProblemError):
+        TransportICNN(**SMALL).solve(problem)
+
+
+def test_the_preset_domains_are_the_sets_whose_mass_core_computes():
+    # TransportICNN.domains must stay what check_mass_balance can measure.
+    unit = Box((0.0, 0.0), (1.0, 1.0))
+    sets = [unit, Disk((0.0, 0.0), 1.0), Ellipse((0.0, 0.0), (2.0, 0.5))]
+    for domain in [*sets, CutQuarterDisk()]:
+        known = isinstance(domain, TransportICNN.domains)
+        try:
+            volume(domain), integrate(domain, lambda x: 0.0 * x[..., 0])
+        except TypeError:
+            assert not known, type(domain).__name__
+        else:
+            assert known, type(domain).__name__
 
 
 def test_the_preset_refuses_a_problem_out_of_mass_balance():

@@ -330,11 +330,14 @@ class TransportSampler(Sampler):
         Collocation
             With ``target_boundary`` set.
         """
-        domain, boundary = problem.domain, problem.boundary
-        assert isinstance(domain, BoundarySampling)  # supports checked it
-        assert isinstance(boundary, Transport)
+        boundary = problem.boundary
+        assert isinstance(boundary, Transport)  # supports checked it
         assert isinstance(boundary.target, BoundarySampling)
-        interior = sample_interior(problem.domain, self.interior_points, rng)
-        edge = domain.sample_boundary(self.boundary_points, rng)
-        target = boundary.target.sample_boundary(self.target_points, rng)
-        return Collocation(interior=interior, boundary=edge, target_boundary=target)
+        base = UniformSampler(
+            interior_points=self.interior_points, boundary_points=self.boundary_points
+        ).sample(problem, rng)
+        return Collocation(
+            interior=base.interior,
+            boundary=base.boundary,
+            target_boundary=boundary.target.sample_boundary(self.target_points, rng),
+        )

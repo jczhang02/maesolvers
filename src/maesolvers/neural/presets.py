@@ -238,10 +238,13 @@ class TransportICNN(NeuralSolver):
     gives the paper's Adam-only runs (Table 2, "Adam").
 
     The preset takes a :class:`~maesolvers.core.boundary.Transport`
-    problem on a domain whose boundary it samples and whose source mass
-    :func:`~maesolvers.core.transport.check_mass_balance` integrates
-    (``Box``, ``Disk``, ``Ellipse``), onto a target that samples its
-    boundary (``Box``, ``Disk``, ``Ellipse``), in any dimension; its
+    problem in any dimension whose domain and target are each a ``Box``,
+    a ``Disk`` or an ``Ellipse``: the sets whose boundary the sampler
+    draws and whose source mass and volume
+    :func:`~maesolvers.core.transport.check_mass_balance` computes. Its
+    :meth:`supports` is False on another domain or target, such as a
+    ``CutQuarterDisk``, on which the composed ``NeuralSolver`` with the
+    same parts still runs, with the caller checking the mass. Its
     :meth:`check` raises ``ValueError`` when the source mass differs from
     the target's volume. The training runs on the CPU unless
     ``accelerator`` says otherwise.
@@ -328,6 +331,29 @@ class TransportICNN(NeuralSolver):
         object.__setattr__(self, "adam_steps", optimizer.after)
         super().__post_init__()
 
+    def supports(self, problem: Problem) -> bool:
+        """Whether the parts support the problem and its domain and target are in ``domains``.
+
+        The class's ``domains`` are the sets whose mass :meth:`check` can
+        compute; the parts alone would also take a ``CutQuarterDisk``.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        boundary = problem.boundary
+        return (
+            super().supports(problem)
+            and isinstance(boundary, Transport)
+            and isinstance(problem.domain, self.domains)
+            and isinstance(boundary.target, self.domains)
+        )
+
     def check(self, problem: Problem) -> None:
         """Raise if the parts do not support the problem or its mass is out of balance.
 
@@ -339,7 +365,7 @@ class TransportICNN(NeuralSolver):
         Raises
         ------
         UnsupportedProblemError
-            If a part does not support the problem.
+            If :meth:`supports` is False.
         ValueError
             If the integral of ``f`` over the domain differs from the
             target's volume by more than a relative ``1e-3``
