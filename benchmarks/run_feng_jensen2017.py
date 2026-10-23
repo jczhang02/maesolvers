@@ -17,7 +17,9 @@ the best k, end to end as the paper takes them and by least squares.
 Every solve is one MLflow run in maesolvers-feng_jensen2017-<problem>
 unless --no-mlflow is given. The solves run in --processes worker processes
 (default 12), each with one thread, the largest grids first; --levels sets
-how many grids (default 7, n = 10 to 640). Run it on a100server from the
+how many grids (default 7, n = 10 to 640). Each row is written to --out
+as its solve ends, and a rerun with the same --out solves only the
+problems, grids and factors it lacks. Run it on a100server from the
 repository root, writing outside the checkout so that the runs do not see
 it dirty, then copy the CSV back::
 
@@ -225,15 +227,30 @@ def main() -> None:
         print(summary(read(args.summary)))
         return
     grids = [10 * 2**level for level in range(args.levels)]
+    done = read(args.out) if args.out.exists() else []
+    finished = {(r["problem"], int(r["n_cells"]), float(r["m"])) for r in done}
     tasks = [
         (name, n, m, not args.no_mlflow)
         for n in reversed(grids)  # the largest first
         for name in PROBLEMS
         for m in FACTORS
+        if (name, n, m) not in finished
     ]
+    rows: list[dict[str, Any]] = list(done)
     with Pool(args.processes) as pool:
-        rows = pool.map(run, tasks, 1)
-    rows.sort(key=lambda r: (list(PROBLEMS).index(r["problem"]), r["n_cells"], r["m"]))
+        # Each row is written as soon as its solve ends, so a run that is
+        # stopped keeps its finished rows, and a rerun with the same --out
+        # solves only the missing ones.
+        for row in pool.imap_unordered(run, tasks, 1):
+            rows.append(row)
+            write(args.out, rows)
+    rows.sort(
+        key=lambda r: (
+            list(PROBLEMS).index(r["problem"]),
+            int(r["n_cells"]),
+            float(r["m"]),
+        )
+    )
     write(args.out, rows)
 
 
