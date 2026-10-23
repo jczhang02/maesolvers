@@ -296,7 +296,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 ## Layout
 
 - `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, and the part check `check_part`.
-- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17`, `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`.
+- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17`, `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.

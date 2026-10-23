@@ -26,6 +26,7 @@ from types import MappingProxyType
 
 import numpy as np
 
+from maesolvers.core._params import points
 from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.domains import (
     Box,
@@ -34,7 +35,6 @@ from maesolvers.core.domains import (
     Domain,
     Ellipse,
     Field,
-    _points,
 )
 from maesolvers.core.problem import Problem
 
@@ -71,7 +71,7 @@ def _field(dim: int, kernel: Field) -> Field:
 
     @functools.wraps(kernel)
     def field(x: np.ndarray) -> np.ndarray:
-        return kernel(_points(x, dim))
+        return kernel(points(x, dim))
 
     return field
 

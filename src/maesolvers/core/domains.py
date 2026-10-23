@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from maesolvers.core._params import integer
+from maesolvers.core._params import integer, points
 
 Field = Callable[[np.ndarray], np.ndarray]
 """Maps points of shape ``(..., d)`` to values of shape ``(...)``."""
@@ -133,13 +133,6 @@ def _allocate(n: int, sizes: np.ndarray) -> np.ndarray:
     return counts
 
 
-def _points(x: np.ndarray, dim: int) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    if x.ndim == 0 or x.shape[-1] != dim:
-        raise ValueError(f"points must have shape (..., {dim}), got {x.shape}")
-    return x
-
-
 def _floats(values: Sequence[float], name: str) -> tuple[float, ...]:
     try:
         out = tuple(float(v) for v in values)
@@ -187,12 +180,12 @@ class Box:
 
     def contains(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the closed box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.all((x >= self.lo) & (x <= self.hi), axis=-1)
 
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.all((x > self.lo) & (x < self.hi), axis=-1)
 
     def sample_boundary(self, n: int, rng: np.random.Generator) -> np.ndarray:
@@ -220,14 +213,14 @@ class Box:
         pieces = []
         for face, count in enumerate(_allocate(n, areas)):
             axis, end = divmod(face, 2)
-            points = rng.uniform(lo, hi, size=(count, self.dim))
-            points[:, axis] = hi[axis] if end else lo[axis]
-            pieces.append(points)
+            piece = rng.uniform(lo, hi, size=(count, self.dim))
+            piece[:, axis] = hi[axis] if end else lo[axis]
+            pieces.append(piece)
         return np.concatenate(pieces)
 
     def boundary_distance(self, x: np.ndarray) -> np.ndarray:
         """Distance to the nearest face, for points in the closed box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.min(np.minimum(x - self.lo, np.asarray(self.hi) - x), axis=-1)
 
 
@@ -270,7 +263,7 @@ class Ellipse:
         return Box(tuple(c - a), tuple(c + a))
 
     def _level(self, x: np.ndarray) -> np.ndarray:
-        x = _points(x, 2)
+        x = points(x, 2)
         return np.sum(((x - self.center) / np.asarray(self.semi_axes)) ** 2, axis=-1)
 
     def contains(self, x: np.ndarray) -> np.ndarray:
@@ -319,7 +312,7 @@ class Disk:
         return Box(tuple(c - self.radius), tuple(c + self.radius))
 
     def _level(self, x: np.ndarray) -> np.ndarray:
-        x = _points(x, 2)
+        x = points(x, 2)
         return np.sum((x - self.center) ** 2, axis=-1) / self.radius**2
 
     def contains(self, x: np.ndarray) -> np.ndarray:
@@ -351,7 +344,7 @@ class Disk:
 
     def boundary_distance(self, x: np.ndarray) -> np.ndarray:
         """Distance to the circle, ``radius - |x - center|``, for points in the disk."""
-        x = _points(x, 2)
+        x = points(x, 2)
         return self.radius - np.linalg.norm(x - np.asarray(self.center), axis=-1)
 
 
@@ -378,7 +371,7 @@ class CutQuarterDisk:
 
     def _margins(self, x: np.ndarray) -> np.ndarray:
         """Shape ``(..., 4)``: each defining inequality as ``margin > 0``."""
-        x = _points(x, 2)
+        x = points(x, 2)
         a, b = x[..., 0], x[..., 1]
         return np.stack([a, b, 1.0 - a**2 - b**2, b - a + 0.5], axis=-1)
 
@@ -439,7 +432,7 @@ class CutQuarterDisk:
         of its distances to the four boundaries: ``x``, ``y``,
         ``(y - x + 1/2) / sqrt 2`` and ``1 - |x|``.
         """
-        x = _points(x, 2)
+        x = points(x, 2)
         a, b = x[..., 0], x[..., 1]
         return np.min(
             np.stack(

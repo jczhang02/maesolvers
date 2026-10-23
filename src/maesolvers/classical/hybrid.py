@@ -279,7 +279,7 @@ class Hybrid(Scheme):
         # Both schemes number the nodes and the unknowns alike on a box.
         assert np.array_equal(standard.interior, monotone.interior)
         nodes = monotone.nodes[monotone.interior]
-        h = float(monotone.x[1] - monotone.x[0])
+        h = monotone.box_grid.h[0]
         weight = np.asarray(self.weights(problem, nodes, h), dtype=float)
         unknowns = monotone.f.size
         if weight.shape != (unknowns,):

@@ -2,6 +2,23 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `BoxGrid(box, n)`, the uniform grid of `n` cells per side over a `Box` of any dimension (`h = 1/n` on the unit box, ADR 0001), exported at the top level and from `maesolvers.classical`, with its operators in the new module `maesolvers.classical.grid` (issue #25).
+  A frozen dataclass with `dim`, `shape`, `h`, `axes`, `nodes` (shape `((n + 1)^d, d)`, C order, the last axis fastest; in 2D node `(i, j)` at `i (n + 1) + j`, as in 0.1), `interior` (the mask of the `(n - 1)^d` nodes that carry unknowns; the boundary ring `~interior` carries the Dirichlet data), `interior_index` (their multi-indices), `offset(direction)` (the step of the flat index to the neighbour along a direction of index offsets), `reach(direction)` (the fraction of that step that stays in the box at each interior node) and `interpolant(values, degree)`; the arrays are computed once and read-only.
+  For even `n` the nodes of `BoxGrid(box, n // 2)` are the nodes with even indices.
+- The pure functions `reach(index, n, direction)` (the fraction of a step of index offsets that stays in the box, at any nodes; `BoxGrid.reach` and `directional_difference` call it), `stencil(n, offsets, weights)` (any linear stencil of width 1 at the interior nodes, as a sparse matrix; the offsets must have an integer dtype), `second_differences(n, h)` (the centred second differences `D_kl`, `k <= l`, keyed `(k, l)`: 9 points in 2D, 19 in 3D, 33 in 4D), `centred_hessian(grid, values)` (the discrete Hessian at the nodes, NaN on the boundary ring, the shape `Result.node_hessian` takes) and `tensor_spline(axes, values, degree)` (the tensor-product interpolating spline of degree 1 to 5) in `maesolvers.classical.grid`.
+  In 2D `tensor_spline` is FITPACK's spline, as in 0.1; in any other dimension it is the tensor product of `make_interp_spline` fitted axis by axis and evaluated by scipy's `NdBSpline`, the same spline on the box to rounding (about `1e-15` times the largest value, checked on 2D axes); the spline is defined on the box only: off it FITPACK clamps the points to the box and `NdBSpline` extends the end polynomials; on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D) it fits and evaluates in well under a second (`benchmarks/nd_grids.md`).
+
+### Changed
+
+- scipy 1.12 or later is required (was 1.10), for `NdBSpline`.
+- `Standard9` and `Monotone17` build their grids with `BoxGrid` and `difference_operators(n, hx, hy)` returns the 2D case of `second_differences`; `Monotone17` reports `centred_hessian` and `BoxGrid.interpolant`; every 2D result is bit for bit what 0.1 computes (`benchmarks/check_2d_bit_for_bit.py`).
+  `MonotoneGrid`, the working context of `Monotone17`, holds its `box_grid` in place of the fields `x` and `y`; `nodes` and `interior` are now properties of it.
+  The finite-difference schemes remain 2D only (`dims = (2,)`); the private module `maesolvers.classical._grid` is gone.
+
 ## 0.1.0 (2026-10-23)
 
 This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.
