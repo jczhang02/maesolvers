@@ -20,7 +20,14 @@ from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Ellipse
 from maesolvers.core.problem import Problem
 from maesolvers.core.transport import check_mass_balance
 from maesolvers.neural.losses import HausdorffLoss, Loss, PenaltyLoss
-from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, IdentityStart, Network
+from maesolvers.neural.networks import (
+    ICNN,
+    MLP,
+    HardDirichlet,
+    IdentityStart,
+    Network,
+    QuadraticForm,
+)
 from maesolvers.neural.optimizers import BFGS, LBFGS, Adam, Optimizer, Switch
 from maesolvers.neural.samplers import Sampler, TransportSampler, UniformSampler
 from maesolvers.neural.solver import NeuralSolver
@@ -207,8 +214,65 @@ class DirichletICNN(NeuralSolver):
         super().__post_init__()
 
 
+class _TransportPreset(NeuralSolver):
+    """The support and the mass check shared by the transport presets.
+
+    Not a solver of its own (it has no parts): a preset subclasses it and
+    adds its fields under its own dataclass decorator.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse)
+    boundaries: ClassVar[tuple[type, ...]] = (Transport,)
+    dims: ClassVar[tuple[int, ...] | None] = None
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the parts support the problem and its domain and target are in ``domains``.
+
+        The class's ``domains`` are the sets whose mass :meth:`check` can
+        compute; the parts alone would also take a ``CutQuarterDisk``.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        boundary = problem.boundary
+        return (
+            super().supports(problem)
+            and isinstance(boundary, Transport)
+            and isinstance(problem.domain, self.domains)
+            and isinstance(boundary.target, self.domains)
+        )
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the parts do not support the problem or its mass is out of balance.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If :meth:`supports` is False.
+        ValueError
+            If the integral of ``f`` over the domain differs from the
+            target's volume by more than a relative ``1e-3``
+            (:func:`~maesolvers.core.transport.check_mass_balance`).
+        ImportError
+            Without torch or lightning.
+        """
+        super().check(problem)
+        check_mass_balance(problem)
+
+
 @dataclass(frozen=True, kw_only=True)
-class TransportICNN(NeuralSolver):
+class TransportICNN(_TransportPreset):
     """The convex PINN of Caboussat-Peruso 2025: an input convex network on a transport problem.
 
     ``TransportICNN(width=w, depth=k, init_std=s, fit_steps=n, fit_tol=t,
@@ -279,10 +343,6 @@ class TransportICNN(NeuralSolver):
         ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
     """
 
-    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse)
-    boundaries: ClassVar[tuple[type, ...]] = (Transport,)
-    dims: ClassVar[tuple[int, ...] | None] = None
-
     network: Network = field(init=False, repr=False)
     loss: Loss = field(init=False, repr=False)
     sampler: Sampler = field(init=False, repr=False)
@@ -331,47 +391,187 @@ class TransportICNN(NeuralSolver):
         object.__setattr__(self, "adam_steps", optimizer.after)
         super().__post_init__()
 
-    def supports(self, problem: Problem) -> bool:
-        """Whether the parts support the problem and its domain and target are in ``domains``.
 
-        The class's ``domains`` are the sets whose mass :meth:`check` can
-        compute; the parts alone would also take a ``CutQuarterDisk``.
+@dataclass(frozen=True, kw_only=True)
+class DirichletQSPINN(NeuralSolver):
+    """QS-PINN on a Dirichlet problem: :class:`DirichletICNN` with the QS form as its network.
 
-        Parameters
-        ----------
-        problem
-            Any problem.
+    ``DirichletQSPINN(width=w, depth=k, ratio=r, boundary_weight=C,
+    interior_points=M, boundary_points=K, ...)`` is ``NeuralSolver`` with
 
-        Returns
-        -------
-        bool
-        """
-        boundary = problem.boundary
-        return (
-            super().supports(problem)
-            and isinstance(boundary, Transport)
-            and isinstance(problem.domain, self.domains)
-            and isinstance(boundary.target, self.domains)
+    - ``network=QuadraticForm(width=w, depth=k, ratio=r)``: ``u = (x -
+      x0)^T A^T A (x - x0) + b . x + c`` with ``A = alpha (I + B)`` from a
+      tanh network, ``x0`` the centre of the domain's bounding box;
+    - ``loss=PenaltyLoss(convexity_weight=0, boundary_weight=C,
+      equation_at_boundary=True)``, ``sampler=UniformSampler(
+      interior_points=M, boundary_points=K)`` and ``optimizer=BFGS()``:
+      the parts of :class:`DirichletICNN`, so that, with the same seed,
+      the two train on the same points and differ in the network alone.
+
+    The QS-PINN note gives no training settings; these are
+    :class:`DirichletICNN`'s (``max_steps`` 10,000, ``C = 100``, 3000 and
+    400 points), and 5 x 10 hidden units give 518 trained parameters in
+    2D, near the ICNN's 563 (``docs/methods/qs_pinn.md``, Parameters).
+    The preset takes a Dirichlet problem in any dimension on a domain that
+    samples its boundary, whose bounding box has its centre ``x0`` inside
+    the domain with ``f(x0) > 0`` (:meth:`QuadraticForm.supports
+    <maesolvers.neural.networks.QuadraticForm.supports>`): not T20, whose
+    ``f`` vanishes at the centre. The training runs on the CPU unless
+    ``accelerator`` says otherwise.
+
+    Parameters
+    ----------
+    width, depth
+        Units per hidden layer and hidden layers of the network giving
+        ``B``, each at least 1.
+    ratio
+        ``epsilon / alpha``, the bound on ``|B|_F``, in ``(0, 1)``.
+    boundary_weight
+        ``C``, the weight of the boundary misfit, positive.
+    interior_points, boundary_points
+        Collocation points inside the domain (at least 1) and on its
+        boundary (at least 1: the boundary condition is imposed there).
+    max_steps
+        Most training steps, one BFGS iteration each.
+    tol
+        Stop when the largest component of the loss gradient is at most this.
+    seed
+        Seeds the collocation points and the initial network.
+    accelerator
+        ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
+    """
+
+    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse, CutQuarterDisk)
+    boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
+    dims: ClassVar[tuple[int, ...] | None] = None
+
+    network: Network = field(init=False, repr=False)
+    loss: Loss = field(init=False, repr=False)
+    sampler: Sampler = field(init=False, repr=False)
+    optimizer: Optimizer = field(init=False, repr=False)
+    width: int = QuadraticForm.width
+    depth: int = QuadraticForm.depth
+    ratio: float = QuadraticForm.ratio
+    boundary_weight: float = DirichletICNN.boundary_weight
+    interior_points: int = UniformSampler.interior_points
+    boundary_points: int = UniformSampler.boundary_points
+    max_steps: int = DirichletICNN.max_steps
+
+    def __post_init__(self) -> None:
+        boundary_points = integer("boundary_points", self.boundary_points, 1)
+        network = QuadraticForm(width=self.width, depth=self.depth, ratio=self.ratio)
+        loss = PenaltyLoss(
+            convexity_weight=0.0,
+            boundary_weight=positive("boundary_weight", self.boundary_weight),
+            equation_at_boundary=True,
         )
+        sampler = UniformSampler(
+            interior_points=self.interior_points, boundary_points=boundary_points
+        )
+        object.__setattr__(self, "network", network)
+        object.__setattr__(self, "loss", loss)
+        object.__setattr__(self, "sampler", sampler)
+        object.__setattr__(self, "optimizer", BFGS())
+        object.__setattr__(self, "width", network.width)
+        object.__setattr__(self, "depth", network.depth)
+        object.__setattr__(self, "ratio", network.ratio)
+        object.__setattr__(self, "boundary_weight", loss.boundary_weight)
+        object.__setattr__(self, "interior_points", sampler.interior_points)
+        object.__setattr__(self, "boundary_points", sampler.boundary_points)
+        super().__post_init__()
 
-    def check(self, problem: Problem) -> None:
-        """Raise if the parts do not support the problem or its mass is out of balance.
 
-        Parameters
-        ----------
-        problem
-            The problem to solve.
+@dataclass(frozen=True, kw_only=True)
+class TransportQSPINN(_TransportPreset):
+    """QS-PINN on a transport problem: :class:`TransportICNN` with the QS form as its network.
 
-        Raises
-        ------
-        UnsupportedProblemError
-            If :meth:`supports` is False.
-        ValueError
-            If the integral of ``f`` over the domain differs from the
-            target's volume by more than a relative ``1e-3``
-            (:func:`~maesolvers.core.transport.check_mass_balance`).
-        ImportError
-            Without torch or lightning.
-        """
-        super().check(problem)
-        check_mass_balance(problem)
+    ``TransportQSPINN(width=w, depth=k, ratio=r, boundary_weight=C,
+    interior_points=M, boundary_points=K, target_points=L, adam_lr=a,
+    adam_steps=s, ...)`` is ``NeuralSolver`` with
+
+    - ``network=QuadraticForm(width=w, depth=k, ratio=r)``, ``x0`` the
+      centre of the domain's bounding box;
+    - ``loss=HausdorffLoss(boundary_weight=C)``, ``sampler=TransportSampler(
+      interior_points=M, boundary_points=K, target_points=L)`` and
+      ``optimizer=Switch(first=Adam(lr=a), then=LBFGS(), after=s)``: the
+      parts of :class:`TransportICNN`, so that, with the same seed, the two
+      train on the same points and differ in the network alone.
+
+    The network needs no fit to the identity map: it starts from
+    ``u = |x - x0|^2 f(x0)^(1/d) / 2``, whose gradient map is ``x - x0``
+    when ``f(x0) = 1``, as on T12. The defaults are
+    :class:`TransportICNN`'s, with 4 hidden layers of 10 units (408 trained
+    parameters in 2D; ``docs/methods/qs_pinn.md``, Parameters). Like it,
+    the preset takes a transport problem in any dimension whose domain and
+    target are each a ``Box``, a ``Disk`` or an ``Ellipse``, and its
+    :meth:`check` raises ``ValueError`` when the source mass differs from
+    the target's volume; the network also needs ``f`` positive at the
+    centre of the domain's bounding box, inside the domain. The training
+    runs on the CPU unless ``accelerator`` says otherwise.
+
+    Parameters
+    ----------
+    width, depth
+        Units per hidden layer and hidden layers of the network giving
+        ``B``, each at least 1.
+    ratio
+        ``epsilon / alpha``, the bound on ``|B|_F``, in ``(0, 1)``.
+    boundary_weight
+        ``C``, the weight of the transport term, positive.
+    interior_points, boundary_points, target_points
+        Collocation points inside the domain, on its boundary and on the
+        target's boundary, each at least 1.
+    adam_lr
+        Learning rate of Adam, positive.
+    adam_steps
+        Steps of Adam before L-BFGS, at least 0.
+    max_steps
+        Most training steps, Adam's and L-BFGS's together.
+    tol
+        Stop when the largest component of the loss gradient is at most this.
+    seed
+        Seeds the collocation points and the initial network.
+    accelerator
+        ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
+    """
+
+    network: Network = field(init=False, repr=False)
+    loss: Loss = field(init=False, repr=False)
+    sampler: Sampler = field(init=False, repr=False)
+    optimizer: Optimizer = field(init=False, repr=False)
+    width: int = QuadraticForm.width
+    depth: int = TransportICNN.depth
+    ratio: float = QuadraticForm.ratio
+    boundary_weight: float = HausdorffLoss.boundary_weight
+    interior_points: int = TransportSampler.interior_points
+    boundary_points: int = TransportSampler.boundary_points
+    target_points: int = TransportSampler.target_points
+    adam_lr: float = Adam.lr
+    adam_steps: int = TransportICNN.adam_steps
+    max_steps: int = TransportICNN.max_steps
+    tol: float = TransportICNN.tol
+
+    def __post_init__(self) -> None:
+        network = QuadraticForm(width=self.width, depth=self.depth, ratio=self.ratio)
+        loss = HausdorffLoss(boundary_weight=self.boundary_weight)
+        sampler = TransportSampler(
+            interior_points=self.interior_points,
+            boundary_points=self.boundary_points,
+            target_points=self.target_points,
+        )
+        adam = Adam(lr=self.adam_lr)
+        optimizer = Switch(first=adam, then=LBFGS(), after=self.adam_steps)
+        object.__setattr__(self, "network", network)
+        object.__setattr__(self, "loss", loss)
+        object.__setattr__(self, "sampler", sampler)
+        object.__setattr__(self, "optimizer", optimizer)
+        object.__setattr__(self, "width", network.width)
+        object.__setattr__(self, "depth", network.depth)
+        object.__setattr__(self, "ratio", network.ratio)
+        object.__setattr__(self, "boundary_weight", loss.boundary_weight)
+        object.__setattr__(self, "interior_points", sampler.interior_points)
+        object.__setattr__(self, "boundary_points", sampler.boundary_points)
+        object.__setattr__(self, "target_points", sampler.target_points)
+        object.__setattr__(self, "adam_lr", adam.lr)
+        object.__setattr__(self, "adam_steps", optimizer.after)
+        super().__post_init__()
