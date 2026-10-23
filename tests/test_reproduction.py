@@ -122,16 +122,19 @@ def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
 # Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
 # counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
 # and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
-# Only converged solves are pinned. On T2 FDFiltered's damped Newton stalls;
-# the paper's undamped iteration (p. 438) converges in 9 of the 15 cells of
-# Table 4.1 and prints the published values (Finding 4), so the T2 pin is taken
-# with a test-local copy of run_filtered.UndampedNewton.
+# Only converged solves in exact columns (ADR 0002) are pinned. On T2
+# FDFiltered's damped Newton stalls; with the paper's undamped iteration
+# (p. 438) the 9-point filtered column of Table 4.1 is exact (Finding 4), so it
+# is pinned with a test-local copy of run_filtered.UndampedNewton.
 
 
-# (N, stencil): units of 1e-5. N = 31: Table 4.1, all three stencils, and
-# Table 4.2 (17 points). N = 63: Table 4.2 only (17 points), 1.06; Table 4.1
-# prints 1.04 there for every stencil, read as a misprint (Finding 2), so 9 and
-# 33 points are not pinned at N = 63.
+# (N, stencil): units of 1e-5. The 17-point cells are Table 4.2's filtered
+# column, which is exact. N = 63: 1.06; Table 4.1 prints 1.04 there for every
+# stencil, read as a misprint (Finding 2), so its three filtered columns are
+# graded order of magnitude and 9 and 33 points are not pinned at N = 63. They
+# are pinned at N = 31: the filter keeps the standard scheme at every node
+# (monotone_fraction 0), so each stencil solves the standard scheme of the exact
+# Table 4.2 column, 4.54, and the pins check that 9 and 33 points do too.
 FO2013_FILTERED_C2 = {(31, 9): 4.54, (31, 17): 4.54, (31, 33): 4.54, (63, 17): 1.06}
 FO2013_STANDARD = {  # Table 4.2, column "Standard": (problem, N, units, value)
     "C2": (C2_CENTRED, 31, 1e-5, 4.54),
@@ -186,10 +189,20 @@ class UndampedNewton(Newton):
         return (candidate, new_norm) if math.isfinite(new_norm) else None
 
 
-# Table 4.1, T2, filtered, N = 31: 1.74e-3 with all three stencils.
-@pytest.mark.parametrize("stencil", [9, 17, 33])
-def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(stencil):
-    scheme = FDFiltered(n=30, stencil=stencil).scheme
+# Table 4.1, T2, 9-point filtered column, units of 1e-3: exact with the undamped
+# iteration (74 and 173 steps). The 17- and 33-point columns are a mismatch (no
+# convergence from N = 127) and are not pinned; at N = 31 and 63 they would not
+# discriminate anyway, since there every filtered solve and the 17- and 33-point
+# monotone scheme give the same error. At N = 63 the 9-point monotone scheme
+# gives 0.86, so this pin tells the filtered scheme from it.
+FO2013_FILTERED_T2_9 = {31: 1.74, 63: 0.59}
+
+
+@pytest.mark.parametrize(("N", "expected"), sorted(FO2013_FILTERED_T2_9.items()))
+def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
+    N, expected
+):
+    scheme = FDFiltered(n=N - 1, stencil=9).scheme
     result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
     assert result.info["converged"]
-    assert round(evaluate(result)["max"] / 1e-3, 2) == 1.74
+    assert round(evaluate(result)["max"] / 1e-3, 2) == expected
