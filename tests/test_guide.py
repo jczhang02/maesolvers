@@ -100,6 +100,13 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
             relaxed(scheme=scheme, omega=1.5)
         with pytest.raises(ValueError, match="omega must be positive and finite"):
             relaxed(scheme=scheme, omega=0.0)
+        if has_neural:  # the worked optimizer part checks its parameters too
+            momentum = namespace["Momentum"]
+            assert type(momentum(lr=np.float64(0.1)).lr) is float
+            with pytest.raises(ValueError, match="momentum must be below 1"):
+                momentum(momentum=1.0)
+            with pytest.raises(ValueError, match="lr must be positive and finite"):
+                momentum(lr=0.0)
     finally:
         for module in ("my_methods", "my_parts"):  # the guide's, not another test's
             sys.modules.pop(module, None)
