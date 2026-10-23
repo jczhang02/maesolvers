@@ -355,3 +355,92 @@ class HardDirichlet(Network):
         }
         network = self.network.build(problem, collocation)
         return _torch.Ansatz(lift, distance, network, report)
+
+
+@dataclass(frozen=True, kw_only=True)
+class IdentityStart(Network):
+    """A network whose training starts from ``grad u = x``: fitted to the identity map first.
+
+    Caboussat-Peruso 2025 (Section 4.1, after Singh, Bauer and Joshi 2022) start the
+    training of their input convex network from parameters fitted so that
+    ``grad u`` approximates the identity map, ``u`` about ``|x|^2 / 2``,
+    which is convex and maps each point to itself; from the random start,
+    an input convex network is hard to train. ``build`` builds the network
+    part, fits the gradient of its module to ``x`` by L-BFGS on the mean
+    squared misfit at the interior and boundary collocation points, and
+    returns the module, all of whose parameters stay trainable. The paper
+    gives neither the points, the optimizer nor the length of the fit.
+
+    The module's ``report`` (``Result.info["network"]``) holds the network
+    part's own report, if it has one, and under ``"identity_fit"`` what the
+    fit reports (``iterations``, ``max_gradient``, ``converged``, ``mse``,
+    ``max_misfit``, the largest misfit of one component of the gradient).
+
+    Parameters
+    ----------
+    network
+        The network part to fit, such as
+        :class:`~maesolvers.neural.networks.ICNN`.
+    fit_steps
+        Most L-BFGS iterations of the fit, at least 1.
+    fit_tol
+        The fit stops when the largest component of its gradient is at most
+        this, positive.
+
+    Raises
+    ------
+    TypeError
+        On construction, if ``network`` is not an instance of a well-defined
+        :class:`Network`.
+    TypeError, ValueError
+        On construction, for a ``fit_steps`` that is not an integer or is
+        less than 1, or a ``fit_tol`` that is not a positive real.
+    """
+
+    network: Network
+    fit_steps: int = 1000
+    fit_tol: float = 1e-6
+
+    def __post_init__(self) -> None:
+        check_part(f"{type(self).__name__}.network", self.network, Network)
+        object.__setattr__(self, "fit_steps", integer("fit_steps", self.fit_steps, 1))
+        object.__setattr__(self, "fit_tol", positive("fit_tol", self.fit_tol))
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the network part supports the problem.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        return self.network.supports(problem)
+
+    def build(self, problem: Problem, collocation: Collocation) -> "torch.nn.Module":
+        """Build the network part's module and fit its gradient to the identity map.
+
+        Parameters
+        ----------
+        problem
+            A problem the network supports.
+        collocation
+            The collocation points; the gradient is fitted at the interior and
+            boundary points.
+
+        Returns
+        -------
+        torch.nn.Module
+            The network part's module, fitted, with its ``report``.
+        """
+        from maesolvers.neural import _torch
+
+        module = self.network.build(problem, collocation)
+        points = np.concatenate([collocation.interior, collocation.boundary])
+        fit = _torch.fit_gradient(module, points, points, self.fit_steps, self.fit_tol)
+        report = {**getattr(module, "report", {}), "identity_fit": fit}
+        module.report = report  # pyright: ignore[reportArgumentType]
+        return module

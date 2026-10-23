@@ -120,6 +120,7 @@ def test_the_result_records_how_the_training_went(t6_result):
     assert info["collocation"] == {
         "interior_points": 60,
         "boundary_points": 24,
+        "target_boundary_points": 0,
         "fingerprint": PenaltyMLP(**SMALL).collocation(T6).fingerprint(),
     }
     assert t6_result.hparams["init_args"]["max_steps"] == 4
