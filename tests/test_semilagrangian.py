@@ -354,21 +354,35 @@ def test_howard_converges_in_a_few_steps_and_the_error_falls_with_h():
     assert errors[1] < 0.7 * errors[0]
 
 
+def _turned_t40():
+    """T40 with its kink off the grid, as in benchmarks/run_feng_jensen2017.py."""
+    nu = np.array([np.cos(0.3), np.sin(0.3)])
+
+    def u(x):
+        return np.abs(np.asarray(x) @ nu)
+
+    return Problem("T40 turned", T40.domain, T40.f, Dirichlet(u), exact=u)
+
+
 @pytest.mark.parametrize("n", [15, 16])
 def test_t40_is_exact_at_the_nodes_because_its_kink_follows_the_grid(n):
     """benchmarks/feng_jensen2017.md, Finding 1: the kink x1 = 0 runs along
     the grid columns and the stencil direction (0, 1), so the interpolant of
     |x1| solves the scheme; turned off the grid, the kink costs accuracy."""
     assert evaluate(FDSemiLagrangian(n=n).solve(T40))["max"] < 1e-12
-    nu = np.array([np.cos(0.3), np.sin(0.3)])
-    turned = Problem(
-        "turned T40",
-        T40.domain,
-        T40.f,
-        Dirichlet(lambda x: np.abs(np.asarray(x) @ nu)),
-        exact=lambda x: np.abs(np.asarray(x) @ nu),
-    )
-    assert evaluate(FDSemiLagrangian(n=n).solve(turned))["max"] > 1e-2
+    assert evaluate(FDSemiLagrangian(n=n).solve(_turned_t40()))["max"] > 1e-2
+
+
+@pytest.mark.parametrize(
+    ("problem", "error", "steps"),
+    [(T39, 0.17180247543549357, 4), (_turned_t40(), 0.0559548530632987, 5)],
+    ids=["T39", "T40 turned"],
+)
+def test_the_receipt_rows_at_n_20_rerun(problem, error, steps):
+    """benchmarks/feng_jensen2017.csv at dde1578, m = 4, n = 20: the max error."""
+    result = FDSemiLagrangian(n=20, stencil_factor=4.0).solve(problem)
+    assert result.info["iterations"] == steps
+    assert evaluate(result)["max"] == pytest.approx(error, rel=1e-9)
 
 
 # The solution
