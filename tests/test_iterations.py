@@ -28,6 +28,7 @@ from maesolvers import (
     Scheme,
     SchemeIteration,
     Standard9,
+    TransportICNN,
     UnsupportedProblemError,
 )
 from maesolvers.classical import iterations
@@ -222,6 +223,7 @@ def test_the_registry_lists_the_presets_read_only():
         "FDPoisson": FDPoisson,
         "PenaltyMLP": PenaltyMLP,
         "DirichletICNN": DirichletICNN,
+        "TransportICNN": TransportICNN,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]

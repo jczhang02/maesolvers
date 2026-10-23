@@ -707,3 +707,34 @@ print(evaluate(result)["max"])  # the error of u, after subtracting the means
 ```
 
 `functional.signed_distance` takes its nearest boundary points from the numpy function, outside the autograd graph, so its gradient in `grad u` is the outward normal there: the loss trains through it, with no NaN where `grad u` lies on the target's boundary.
+
+The shipped transport loss is `HausdorffLoss`, the loss of Caboussat-Peruso 2025: it compares the image `grad u` of the boundary points with points on the target's boundary, both ways, so it needs no target geometry beyond those points, which `TransportSampler` draws.
+The preset `TransportICNN` composes it with an input convex network fitted to `grad u = x` before the training, and Adam then L-BFGS; as a preset subclass it checks the mass balance in its own `check`.
+
+```python
+from maesolvers import (
+    HausdorffLoss,
+    IdentityStart,
+    Switch,
+    TransportICNN,
+    TransportSampler,
+)
+from maesolvers.neural import Adam
+
+paper = NeuralSolver(
+    network=IdentityStart(network=ICNN(width=10, depth=4)),
+    loss=HausdorffLoss(boundary_weight=1.0),
+    sampler=TransportSampler(
+        interior_points=800, boundary_points=800, target_points=800
+    ),
+    optimizer=Switch(first=Adam(lr=1e-3), then=LBFGS(), after=200),
+    max_steps=2000,
+    tol=1e-7,
+)
+assert all(
+    getattr(paper, name) == getattr(TransportICNN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps", "tol")
+)
+```
+
+`TransportICNN(adam_steps=2000)` trains with Adam alone, the other row of the paper's Table 2; `docs/methods/icnn.md` gives the parameters and `benchmarks/icnn.md` the reproduction on T12.

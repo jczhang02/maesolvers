@@ -15,6 +15,7 @@ pytest.importorskip("lightning")
 from maesolvers import (  # noqa: E402
     ICNN,
     LBFGS,
+    SOLVERS,
     T1,
     T12,
     T16,
@@ -235,6 +236,7 @@ def test_the_preset_is_the_paper_composition():
     )
     assert preset.optimizer == Switch(first=Adam(lr=1e-3), then=LBFGS(), after=200)
     assert (preset.max_steps, preset.tol) == (2000, 1e-7)
+    assert SOLVERS["TransportICNN"] is TransportICNN
 
 
 def test_the_preset_records_flat_hyperparameters():
