@@ -112,10 +112,9 @@ def test_reach_is_one_inside_and_the_fraction_to_the_face_outside():
 
 
 def test_reach_matches_the_full_arms_of_the_17_point_stencil():
-    x = np.linspace(-0.5, 0.9, 9)
     grid = BoxGrid(Box((-0.5, -0.5), (0.9, 0.9)), 8)
     for direction in [(1, 0), (1, 1), (2, 1), (-1, 2), (3, -1)]:
-        *_, full = directional_difference(x, x, direction, lambda p: p[..., 0])
+        *_, full = directional_difference(grid, direction, lambda p: p[..., 0])
         both = (grid.reach(direction) == 1.0) & (
             grid.reach(np.negative(direction)) == 1.0
         )

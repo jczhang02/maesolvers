@@ -87,7 +87,7 @@ The time median on T10 (155 s) is short because most seeds stop early, not becau
 At `n = 361` the classical presets take 0.9 s (`FDMultigrid` on T20) to 240 s on one thread, with 129600 unknowns on the square and 102328 on the disk, and `FDMultigrid` 187 s on T9, with 46656000 unknowns; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.6 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 152 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 36 s).
 
-### Finding 7: `FDMultigrid` is the first classical preset on T9, and the fastest on the square
+### Finding 7: `FDMultigrid` is the one classical preset whose defaults run T9, and the fastest on the square
 
 `FDMultigrid` solves T9 at `n = 361` (`361^3` nodes) in one full multigrid cycle, with a max error of 9.09e-7 and no non-convex node.
 On the square it stops after one cycle on T1 and T20 and two on T2, in about 1 s; its errors are those of the standard scheme it solves, close to `FDPoisson`'s: 6.81e-7 against 5.28e-7 on T1 (one cycle stops above the discrete solution, `multigrid.md`, Finding 1), 5.40e-3 against 5.41e-3 on T2, 3.51e-5 against 1.59e-5 on T20.

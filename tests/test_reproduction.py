@@ -15,8 +15,12 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 """
 
 import dataclasses
+import importlib.util
 import math
+import sys
+from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -28,6 +32,7 @@ from maesolvers import (
     T1,
     T2,
     T7,
+    T9,
     T20,
     FDFiltered,
     FDHybrid,
@@ -209,6 +214,59 @@ def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
     result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
     assert result.info["converged"]
     assert round(evaluate(result)["max"] / 1e-3, 2) == expected
+
+
+# Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 4: max error of the
+# 19-point scheme in 3D, with h = 1/N (ADR 0001). T9 is order of magnitude
+# (benchmarks/monotone19.md) and agrees to the printed digits at N = 21 and 31;
+# N = 31 takes a minute, so only N = 21 is pinned. The cells that agree with
+# h = 1/(N - 1) are not pinned: the paper used one convention, and which one
+# its N follows stays open (Finding 1).
+SINUM_TABLE4_EXACT = [  # (problem, n cells, printed max error in units of 1e-4)
+    (T9, 21, 127),
+]
+
+
+@pytest.mark.parametrize(("problem", "n", "expected"), SINUM_TABLE4_EXACT)
+def test_the_19_point_scheme_matches_sinum_table_4(problem, n, expected):
+    result = FDMonotone(n=n, stencil=19).solve(problem)
+    assert result.info["converged"]
+    assert round(evaluate(result)["max"] / 1e-4) == expected
+
+
+def _load_runner():
+    """benchmarks/run_monotone19.py, for its test-local problem C1_3D."""
+    path = Path(__file__).parent.parent / "benchmarks" / "run_monotone19.py"
+    spec = importlib.util.spec_from_file_location("run_monotone19", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # its dataclasses look their module up in sys.modules
+    with mock.patch.dict(sys.modules, {spec.name: module}):
+        spec.loader.exec_module(module)
+    return module
+
+
+def test_the_3d_c1_example_solves_det_d2u_equals_f():
+    """Example (15) of the paper: f is the determinant of u's Hessian off the ball."""
+    c1 = _load_runner().C1_3D
+    rng = np.random.default_rng(7)
+    x = rng.uniform(0, 1, (200, 3))
+    r = np.linalg.norm(x - 0.5, axis=1)
+    x = x[np.abs(r - 0.2) > 0.02]
+    e, step = np.eye(3), 1e-4
+    hessian = np.empty((len(x), 3, 3))
+    for i in range(3):
+        for j in range(3):
+            hessian[:, i, j] = (
+                c1.exact(x + step * (e[i] + e[j]))
+                - c1.exact(x + step * (e[i] - e[j]))
+                - c1.exact(x - step * (e[i] - e[j]))
+                + c1.exact(x - step * (e[i] + e[j]))
+            ) / (4 * step**2)
+    np.testing.assert_allclose(np.linalg.det(hessian), c1.f(x), atol=1e-6)
+    r = np.linalg.norm(x - 0.5, axis=1)
+    np.testing.assert_allclose(c1.f(x), np.where(r > 0.2, 1 - 0.4 / r + 0.04 / r**2, 0))
+    assert c1.dim == 3 and c1.name not in CATALOGUE
 
 
 # Liu-Froese-Oberman-Xiao, Int. J. Comput. Math. 94 (2017), Tables 3, 5, 6 and
