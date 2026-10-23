@@ -282,6 +282,9 @@ These columns stop by the paper's relative residual; `FDMultigrid` stops on a re
 
 The transport scheme of Benamou-Froese-Oberman 2014 (`FDTransport`) matches the max column of their Table 1 (T16) at every printed `N` once `N` counts nodes per side, and its L2 column to within 3%; on the ellipse and the half-disks of their Tables 2 and 3, embedded in a square with zero density around them, Newton on the filtered scheme stalls from `N = 64` or 128 on and the error stops falling, a mismatch that [`benchmarks/bfo2014.md`](benchmarks/bfo2014.md) records with its findings.
 
+The monotone mixed scheme of Chen-Wan-Lin 2018 (`FDMixed`) matches its Table 1 (T1 on `[-1, 1]^2`) to every printed digit at every `N` and Table 2 (T2) up to `N = 128`, with `h = 1/N` and with the paper's rule of searching the wide stencil only where no 7-point control is monotone; from `N = 256` on, policy iteration from the paper's start reaches a second root of the scheme on T2, and the 7-point root it reaches from the exact solution is exact.
+T20c, the cone and the paper's Table 5 are at the order-of-magnitude level, the cone with a discrete Dirac mass the paper does not state ([`benchmarks/chen_wan_lin2018.md`](benchmarks/chen_wan_lin2018.md)).
+
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
 The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2; it needs the dense BFGS of SciPy, which the paper ran, and on T1 a limited-memory L-BFGS leaves it near 1e-2.
