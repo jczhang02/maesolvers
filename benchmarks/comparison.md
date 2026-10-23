@@ -1,17 +1,23 @@
 # Comparison table: every preset on the shared test set
 
 The comparison table (GLOSSARY: 对比表) runs every preset of `maesolvers.SOLVERS` with its defaults on the shared test set T1, T2, T20, T8, T12, T9, T10, and measures each run with `evaluate` (ADR 0007).
-It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `penalty_mlp.md`, `icnn.md`).
+It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `multigrid.md`, `bfo2014.md`, `penalty_mlp.md`, `icnn.md`).
 README's section "Comparison" shows the tables; this file says how they were made and what they show.
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (117 runs and 22 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (192 runs and 45 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
+  The rows of `FDMultigrid` were added later on the branch of issue #30 by `run_comparison.py --solvers FDMultigrid` into a copy of this CSV, which left every other row as it was: first at commit fe47d9b, then again at commit 3d31695, after `FDMultigrid` changed its stopping rule (`multigrid.md`, Finding 5), with `--workers 3` (`just remote-bg multigrid-r3-comparison ...`) and the T9 row once more alone (`--problems T9 --workers 1`), since the first T9 run shared the machine with eight other multigrid runs and took 3335 s against 155 s alone.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
+- The rows of `TransportICNN` (issue #29) came later, from the same script at commit 21970e5, clean checkout, merged into the receipt in 496 s of wall time with 10 worker processes of one CPU thread each: `just remote-bg comparison-transport-icnn env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers TransportICNN --workers 10`.
+  The merge replaces only that preset's rows, so every other row is as it was before it.
+- The rows of `DirichletQSPINN` and `TransportQSPINN` (issue #33) came from the same script at commit 249e131 (review round 1 of #69: `alpha` kept positive, the presets' `reference` field), clean checkout, merged into the receipt in 1681 s of wall time with 8 worker processes of one CPU thread each: `just remote-bg qs-comparison-r1 env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers DirichletQSPINN TransportQSPINN --workers 8 --out /jczhang02/maesolvers-data/data/comparison-qs-r1.csv`, the current `comparison.csv` copied there first; every other row agrees with it to every byte.
+  They replace the rows of the first version, at 0526410 (`maesolvers-dirichletqspinn-*` and `maesolvers-transportqspinn-T12` keep both in MLflow, under the same run names, told apart by their commit tag).
+  The rows of `FDMultigrid` (from `next`) and these rows came from separate branches; the merge of the two receipts keeps every row as its branch wrote it.
 - The `FDMixed` rows were added later, at commit 3b53600 (clean checkout, 263 s of wall time), by `run_comparison.py --solvers FDMixed --workers 7` on a copy of the CSV above; every other row is unchanged.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
@@ -19,18 +25,20 @@ README's section "Comparison" shows the tables; this file says how they were mad
 
 ## Settings
 
-- Classical presets: one run on `n = 361` cells per side, the largest `N` the papers print in 2D (test-set specification, Section 2; ADR 0001), so `h = 1/361` on the unit square and `h = 2/361` on the disk of T8.
+- Classical presets: one run on `n = 361` cells per side, the largest `N` the papers print in 2D (test-set specification, Section 2; ADR 0001), so `h = 1/361` on the unit square and `h = 2/361` on the disk of T8 and on the square `[-1, 1]^2` in which `FDTransport` embeds the disk of T12.
   The error is taken at the preset's own nodes, the literature's practice.
 - Neural presets: seeds 0 to 9 with every other setting at the preset's default (ADR 0008); the error is taken on the shared evaluation grid (201 x 201 in 2D, 51^3 for T9, 21^4 for T10).
   A cell gives the median and the 5% to 95% band of the max error over the seeds, then the number of successful seeds.
-- Success threshold: a seed succeeds when its max error is below 1% of the exact solution's oscillation `max u - min u` on the shared grid (`RELATIVE_THRESHOLD` in `comparison.py`): 1.72e-2 on T1, 1.41e-2 on T2, 1.29e-3 on T20, 5.00e-3 on T8, 3.48e-2 on T9, 6.39e-2 on T10.
+- Success threshold: a seed succeeds when its max error is below 1% of the exact solution's oscillation `max u - min u` on the shared grid (`RELATIVE_THRESHOLD` in `comparison.py`): 1.72e-2 on T1, 1.41e-2 on T2, 1.29e-3 on T20, 5.00e-3 on T8, 6.93e-2 on T12, 3.48e-2 on T9, 6.39e-2 on T10.
   ADR 0007 leaves the threshold to the caller; a relative one gives the same meaning to every row, where the solutions' oscillations differ by a factor of 50 (0.129 on T20, 6.39 on T10).
   The oscillation does not change when a constant is added to `u`, which the test-set specification says no metric may see (T8's `g = 0` against `1/2`), and it is defined for T12, whose solution is unique only up to a constant; `max |u|` has neither property.
 - Failed runs: a run that raises, has a non-finite error, or (neural) stops as `"diverged"` is a failed run, with error `+inf` in the band (ADR 0007, and `summarize` since this change).
-  No run of this receipt failed.
+  One run of this receipt failed: `DirichletQSPINN` on T2, seed 9, stops `"diverged"` after 190 steps (Finding 4).
 - A classical run whose iteration stops before its tolerance (`converged` False) is kept at its last iterate and marked `\*`; a neural seed that stops at its step budget or stalls is a normal seed.
 - Unsupported pairs: `unsupported_reason` in `comparison.py` names the first of the boundary condition, the dimension and the domain that the preset does not declare.
-  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); the roadmap brings transport boundary conditions to the finite-difference presets in 0.2, and to no neural preset.
+  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); in 0.2 two presets take only transport problems (`Transport only` on the other rows), `FDTransport` (#28) and `TransportICNN` (#29), and later `TransportQSPINN` (#33); the other presets, finite-difference and neural, stay `Dirichlet only`.
+  `FDTransport`'s rows were added from a run at 2ba8083 (`run_comparison.py --solvers FDTransport`), the other rows are unchanged; on T12 its monotone start stalls (no step decreases its residual; the `RuntimeWarning` "FDTransport.start did not converge on T12" in that run's log, `/jczhang02/maesolvers-data/logs/comparison-bfo2014.log` on a100server, as `comparison.csv` has no column for it) and its Newton iteration on the filtered scheme stops at step 142 of 200, where no step decreases the max residual, so the cell is marked `\*` (`bfo2014.md`, Finding 2, and #56); it supports no other problem of the set (`Transport only`).
+  For a preset on the QS form it also names the reference point when that is what fails: `DirichletQSPINN` on T20 gives `f(x0) <= 0`, since T20's `f` vanishes at the centre of its box (`QuadraticForm.refusal` gives the reason) (`docs/methods/qs_pinn.md`, Known limits).
 - Orientation: the problems are the rows and the presets the columns, as GLOSSARY (共用集) and the test-set specification say; the scope comment of #14 calls T12 a "column".
 
 ## Differences from the test-set specification
@@ -49,6 +57,10 @@ Every value the reproduction receipts share with this one agrees to all digits, 
 - `FDHybrid` on T1 (1.571050e-6), T2 (4.177276e-5) and T20 (2.970804e-5): `hybrid.csv`, `N = 361`, `h = 1/N`, narrow.
 - `FDFiltered` on T1 (9.677519e-5, 14 steps, `converged` False): `filtered.csv`, `N = 361`, `h = 1/N`, 17 points, narrow; its T2 and T20 rows there are at `h = 1/(N-1)` only.
 - `PenaltyMLP` and `DirichletICNN` on T1, seeds 0 to 9: `penalty_mlp_t1.csv` and `icnn_t1.csv`, every seed's shared-grid max error.
+- `DirichletQSPINN` on T8 and `TransportQSPINN` on T12, seeds 0 to 9: `qs_pinn.csv`, every seed's shared-grid max error.
+
+One receipt differs by design: `icnn_t12.csv` trained `TransportICNN` on T12 on a GPU, and this table on the CPU, the preset's default.
+The two devices round differently, and 1800 L-BFGS steps carry the difference into the result: the CPU seeds' max error of `u` is 0.79 to 1.80 times the GPU seeds' (median 1.7e-3 here, 2.0e-3 there), the same distribution, not the same numbers.
 
 ## What the table shows
 
@@ -65,9 +77,9 @@ At `n = 361` the damped Newton iteration of `FDFiltered` stops after 14, 21 and 
 
 ### Finding 3: every classical preset and `PenaltyMLP` have non-convex points on T20; `DirichletICNN` has none
 
-On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 10.9% (`FDMixed`) of the interior nodes, as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
+On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 10.9% (`FDMixed`) of the interior nodes (`FDMultigrid` 5.7%, after cycles that do not converge, Finding 7), as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
-On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` has none.
+On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` and `FDMultigrid` have none (`FDMultigrid` had 6 when it stopped after two cycles, `multigrid.md`, Finding 4).
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
 
 ### Finding 4: no neural seed meets the threshold on T2 and T20
@@ -75,19 +87,30 @@ In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay
 On T2 the penalty MLP's median max error is 0.121 (8.6% of the oscillation), and 9 of 10 `DirichletICNN` seeds stall (SciPy's line search fails) after 509 to 7650 steps, with errors from 0.066 to 2.2e3; only seed 3 reaches the step budget, at 0.049.
 On T20, whose solution is only `C^1`, the medians are 4.3e-3 (penalty MLP) and 1.4e-2 (ICNN) against a threshold of 1.3e-3.
 On T1 and T8, which are smooth, `DirichletICNN` succeeds in every seed (on T8 eight seeds meet the gradient tolerance), and the penalty MLP in 9 (seed 1 ends at 1.79e-2, just above the threshold of 1.72e-2) and 5.
+`DirichletQSPINN` fails the threshold on T2 in every seed too (median 1.80, errors 0.34 to 5.1; nine seeds `stalled` after 1 to 1035 steps, and seed 9 diverges after 190 steps, a failed run; non-convex at 18.7% of the grid in the median), and does not support T20, whose `f` vanishes at the centre of its box (`f(x0) <= 0`); on T1 and T8 it succeeds in every seed, on T8 at 1.72e-7, which `qs_pinn.md` (Finding 1) explains.
 
 ### Finding 5: `DirichletICNN` in 3D works in 7 seeds of 10, in 4D in none
 
 On T9 (3D) eight seeds reach the step budget, seven of them below the threshold of 3.48e-2 (3.1e-3 to 2.9e-2) and seed 0 above it (9.2e-2); seed 4 stalls after 1843 steps at 0.83 and seed 9 after 3 steps at 1.9e3.
 On T10 (4D) nine seeds stall, four of them after one step (errors 1.6e4 to 4.8e4), and the best seed ends at 2.5; `docs/methods/icnn.md` (Known limits) records first losses of 2e33 to 3e36 there, against 2e26 to 3e28 on T9.
 The time median on T10 (155 s) is short because most seeds stop early, not because the solve is cheap.
+`DirichletQSPINN` succeeds in every seed on T9 (4.2e-3 to 1.7e-2, every seed `stalled`), and in none on T10, where every seed stalls after 645 to 1359 steps at errors of 0.73 to 1.45 and five are non-convex at some grid points.
+Its default `ratio = 0.6` is too small for the canonical QS representation of T10, which needs `|A / alpha - I|_F` up to 0.64 (0.46 for T9, 0.28 for T1), but that does not set the error: with `ratio = 0.9` every seed still stalls, at 9.3e-1 in the median (`qs_pinn.md`, Finding 5).
 
 ### Finding 6: cost
 
-At `n = 361` the classical presets take 2.6 s to 260 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
+At `n = 361` the classical presets take 0.9 s (`FDMultigrid` on T1) to 260 s (`FDMixed` on T20) on one thread, with 129600 unknowns on the square and 102328 on the disk, and `FDMultigrid` 155 s on T9, with 46656000 unknowns; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), except `DirichletQSPINN`, whose seeds stall or converge sooner (38 s to 422 s), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.6 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 152 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 36 s).
 
-### Finding 7: `FDMixed` on T2 ends on its second root
+### Finding 7: `FDMultigrid` is the one classical preset whose defaults run T9, and the fastest on the square; it does not converge on T20
+
+`FDMultigrid` solves T9 at `n = 361` (`361^3` nodes) in one full multigrid cycle, with a max error of 9.09e-7 and no non-convex node.
+On the square it stops after one cycle on T1 (0.9 s) and nine on T2 (3.9 s); its errors are those of the standard scheme it solves, close to `FDPoisson`'s: 6.81e-7 against 5.28e-7 on T1 (one cycle stops above the discrete solution, `multigrid.md`, Finding 1) and 5.41e-3 against 5.41e-3 on T2.
+On T20, where `f = 0` on a disk, its cycles stall: it runs its 50 cycles in 19 s and reports `converged` False, so its cell carries `\*`, with an error of 1.69e-5 (against 1.59e-5 for `FDPoisson`) and 5.7% non-convex nodes; the paper warns that the method may break down on degenerate data (`docs/methods/multigrid.md`, Known limits).
+The first receipt of these rows (fe47d9b) stopped by the paper's relative residual, which holds after one cycle on fine grids whatever the iterate (`multigrid.md`, Findings 2 and 5): it reported one cycle and `converged` True on T20 (3.51e-5, 0.72% non-convex nodes) and two cycles on T2 (5.40e-3, 6 non-convex nodes).
+`n = 361` is not a power of 2, so its grids (361, 181, 91, 46, 23, 12, 6, 3, 2 cells) are not nested and the transfers interpolate linearly between them (`docs/methods/multigrid.md`); the paper's grids are powers of 2.
+
+### Finding 8: `FDMixed` on T2 ends on its second root
 
 `FDMixed` reaches 7.0e-7 on T1 with the 7-point stencil at every node, but 2.13e-4 on T2, the second root of `chen_wan_lin2018.md`, Finding 5: from the paper's start, policy iteration ends with the wide stencil at a few nodes next to the corner `(1, 1)` (28 policy iterations; 18 non-convex nodes, 0.014%), as it does there from `N = 256` on; its 7-point root, which it reaches from the exact solution, is more accurate.
 

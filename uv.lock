@@ -1936,7 +1936,7 @@ requires-dist = [
     { name = "jsonargparse", extras = ["signatures"], marker = "extra == 'cli'", specifier = ">=4.49" },
     { name = "lightning", marker = "extra == 'neural'", specifier = ">=2" },
     { name = "numpy", specifier = ">=1.24" },
-    { name = "scipy", specifier = ">=1.10" },
+    { name = "scipy", specifier = ">=1.12" },
     { name = "torch", marker = "extra == 'neural'" },
 ]
 provides-extras = ["neural", "cli"]

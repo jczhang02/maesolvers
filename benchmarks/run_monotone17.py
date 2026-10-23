@@ -53,7 +53,7 @@ from maesolvers import (
     Solver,
     tracking,
 )
-from maesolvers.classical.monotone import MonotoneGrid
+from maesolvers.classical.monotone import MonotoneGrid, frame_jacobian
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -159,17 +159,6 @@ class PapersStartNewton(Newton):
         return scheme.solve_laplace(context, np.sqrt(2.0 * scheme.rhs(context)))
 
 
-def _jacobian(grid: MonotoneGrid, weights: np.ndarray) -> sp.csc_matrix:
-    """``sum over pairs p and directions k of diag(weights[p, k]) D_pk``."""
-    weights = weights.ravel()
-    m = grid.f.size
-    rows = np.tile(np.arange(m), 2 * grid.pairs)
-    collapse = sp.csr_matrix(
-        (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
-    )
-    return sp.csc_matrix(collapse @ grid.operators)
-
-
 @dataclass(frozen=True, kw_only=True)
 class BareMonotone17(Monotone17):
     """Froese and Oberman's scheme as printed: min over pairs of a^+ b^+ = f.
@@ -188,9 +177,9 @@ class BareMonotone17(Monotone17):
     def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
         """The papers' floored Danskin Jacobian."""
         d = self.directional_differences(grid, v)
-        chosen = np.arange(grid.pairs)[:, None] == self._bare(grid, v).argmin(axis=0)
+        chosen = np.arange(grid.frames)[:, None] == self._bare(grid, v).argmin(axis=0)
         weights = np.maximum(d[:, ::-1], grid.floor) * chosen[:, None, :]
-        return _jacobian(grid, weights)
+        return frame_jacobian(grid.operators, weights)
 
     def _bare(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
         d = self.directional_differences(grid, v)
@@ -223,7 +212,7 @@ class SmoothMonotone17(Monotone17):
     """The regularised scheme (MA)^delta of SINUM Section 3.5.
 
     Each positive part is max^delta(D u, 0) and the minimum over the pairs a
-    succession of min^delta, in the order of stencil_pairs, over the pairs
+    succession of min^delta, in the order of stencil_frames, over the pairs
     available at the node. Smooth, so its Jacobian is the exact one.
     """
 
@@ -235,7 +224,7 @@ class SmoothMonotone17(Monotone17):
 
     def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
         """The Jacobian of :meth:`residual`."""
-        return _jacobian(grid, self._value_and_weights(grid, v)[1])
+        return frame_jacobian(grid.operators, self._value_and_weights(grid, v)[1])
 
     def _value_and_weights(
         self, grid: MonotoneGrid, v: np.ndarray
@@ -247,8 +236,8 @@ class SmoothMonotone17(Monotone17):
         local = dplus * plus[:, ::-1]
         # value, and its derivative in each pair's product, built pair by pair
         value = np.full(grid.f.size, np.nan)
-        dvalue = np.zeros((grid.pairs, grid.f.size))
-        for p in range(grid.pairs):
+        dvalue = np.zeros((grid.frames, grid.f.size))
+        for p in range(grid.frames):
             use = grid.available[p]
             first = use & np.isnan(value)
             value[first] = products[p, first]

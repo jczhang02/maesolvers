@@ -5,6 +5,13 @@ Source: Froese-Oberman, J. Comput. Phys. 230 (2011), Table 3, column
 Table 3, column "Standard F.D."). Max error at the grid nodes on an N x N
 grid with h = 1 / N; see benchmarks/standard_fd.md for the convention.
 
+Benamou-Froese-Oberman, J. Comput. Phys. 260 (2014), Table 1: max error of
+the gradient map on T16. The paper states its N as nodes per side, "the
+spatial step size dx coming from the number of grid points N_X along each
+dimension" (Section 5.2.1, p. 117), so h = 1/(N - 1); FDTransport prints the
+column at every N there, which confirms it (benchmarks/bfo2014.md, Finding 1).
+N = 32 and 64 are pinned.
+
 Benamou-Froese-Oberman, ESAIM: M2AN 44 (2010), Table 7, column "(M1), (M2)":
 u_min of T7 on [-1, 1]^2, where N counts nodes per side, so N = 21 is n = 20
 cells and the origin is a node (benchmarks/standard_fd.md, Finding 3).
@@ -15,8 +22,12 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 """
 
 import dataclasses
+import importlib.util
 import math
+import sys
+from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -24,22 +35,27 @@ from centred import C2_CENTRED
 from scipy.sparse.linalg import spsolve
 
 from maesolvers import (
+    CATALOGUE,
     T1,
     T2,
     T7,
+    T9,
+    T16,
     T20,
     Box,
     FDFiltered,
     FDHybrid,
     FDMixed,
     FDMonotone,
+    FDMultigrid,
     FDNewton,
     FDPoisson,
+    FDTransport,
     Newton,
     Problem,
     T20c,
 )
-from maesolvers.metrics import evaluate
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
 PUBLISHED_T2 = {31: 17.15e-3, 63: 12.53e-3}
@@ -209,6 +225,126 @@ def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
     result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
     assert result.info["converged"]
     assert round(evaluate(result)["max"] / 1e-3, 2) == expected
+
+
+BFO2014_T16 = {32: 0.0220, 64: 0.0110}  # Table 1, max error; key: N nodes per side
+
+
+@pytest.mark.parametrize(("N", "expected"), sorted(BFO2014_T16.items()))
+def test_transport_scheme_matches_bfo_2014_table_1(N, expected):
+    result = FDTransport(n=N - 1).solve(T16)
+    assert result.info["converged"]
+    points, h = result.nodes[result.interior], result.info["h"][0]
+    error = gradient_map_error(
+        gradient_fd(result.u, points, step=h), gradient_fd(T16.exact, points)
+    )
+    assert round(error["gradient_max"], 4) == expected
+
+
+# Froese-Oberman, SIAM J. Numer. Anal. 49 (2011), Table 4: max error of the
+# 19-point scheme in 3D, with h = 1/N (ADR 0001). T9 is order of magnitude
+# (benchmarks/monotone19.md) and agrees to the printed digits at N = 21 and 31;
+# N = 31 takes a minute, so only N = 21 is pinned. The cells that agree with
+# h = 1/(N - 1) are not pinned: the paper used one convention, and which one
+# its N follows stays open (Finding 1).
+SINUM_TABLE4_EXACT = [  # (problem, n cells, printed max error in units of 1e-4)
+    (T9, 21, 127),
+]
+
+
+@pytest.mark.parametrize(("problem", "n", "expected"), SINUM_TABLE4_EXACT)
+def test_the_19_point_scheme_matches_sinum_table_4(problem, n, expected):
+    result = FDMonotone(n=n, stencil=19).solve(problem)
+    assert result.info["converged"]
+    assert round(evaluate(result)["max"] / 1e-4) == expected
+
+
+def _load_runner(name: str = "run_monotone19"):
+    """A runner of benchmarks/: run_monotone19 for its test-local problem C1_3D,
+    run_multigrid for the paper's stand-alone Gauss-Seidel solver."""
+    path = Path(__file__).parent.parent / "benchmarks" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # its dataclasses look their module up in sys.modules
+    with mock.patch.dict(sys.modules, {spec.name: module}):
+        spec.loader.exec_module(module)
+    return module
+
+
+def test_the_3d_c1_example_solves_det_d2u_equals_f():
+    """Example (15) of the paper: f is the determinant of u's Hessian off the ball."""
+    c1 = _load_runner().C1_3D
+    rng = np.random.default_rng(7)
+    x = rng.uniform(0, 1, (200, 3))
+    r = np.linalg.norm(x - 0.5, axis=1)
+    x = x[np.abs(r - 0.2) > 0.02]
+    e, step = np.eye(3), 1e-4
+    hessian = np.empty((len(x), 3, 3))
+    for i in range(3):
+        for j in range(3):
+            hessian[:, i, j] = (
+                c1.exact(x + step * (e[i] + e[j]))
+                - c1.exact(x + step * (e[i] - e[j]))
+                - c1.exact(x - step * (e[i] - e[j]))
+                + c1.exact(x - step * (e[i] + e[j]))
+            ) / (4 * step**2)
+    np.testing.assert_allclose(np.linalg.det(hessian), c1.f(x), atol=1e-6)
+    r = np.linalg.norm(x - 0.5, axis=1)
+    np.testing.assert_allclose(c1.f(x), np.where(r > 0.2, 1 - 0.4 / r + 0.04 / r**2, 0))
+    assert c1.dim == 3 and c1.name not in CATALOGUE
+
+
+# Liu-Froese-Oberman-Xiao, Int. J. Comput. Math. 94 (2017), Tables 3, 5, 6 and
+# 7, columns "Gauss-Seidel": the paper's stand-alone nonlinear Gauss-Seidel
+# solver, lexicographic sweeps of StandardBox.relax from 1.01 u at the unknowns
+# until the residual's L2 norm is 1e-6 of the start's (gauss_seidel in
+# benchmarks/run_multigrid.py, which writes the receipt). Matched to the
+# printed digits at every printed N, with the same number of sweeps at N = 8
+# and 16 (benchmarks/multigrid.md); N = 8 is pinned here, and N = 16 on T9
+# (some 5 s each).
+LIU_GAUSS_SEIDEL = {  # problem: {N: (error as printed, sweeps)}
+    "T9": {8: (1.2e-3, 72), 16: (3.0e-4, 270)},
+    "T46": {8: (1.7e-2, 82)},
+    "T28": {8: (4.0e-4, 86)},
+    "T22": {8: (1.4e-3, 75)},
+}
+
+
+@pytest.mark.parametrize(
+    "name,n", [(name, n) for name, rows in LIU_GAUSS_SEIDEL.items() for n in rows]
+)
+def test_gauss_seidel_matches_the_liu_et_al_tables(name, n):
+    printed, published_sweeps = LIU_GAUSS_SEIDEL[name][n]
+    run = _load_runner("run_multigrid").gauss_seidel(
+        CATALOGUE[name], n, max_sweeps=2 * published_sweeps
+    )
+    assert run["gs_relres"] <= 1e-6, f"no convergence in {run['gs_iterations']} sweeps"
+    assert float(f"{run['gs_error']:.1e}") == printed
+    assert run["gs_iterations"] == published_sweeps
+
+
+# The same paper, Table 1 (red-black), FMG-FAS through the preset FDMultigrid:
+# cells that agree with the published error to the printed digits inside an
+# order-of-magnitude table (benchmarks/multigrid.md, Tables 1 and 2). The
+# paper's "Iter" is the first cycle whose relative residual is at most 1e-6,
+# against our reference of the residual (Finding 2); T2's 2 cycles at N = 256
+# and 1 at 512 pin that reference with the method.
+LIU_FMG = [  # (problem, N, error as printed, the paper's Iter)
+    (T1, 256, 1.1e-6, 1),
+    (T2, 256, 6.4e-3, 2),
+    (T2, 512, 4.5e-3, 1),
+]
+
+
+@pytest.mark.parametrize(("problem", "n", "printed", "cycles"), LIU_FMG)
+def test_multigrid_matches_the_liu_et_al_table_1(problem, n, printed, cycles):
+    solver = FDMultigrid(n=n, ordering="red-black", max_iter=cycles, tol=1e-30)
+    result = solver.solve(problem)
+    history = result.info["history"]
+    assert len(history) == cycles and history[-1] <= 1e-6
+    assert all(relres > 1e-6 for relres in history[:-1])
+    assert float(f"{evaluate(result)['max']:.1e}") == printed
 
 
 # Chen-Wan-Lin, J. Sci. Comput. 76 (2018), Tables 1 to 3, "proposed mixed

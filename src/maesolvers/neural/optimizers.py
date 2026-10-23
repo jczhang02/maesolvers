@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from maesolvers.core._params import integer, positive
+from maesolvers.core.solver import check_part
 
 if TYPE_CHECKING:
     import torch
@@ -190,3 +191,66 @@ class Adam(Optimizer):
         import torch
 
         return torch.optim.Adam(parameters, lr=self.lr)
+
+
+@dataclass(frozen=True, kw_only=True)
+class Switch(Optimizer):
+    """One optimizer for the first steps, another for the rest of the training.
+
+    The schedule of Caboussat-Peruso 2025 (Section 4.1, Figure 5): Adam for
+    the first steps, then L-BFGS, "following standard practice in PINNs",
+    is ``Switch(first=Adam(), then=LBFGS(), after=200)``. Each training step
+    is one step of the optimizer in charge, so ``first`` takes steps 1 to
+    ``after`` and ``then`` every later step; ``then`` starts with no
+    history of its own, and the solver's ``max_steps`` counts the steps of
+    both. With ``after`` at least the solver's ``max_steps``, ``then`` never
+    runs.
+
+    Parameters
+    ----------
+    first
+        The optimizer part of the first ``after`` steps.
+    then
+        The optimizer part of the later steps.
+    after
+        The number of steps of ``first``, at least 0.
+
+    Raises
+    ------
+    TypeError
+        On construction, if a part is not an instance of a well-defined
+        :class:`Optimizer`, or ``after`` is not an integer.
+    ValueError
+        On construction, for a negative ``after``.
+    """
+
+    first: Optimizer
+    then: Optimizer
+    after: int
+
+    def __post_init__(self) -> None:
+        name = type(self).__name__
+        check_part(f"{name}.first", self.first, Optimizer)
+        check_part(f"{name}.then", self.then, Optimizer)
+        object.__setattr__(self, "after", integer("after", self.after, 0))
+
+    def build(
+        self, parameters: "Iterable[torch.nn.Parameter]"
+    ) -> "torch.optim.Optimizer":
+        """Build both optimizers over the parameters and switch after ``after`` steps.
+
+        Parameters
+        ----------
+        parameters
+            The parameters to train.
+
+        Returns
+        -------
+        torch.optim.Optimizer
+        """
+        from maesolvers.neural._torch import Switching
+
+        params = list(parameters)
+        return Switching(
+            params, self.first.build(params), self.then.build(params), self.after
+        )

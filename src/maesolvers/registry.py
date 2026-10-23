@@ -15,11 +15,19 @@ from maesolvers.classical import (
     FDHybrid,
     FDMixed,
     FDMonotone,
+    FDMultigrid,
     FDNewton,
     FDPoisson,
+    FDTransport,
 )
 from maesolvers.core.solver import Solver
-from maesolvers.neural import DirichletICNN, PenaltyMLP
+from maesolvers.neural import (
+    DirichletICNN,
+    DirichletQSPINN,
+    PenaltyMLP,
+    TransportICNN,
+    TransportQSPINN,
+)
 
 SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
     {
@@ -31,8 +39,13 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
             FDHybrid,
             FDFiltered,
             FDMixed,
+            FDMultigrid,
+            FDTransport,
             PenaltyMLP,
             DirichletICNN,
+            TransportICNN,
+            DirichletQSPINN,
+            TransportQSPINN,
         )
     }
 )

@@ -57,7 +57,7 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical._grid import interior_mask, spline
+from maesolvers.classical.grid import BoxGrid, centred_hessian, stencil
 from maesolvers.classical.schemes import Scheme, difference_operators
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
@@ -354,18 +354,12 @@ def _cross_differences(n: int, h: float) -> tuple[sp.csr_matrix, sp.csr_matrix]:
 
     Same layout as :func:`~maesolvers.classical.schemes.difference_operators`.
     """
-    m = n + 1
-    index = np.flatnonzero(interior_mask(n).ravel())
-    rows = np.arange(index.size)
     axes = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
     def build(sign: float, diagonals: list[tuple[int, int]]) -> sp.csr_matrix:
-        offsets = [((0, 0), 2.0 * sign)]
-        offsets += [(d, -sign) for d in axes] + [(d, sign) for d in diagonals]
-        r = np.tile(rows, len(offsets))
-        c = np.concatenate([index + di * m + dj for (di, dj), _ in offsets])
-        v = np.concatenate([np.full(rows.size, w) for _, w in offsets])
-        return sp.csr_matrix((v / (2.0 * h * h), (r, c)), shape=(index.size, m * m))
+        offsets = np.array([(0, 0), *axes, *diagonals])
+        weights = [2.0 * sign] + [-sign] * 4 + [sign] * 2
+        return stencil(n, offsets, [w / (2.0 * h * h) for w in weights])
 
     return build(1.0, [(1, 1), (-1, -1)]), build(-1.0, [(1, -1), (-1, 1)])
 
@@ -381,19 +375,15 @@ class MixedGrid:
 
     Attributes
     ----------
+    box_grid
+        The grid of ``n`` cells per side over the box.
     n
         Cells per side.
     h
         The grid step.
-    x, y
-        Node coordinates along each axis, ``n + 1`` each.
-    nodes
-        Shape ``((n + 1)^2, 2)``, node ``(i, j)`` at flat index
-        ``i * (n + 1) + j``.
-    interior
-        Shape ``((n + 1)^2,)``, boolean: the nodes that carry unknowns.
     index
-        Shape ``(m, 2)``, int: the grid indices ``(i, j)`` of the unknowns.
+        Shape ``(m, 2)``, int: the grid indices ``(i, j)`` of the unknowns,
+        ``box_grid.interior_index``.
     f
         The right-hand side at the unknowns.
     g
@@ -415,12 +405,9 @@ class MixedGrid:
         factorisation.
     """
 
+    box_grid: BoxGrid
     n: int
     h: float
-    x: np.ndarray
-    y: np.ndarray
-    nodes: np.ndarray
-    interior: np.ndarray
     index: np.ndarray
     f: np.ndarray
     g: Field
@@ -433,6 +420,16 @@ class MixedGrid:
     angles: np.ndarray
     wide_search: str
     laplace: Callable[[np.ndarray], np.ndarray]
+
+    @property
+    def nodes(self) -> np.ndarray:
+        """Shape ``((n + 1)^2, 2)``: the nodes in the flat order of :class:`BoxGrid`."""
+        return self.box_grid.nodes
+
+    @property
+    def interior(self) -> np.ndarray:
+        """Shape ``((n + 1)^2,)``, boolean: the nodes that carry unknowns."""
+        return self.box_grid.interior
 
 
 class _Arm(NamedTuple):
@@ -471,7 +468,7 @@ def _arm(grid: MixedGrid, index: np.ndarray, direction: np.ndarray) -> _Arm:
     weights[shortened] = 0.0
     data = np.zeros(len(index))
     if np.any(shortened):
-        points = np.stack([grid.x[0], grid.y[0]]) + end[shortened] * grid.h
+        points = np.asarray(grid.box_grid.box.lo) + end[shortened] * grid.h
         data[shortened] = grid.g(points)
     return _Arm(reach * grid.arm, cell, weights, data)
 
@@ -699,11 +696,8 @@ class MixedHJB(Scheme):
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         n, box, g = self.n, problem.domain.bbox, problem.boundary.g
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
-        h = float(x[1] - x[0])
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = interior_mask(n).ravel()
+        box_grid = BoxGrid(box, n)
+        h, nodes, interior = box_grid.h[0], box_grid.nodes, box_grid.interior
         f = problem.f(nodes[interior])
         if not np.all(np.isfinite(f)) or np.any(f < 0):
             raise ValueError(
@@ -714,13 +708,10 @@ class MixedHJB(Scheme):
         dxy1, dxy2 = _cross_differences(n, h)
         count = n if self.angles is None else self.angles
         return MixedGrid(
+            box_grid=box_grid,
             n=n,
             h=h,
-            x=x,
-            y=y,
-            nodes=nodes,
-            interior=interior,
-            index=np.stack(np.divmod(np.flatnonzero(interior), n + 1), axis=1),
+            index=box_grid.interior_index,
             f=f,
             g=g,
             boundary_values=g(nodes[~interior]),
@@ -919,17 +910,13 @@ class MixedHJB(Scheme):
         """
         u = self._values(grid, v)
         n, h = grid.n, grid.h
-        dxx, dyy, dxy = difference_operators(n, h, h)
-        hess = np.full((len(grid.nodes), 2, 2), np.nan)
-        hess[grid.interior, 0, 0] = dxx @ u
-        hess[grid.interior, 1, 1] = dyy @ u
-        hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = dxy @ u
         policy = self._policy(grid, v)
         return Solution(
-            u=spline(grid.x, grid.y, u, min(self.spline_degree, n)),
+            # a spline needs degree + 1 knots, so a coarse grid lowers the degree
+            u=grid.box_grid.interpolant(u, min(self.spline_degree, n)),
             nodes=grid.nodes,
             values=u,
-            node_hessian=hess,
+            node_hessian=centred_hessian(grid.box_grid, u),
             interior=grid.interior,
             unknowns=int(v.size),
             info={

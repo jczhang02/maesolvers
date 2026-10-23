@@ -206,8 +206,10 @@ class _PoissonScheme(Protocol):
 class Newton(SchemeIteration):
     """Damped Newton on a scheme's residual, from a Poisson start or another solver's iterate.
 
-    Starts from ``laplace u = 2 sqrt(f)``, a lower bound for the Laplacian of
-    the convex solution (Loeper-Rapetti 2005), or, if ``start`` is given,
+    Starts from ``laplace u = d f^(1/d)`` in dimension ``d`` (``2 sqrt(f)``
+    in 2D), a lower bound for the Laplacian of the convex solution by the
+    inequality of the arithmetic and geometric means of the Hessian's
+    eigenvalues (Loeper-Rapetti 2005 in 2D), or, if ``start`` is given,
     from the final iterate of that solver, and takes Newton steps halved
     until the max residual decreases. Nothing in the iteration prefers the
     convex root, so on a non-monotone scheme it may converge to a non-convex
@@ -355,9 +357,10 @@ class Newton(SchemeIteration):
         return dataclasses.replace(trace, info={**trace.info, **info})
 
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = 2 sqrt(f)``, the convex branch's trace.
+        """Solve ``laplace u = d f^(1/d)``, the convex branch's trace.
 
-        :meth:`run` calls it only if ``start`` is None.
+        In 2D ``laplace u = 2 sqrt(f)``. :meth:`run` calls it only if
+        ``start`` is None.
 
         Parameters
         ----------
@@ -371,8 +374,10 @@ class Newton(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
+        d = problem.dim
+        # numpy takes the square root for ** 0.5, so 2D starts are 2 sqrt(f) exactly
         return self._scheme.solve_laplace(
-            context, 2.0 * np.sqrt(self._scheme.rhs(context))
+            context, d * self._scheme.rhs(context) ** (1.0 / d)
         )
 
     def step(
