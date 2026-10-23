@@ -84,6 +84,15 @@ oscillation ``max u - min u`` of the exact solution on the shared evaluation
 grid, which a constant added to ``u`` does not change."""
 
 
+PLANNED = {
+    "Dirichlet only": "transport boundary conditions",
+    "2D only": "n-dimensional boxes for the finite-difference presets",
+}
+"""The unsupported reasons that the roadmap's 0.2 removes, by the feature that
+removes them (README, Roadmap; the scope of issue #14). ``PenaltyMLP`` stays
+2D only: its penalty makes the network convex only in 2D."""
+
+
 def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
     """Those of ``options`` that the constructor of the preset ``name`` takes.
 
@@ -290,6 +299,11 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
             problems = reasons.setdefault(rows[0]["reason"], [])
             if problem not in problems:
                 problems.append(problem)
+    planned = [
+        f"{PLANNED[reason]} ({_listing(problems)})"
+        for reason, problems in reasons.items()
+        if reason in PLANNED
+    ]
     return [
         "A classical cell is one run on the grid `n` in parentheses, the largest "
         "`N` of the papers, with "
@@ -308,7 +322,7 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
         "A cell with a reason marks a preset that does not support the problem: "
         + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
         + ".",
-    ]
+    ] + ([f"The roadmap puts {_listing(planned)} in 0.2."] if planned else [])
 
 
 def replace_block(text: str, block: str) -> str:

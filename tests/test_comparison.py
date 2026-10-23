@@ -228,6 +228,11 @@ def test_notes_derive_from_the_rows():
         "Every run took 1 CPU thread and ran on the device `cpu`; CPU: Some CPU."
     )
     assert notes[4].endswith(": `r` on T8; `2D only` on T9 and T10.")
+    assert notes[5] == (
+        "The roadmap puts n-dimensional boxes for the finite-difference presets "
+        "(T9 and T10) in 0.2."
+    )
+    assert len(comparison.notes(comparison.group(map(_machine, rows[:-3])))) == 5
 
 
 def test_notes_need_one_machine():

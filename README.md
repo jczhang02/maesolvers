@@ -232,6 +232,7 @@ A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the numbe
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
 A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10.
+The roadmap puts transport boundary conditions (T12) and n-dimensional boxes for the finite-difference presets (T9 and T10) in 0.2.
 <!-- comparison table end -->
 
 ## Reproduction
