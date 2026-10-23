@@ -5,7 +5,7 @@ from maesolvers import (
     T1,
     T2,
     T7,
-    T8,
+    T12,
     Box,
     Dirichlet,
     FDNewton,
@@ -57,10 +57,10 @@ def test_t7_convex_root_at_n20_nonconvex_root_at_n40():
     assert fine["u_origin"] > 0.2734 + 0.01
 
 
-def test_disk_domain_is_rejected():
-    assert not FDNewton().supports(T8)
-    with pytest.raises(UnsupportedProblemError, match="Disk"):
-        FDNewton().solve(T8)
+def test_transport_problem_is_rejected():
+    assert not FDNewton().supports(T12)
+    with pytest.raises(UnsupportedProblemError, match="T12"):
+        FDNewton().solve(T12)
 
 
 def test_a_start_that_meets_tol_is_converged():

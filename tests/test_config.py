@@ -25,6 +25,7 @@ from maesolvers import (
     from_config,
 )
 from maesolvers.classical import Scheme
+from maesolvers.neural import Loss, Network, NeuralSolver, Optimizer, Sampler
 
 pytest.importorskip("jsonargparse")
 
@@ -183,6 +184,15 @@ def _exported(base):
 
 SOLVER_CLASSES = _exported(Solver)
 SCHEME_CLASSES = _exported(Scheme)
+NEURAL_SLOTS = {
+    "network": (Network, {"class_path": "MLP"}),
+    "loss": (Loss, {"class_path": "PenaltyLoss"}),
+    "sampler": (Sampler, {"class_path": "UniformSampler"}),
+    "optimizer": (Optimizer, {"class_path": "LBFGS"}),
+}
+NEURAL_PART_CLASSES = [
+    (slot, name) for slot, (base, _) in NEURAL_SLOTS.items() for name in _exported(base)
+]
 
 
 def test_the_guards_see_every_exported_solver_and_scheme():
@@ -193,6 +203,16 @@ def test_the_guards_see_every_exported_solver_and_scheme():
         "PoissonIteration",
     }
     assert set(SCHEME_CLASSES) >= {"Standard9"}
+    assert {name for _, name in NEURAL_PART_CLASSES} >= {
+        "MLP",
+        "HardDirichlet",
+        "PenaltyLoss",
+        "UniformSampler",
+        "LBFGS",
+        "Adam",
+        "ICNN",
+        "BFGS",
+    }
 
 
 def _class(class_path, user_module):
@@ -202,16 +222,30 @@ def _class(class_path, user_module):
 
 def _numeric_parameters(cls):
     hints = typing.get_type_hints(cls)
+    numeric = (int, float, int | None, float | None)
     return [
-        f.name
-        for f in dataclasses.fields(cls)
-        if f.init and hints[f.name] in (int, float)
+        f.name for f in dataclasses.fields(cls) if f.init and hints[f.name] in numeric
     ]
 
 
+def _scheme_parts(cls):
+    """A default part for every field of ``cls`` that takes a scheme (Filtered's)."""
+    hints = typing.get_type_hints(cls)
+    return {
+        f.name: {"class_path": "Monotone17"}
+        for f in dataclasses.fields(cls)
+        if f.init and hints[f.name] is Scheme
+    }
+
+
 def _solver(cls, class_path, **init_args):
-    if any(f.name == "scheme" and f.init for f in dataclasses.fields(cls)):
+    """A configuration of ``cls`` with a default part in every required part slot."""
+    fields = {f.name for f in dataclasses.fields(cls) if f.init}
+    if "scheme" in fields:
         init_args.setdefault("scheme", {"class_path": "Standard9"})
+    for slot, (_, default) in NEURAL_SLOTS.items():
+        if slot in fields:
+            init_args.setdefault(slot, default)
     return {"class_path": class_path, "init_args": init_args}
 
 
@@ -232,12 +266,25 @@ def test_every_numeric_solver_parameter_is_checked_against_its_type(
 def test_every_numeric_scheme_parameter_is_checked_against_its_type(
     user_module, scheme
 ):
-    names = _numeric_parameters(_class(scheme, user_module))
+    cls = _class(scheme, user_module)
+    names = _numeric_parameters(cls)
     assert names
     for name in names:
-        part = {"class_path": scheme, "init_args": {name: "many"}}
+        part = {"class_path": scheme, "init_args": {**_scheme_parts(cls), name: "many"}}
         with pytest.raises(ValueError, match=f'key "{name}"'):
             from_config(_solver(Newton, "Newton", scheme=part))
+
+
+@pytest.mark.parametrize(("slot", "part"), NEURAL_PART_CLASSES)
+def test_every_numeric_neural_part_parameter_is_checked_against_its_type(slot, part):
+    cls = getattr(maesolvers, part)
+    names = _numeric_parameters(cls)
+    # A part with fields has numeric ones here; BFGS has no fields at all.
+    assert names or not [f for f in dataclasses.fields(cls) if f.init]
+    for name in names:
+        config = _solver(getattr(maesolvers, part), part, **{name: "many"})
+        with pytest.raises(ValueError, match=f'key "{name}"'):
+            from_config(_solver(NeuralSolver, "NeuralSolver", **{slot: config}))
 
 
 def _with_init_args(**init_args):
@@ -302,3 +349,22 @@ def test_a_bad_value_raises_what_the_constructor_raises(init_args, error, messag
 def test_a_missing_file_is_a_file_not_found_error(tmp_path):
     with pytest.raises(FileNotFoundError, match=re.escape("nothing.yaml")):
         from_config(tmp_path / "nothing.yaml")
+
+
+def test_a_composed_icnn_with_a_part_without_fields_round_trips():
+    from maesolvers import BFGS, ICNN, PenaltyLoss, UniformSampler
+
+    composed = NeuralSolver(
+        network=ICNN(),
+        loss=PenaltyLoss(
+            convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
+        ),
+        sampler=UniformSampler(),
+        optimizer=BFGS(),
+        max_steps=3,
+    )
+    assert composed.hparams["init_args"]["optimizer"] == {
+        "class_path": "maesolvers.BFGS",
+        "init_args": {},
+    }
+    assert from_config(composed.hparams) == composed

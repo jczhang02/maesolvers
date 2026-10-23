@@ -6,7 +6,9 @@ other ``python`` block runs, in order, in one namespace; every line of an
 ``sh`` block runs through :func:`maesolvers.cli.main`. A block in any other
 language, or in none, fails the test. Without jsonargparse (the ``cli``
 extra) the ``sh`` blocks are skipped and a Python block stops at the line
-that needs it; every other block still runs, the worked solver's among them.
+that needs it, and so does a block without torch or lightning (the
+``neural`` extra); every other block still runs, the worked solver's among
+them.
 """
 
 import importlib.util
@@ -32,12 +34,14 @@ def _blocks():
         yield match.group(1), match.group(2), line
 
 
-def _run_python(code, line, namespace, has_cli):
+def _run_python(code, line, namespace, has_cli, has_neural):
     padded = "\n" * (line - 1) + code  # tracebacks point at the guide's lines
     try:
         exec(compile(padded, str(GUIDE), "exec"), namespace)
     except ImportError as error:  # maesolvers names the missing extra
-        if has_cli or "jsonargparse" not in str(error):
+        missing_cli = not has_cli and "jsonargparse" in str(error)
+        missing_neural = not has_neural and re.search(r"torch|neural", str(error))
+        if not (missing_cli or missing_neural):
             raise
 
 
@@ -54,6 +58,9 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     has_cli = importlib.util.find_spec("jsonargparse") is not None
+    has_neural = all(
+        importlib.util.find_spec(name) is not None for name in ("torch", "lightning")
+    )
     namespace = {"__name__": "guide"}
     try:
         for language, code, line in _blocks():
@@ -65,7 +72,7 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
                 if has_cli:
                     _run_commands(code)
             elif language == "python":
-                _run_python(code, line, namespace, has_cli)
+                _run_python(code, line, namespace, has_cli, has_neural)
             else:
                 pytest.fail(
                     f"guide line {line}: a {language or 'bare'} block cannot run"
@@ -93,5 +100,20 @@ def test_every_block_of_the_guide_runs(tmp_path, monkeypatch):
             relaxed(scheme=scheme, omega=1.5)
         with pytest.raises(ValueError, match="omega must be positive and finite"):
             relaxed(scheme=scheme, omega=0.0)
+        if has_neural:  # the worked optimizer part checks its parameters too
+            momentum = namespace["Momentum"]
+            assert type(momentum(lr=np.float64(0.1)).lr) is float
+            with pytest.raises(ValueError, match="momentum must be below 1"):
+                momentum(momentum=1.0)
+            with pytest.raises(ValueError, match="lr must be positive and finite"):
+                momentum(lr=0.0)
     finally:
-        sys.modules.pop("my_methods", None)  # the guide's module, not another test's
+        for module in ("my_methods", "my_parts"):  # the guide's, not another test's
+            sys.modules.pop(module, None)
+
+
+def test_the_guide_builds_torch_lbfgs_with_one_iteration_per_step():
+    # torch.optim.LBFGS makes up to 20 iterations per step() by default, which
+    # would break the training loop's count of steps
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "`max_iter=1`, `tolerance_grad=0` and `tolerance_change=0`" in text

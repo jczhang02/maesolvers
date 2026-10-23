@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is pre-alpha (0.0.x): the interface may change until 0.1, and the first two solvers are in.
+> It is alpha (0.1): `Problem`, `Result` and `evaluate` are frozen (ADR 0007), and the rest of the interface may still change in 0.x, never without a line in the [CHANGELOG](CHANGELOG.md); five finite-difference solvers and two neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -22,7 +22,7 @@
 - **Shared metrics**: `evaluate(result)` reports the max and RMS errors at the method's nodes (or on the shared grid for methods without nodes), the same errors on the shared grid, convexity statistics, cost and the problem's observables, the same way for every method; `summarize` aggregates seeds and counts failed ones.
 - **Reproduction with receipts**: `benchmarks/` holds the published tables, our runs, the comparison and the script that draws it; a mismatch is recorded as a finding, not tuned away.
 - **Configs and a command line**: `from_config` and `maesolvers solve` build any solver, nested parts included, from a dict, a YAML file or command-line arguments, read against the constructors' signatures.
-- **Light dependencies**: numpy and scipy only; jsonargparse comes with the `cli` extra, and torch arrives with the `neural` extra and the neural solvers.
+- **Light dependencies**: numpy and scipy only; jsonargparse comes with the `cli` extra, and torch and lightning with the `neural` extra, which a neural solver needs only to solve.
 
 ## Quick Start
 
@@ -164,18 +164,80 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 
 | Solver | Method | Domains | Boundary | Convexity |
 |---|---|---|---|---|
-| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box` | Dirichlet | none; on T2 it converges to a non-convex discrete root |
-| `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | `Box` | Dirichlet | selects the convex branch in practice |
+| `FDNewton` | standard 9-point finite differences, damped Newton from a Poisson start | `Box`; `Disk`, `Ellipse`, `CutQuarterDisk` through Shortley-Weller stencils | Dirichlet | none; on T2 it converges to a non-convex discrete root |
+| `FDPoisson` | the same discretisation solved by the Poisson iteration (M2) of Benamou-Froese-Oberman 2010 | the same | Dirichlet | selects the convex branch in practice |
+| `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points), semi-smooth Newton | `Box` with equal sides | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
+| `FDHybrid` | the hybrid scheme of Froese-Oberman 2011: the standard scheme where the data are regular, the monotone one near the boundary and where `f` is near 0 or infinite; Newton from the monotone root | `Box` with equal sides | Dirichlet | monotone near the possible singularities; the start puts Newton on the convex root |
+| `FDFiltered` | the filtered scheme of Froese-Oberman 2013: the standard 9-point scheme where it nearly agrees with the monotone one, the monotone scheme where they differ; Newton with the paper's approximate Jacobian | `Box` with equal sides | Dirichlet | nearly monotone; where the filter keeps the standard scheme it shares its non-convex roots (T20); its damped Newton often stalls (`converged` False on T1, T2, T4, T5, T7 and T20 at `n = 64`, on the cone), where on T2 the paper's undamped step converges with 9 points at every printed `N` (#56) |
+| `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
+| `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by dense BFGS (SciPy's) on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
 
-Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))` and `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`.
+Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`, `FDMonotone(n=64)` is `Newton(scheme=Monotone17(n=64), max_iter=200)`, `FDHybrid(n=64)` is `Newton(scheme=Hybrid(n=64), start=FDMonotone(n=64), max_iter=200)`, Newton from the root of `FDMonotone`, and `FDFiltered(n=64)` is `Newton(scheme=Filtered(accurate=Standard9(n=64), monotone=Monotone17(n=64)), max_iter=200)`, a scheme made of two schemes.
 A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
 A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `step` and `converged`.
 `maesolvers.SOLVERS` lists the presets by name.
-[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations.
+[`docs/methods/standard9.md`](docs/methods/standard9.md) gives the mathematics, the source papers, the parameters and the known limits of the scheme and its two iterations, [`docs/methods/monotone17.md`](docs/methods/monotone17.md) those of the monotone scheme, [`docs/methods/hybrid.md`](docs/methods/hybrid.md) those of the hybrid scheme, [`docs/methods/filtered.md`](docs/methods/filtered.md) those of the filtered scheme.
+
+A neural solver is a network, a loss, a sampler and an optimizer (ADR 0004) on one training loop, a Lightning `Trainer` in float64 (ADR 0008): `PenaltyMLP()` is `NeuralSolver(network=HardDirichlet(network=MLP()), loss=PenaltyLoss(), sampler=UniformSampler(), optimizer=LBFGS(), max_steps=5000)`.
+A new part subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural` as a frozen dataclass; `docs/guide.md` writes one of each.
+The `seed` fixes the collocation points and the initial network, and `evaluate` measures the trained network on the shared evaluation grid.
+`DirichletICNN()` swaps the network for `ICNN()`, convex in its input by construction, the loss for `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)` and the optimizer for `BFGS()`, with `max_steps=10_000`.
+[`docs/methods/penalty_mlp.md`](docs/methods/penalty_mlp.md) and [`docs/methods/icnn.md`](docs/methods/icnn.md) describe the two methods.
+
+## Comparison
+
+The comparison table runs every preset of `SOLVERS` with its defaults on the shared test set, measured by `evaluate` (ADR 0007); it carries no published numbers, which belong to the reproduction tables below.
+The max error is the one that ranks methods; the non-convex fraction is the share of points with a negative smallest Hessian eigenvalue (the interior nodes for a classical preset, the shared grid for a neural one).
+[`benchmarks/comparison.md`](benchmarks/comparison.md) states how the runs were made and what the table shows; `benchmarks/run_comparison.py` writes [`benchmarks/comparison.csv`](benchmarks/comparison.csv) on a100server, one row per run, and `just comparison-table` writes the tables below from it (a test checks that they are current).
+
+<!-- comparison table: written by benchmarks/comparison.py, do not edit -->
+**Max error at the primary points**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 7.06e-3 [4.57e-3, 1.66e-2], 9/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 |
+| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 |
+| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
+| T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
+
+**Non-convex fraction**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 0 | 0 | 0 | 0 | 0 \* | 0.00124% | 0 |
+| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 7.39% | 0 |
+| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 |
+| T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+
+**Time in seconds**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 418 | 991 |
+| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 419 | 550 |
+| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 416 | 1009 |
+| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | 416 | 797 |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1450 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 155 |
+
+A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2 and T20, `h = 2/n` on T8 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
+A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
+The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
+Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
+A cell with a reason marks a preset that does not support the problem: `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10.
+The roadmap's 0.2 gives the finite-difference presets transport boundary conditions (T12) and n-dimensional boxes (T9 and T10).
+<!-- comparison table end -->
 
 ## Reproduction
 
-A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
+A reproduction is judged against the source paper's own table, on the paper's own test problem, and its verdict is one of the five levels of ADR 0002: exact (the printed digits at every printed `N`), order of magnitude (ours / published in `[1/2, 2]` at every printed `N`, and convergence orders within 0.2), statistical (neural methods: the published number lies inside our 5% to 95% band over 10 seeds), figure only (the paper prints only a figure), or mismatch, recorded as a finding (`docs/adr/0002-reproduction-levels.md`).
 `benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours.
 
 | Problem | N | Published | FDPoisson | FDNewton |
@@ -195,6 +257,19 @@ The papers' grid convention, which none of them states, is `h = 1/N`, except in 
 Newton on the standard scheme converges in the residual on T2 but to a non-convex discrete solution near the corner, so the literature's "standard scheme" numbers are the fixed point of the Poisson or Gauss-Seidel iteration, not of Newton.
 On T7 Newton does the same from `N = 41` on, while the Poisson iteration matches the 2010 table at every printed `N`.
 
+The monotone wide-stencil scheme (`FDMonotone`) matches the 9-, 17- and 33-point columns of Froese-Oberman 2011 (SIAM J. Numer. Anal.), Table 3, on T2 at every printed `N` and on T1 from `N = 127` on; at coarse grids, on T20 and on the cone T21 the published errors differ from ours, and [`benchmarks/monotone17.md`](benchmarks/monotone17.md) records why as findings.
+
+The hybrid scheme (`FDHybrid`) matches the column "Hybrid" of Froese-Oberman 2011 (J. Comput. Phys.), Table 3, on T2 from `N = 127` on, and at every printed `N` with `h = 1/(N - 1)`; it needs a convex start, which `FDHybrid` takes from the monotone scheme, since Newton from the Poisson start reaches a non-convex root on T2.
+On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](benchmarks/hybrid.md) records the findings.
+
+The filtered scheme (`FDFiltered`) matches Froese-Oberman 2013, Table 4.2, on its centred smooth example at every printed `N`, with `N` nodes per side; on T2 the preset's damped Newton stalls, while the paper's undamped Newton step on the same scheme makes the 9-point column of its Table 4.1 exact; the 17- and 33-point columns and Table 4.2's filtered column are a mismatch, because neither iteration converges there from `N = 127`; on T20 `FDFiltered` reaches a non-convex root of the standard scheme, so T20 and the cone are a mismatch ([`benchmarks/filtered.md`](benchmarks/filtered.md)).
+
+The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
+The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
+The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2; it needs the dense BFGS of SciPy, which the paper ran, and on T1 a limited-memory L-BFGS leaves it near 1e-2.
+On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1.
+The equation term, which the paper prints as a sum, explains part of the gap: read as a mean, it gives 3.1e-5 (1.2e-5 to 5.0e-5) and meets the paper's stopping test, but is still a mismatch; the preset waits for #13 to choose (`benchmarks/icnn.md`, Finding 2).
+
 <details>
 <summary><strong>Redraw the figure</strong></summary>
 
@@ -210,8 +285,8 @@ A method enters the library when it can be implemented from its paper and fits `
 The order puts first the methods the literature uses most, those that share infrastructure, and those with tables to reproduce.
 The design behind 0.1 is recorded in `docs/adr/`.
 
-- **0.0.2**: the solver lifecycle, composition and configuration of ADR 0003 to 0005, the frozen `Problem`, `Result` and `evaluate` of ADR 0007, and the catalogue under the T ids of the shared test set; the two existing solvers move over with their reproduction intact.
-- **0.1**, finite differences: Shortley-Weller boundaries for the standard 9-point scheme (so T8 runs on the disk), the monotone 17-point scheme (Froese-Oberman 2011), the filtered scheme (Froese-Oberman 2013), the hybrid scheme (Froese-Oberman 2011); neural: the shared training loop (ADR 0008) with the penalty MLP (Nystrom 2023) and ICNN; the comparison table generated from the runs.
+- **0.0.2**, done. The solver lifecycle, composition and configuration of ADR 0003 to 0005, the frozen `Problem`, `Result` and `evaluate` of ADR 0007, and the catalogue under the T ids of the shared test set; the two existing solvers move over with their reproduction intact.
+- **0.1**, done (the ICNN loss reading waits for #13). Finite differences: Shortley-Weller boundaries for the standard 9-point scheme (so T8 runs on the disk), the monotone 17-point scheme (Froese-Oberman 2011), the filtered scheme (Froese-Oberman 2013), the hybrid scheme (Froese-Oberman 2011); neural: the shared training loop (ADR 0008) with the penalty MLP (Nystrom 2023) and ICNN; the comparison table generated from the runs.
 - **0.2**: n-dimensional boxes and the 19-point monotone scheme, transport boundary conditions (Benamou-Froese-Oberman 2014, Caboussat-Peruso 2025), a multigrid option, the semi-Lagrangian scheme, QS-PINN.
 - **0.3**: finite elements through scikit-fem (Feng-Neilan, Brenner-Neilan C0 interior penalty, Awanou splines, two-scale, Dean-Glowinski least-squares and augmented Lagrangian).
 - **0.4**: Oliker-Prussner, MA-LBR, Froese 2017 point clouds, C-PINN, KAN, Deep Ritz splitting.
@@ -220,11 +295,12 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ## Layout
 
-- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, and the parameter checks `integer` and `positive`.
-- `src/maesolvers/classical/`: the scheme `Standard9`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton` and `FDPoisson`.
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, and the part check `check_part`.
+- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17`, `Hybrid` and `Filtered`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid` and `FDFiltered`.
+- `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
-- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.
+- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them, and the comparison table's CSV (`comparison.csv`) with its runner and renderer.
 - `docs/guide.md`: the user guide; `docs/methods/`: one page per method, or per scheme with its iterations (`standard9.md`); `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
 - `tests/`: the tests, among them the reproduction pins (`test_reproduction.py`) and the guide's code blocks (`test_guide.py`).
 
@@ -232,12 +308,12 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ```sh
 uv sync --group dev
-just check   # ruff format and lint, pyright on src/, pytest without extras, then with cli and mlflow
+just check   # ruff format and lint, pyright on src/, pytest without extras, then with every extra (torch on CPU)
 just fmt     # format and fix
 ```
 
 CI runs the same checks on Python 3.10 and 3.13, and its job without extras also checks that the package imports with numpy and scipy alone.
-The pytest marker `neural` is reserved for the tests that need the `neural` extra, which come with the neural solvers; no test carries it yet.
+The pytest marker `neural` marks the tests that need the `neural` extra; CI runs them on CPU, with torch from the PyTorch CPU index (the `neural-cpu` dependency group), so no CUDA wheel is downloaded.
 Tests check every catalogue problem against the point values of the shared test-set specification and against its own equation, that the solvers converge at the expected order, and that the published numbers above still match.
 
 ## License

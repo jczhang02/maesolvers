@@ -29,13 +29,18 @@ fmt:
     uv run ruff format .
     uv run ruff check --fix .
 
-# What CI runs on one Python: format, lint, types, tests without extras, tests with cli and mlflow
+# What CI runs on one Python: format, lint, types, tests without extras, then every
+# test with cli, mlflow and the neural extra on CPU (the neural-cpu group)
 check:
     uv run --exact ruff format --check .
     uv run --exact ruff check --no-fix .
-    uv run --exact --extra cli --group experiments pyright
+    uv run --exact --extra cli --group experiments --group neural-cpu pyright
     uv run --exact pytest -q -m "not neural"
-    uv run --exact --extra cli --group experiments pytest -q
+    uv run --exact --extra cli --group experiments --group neural-cpu pytest -q
+
+# Rewrite the README comparison table from benchmarks/comparison.csv (a test checks it)
+comparison-table:
+    uv run python benchmarks/comparison.py
 
 # One-time a100server setup: bare repo, clone, data dirs, local remote
 server-init:

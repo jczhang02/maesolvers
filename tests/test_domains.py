@@ -1,9 +1,18 @@
-"""Domains: validation, membership, bounding boxes."""
+"""Domains: validation, membership, bounding boxes, boundary sampling and distance."""
 
 import numpy as np
 import pytest
 
-from maesolvers.core import Box, CutQuarterDisk, Disk, Domain, Ellipse
+from maesolvers.core import (
+    BoundaryDistance,
+    BoundarySampling,
+    Box,
+    CutQuarterDisk,
+    Disk,
+    Domain,
+    Ellipse,
+)
+from maesolvers.core.domains import _allocate
 
 
 @pytest.mark.parametrize(
@@ -135,3 +144,107 @@ def test_domains_are_frozen_and_hashable():
     with pytest.raises(AttributeError):
         box.lo = (1, 1)
     assert len({box, Box((0.0, 0.0), (1.0, 1.0)), Disk((0, 0), 1)}) == 2
+
+
+SAMPLED = [
+    Box((0, 0), (1, 1)),
+    Box((0, -1, 2), (1, 2, 2.5)),
+    Box((-1,), (3,)),
+    Disk((1, -1), 2),
+    CutQuarterDisk(),
+]
+
+
+def _on_the_boundary(domain, points):
+    """Whether every point is in the closed domain up to rounding, at distance 0."""
+    near = domain.contains(points) | (domain.boundary_distance(points) > -1e-12)
+    return bool(np.all(near) and np.allclose(domain.boundary_distance(points), 0.0))
+
+
+@pytest.mark.parametrize("domain", SAMPLED)
+def test_sampled_boundary_points_lie_on_the_boundary(domain):
+    assert isinstance(domain, BoundarySampling)
+    assert isinstance(domain, BoundaryDistance)
+    points = domain.sample_boundary(500, np.random.default_rng(0))
+    assert points.shape == (500, domain.dim)
+    assert _on_the_boundary(domain, points)
+
+
+@pytest.mark.parametrize("domain", SAMPLED)
+def test_boundary_points_depend_on_the_generator_alone(domain):
+    first = domain.sample_boundary(50, np.random.default_rng(3))
+    again = domain.sample_boundary(50, np.random.default_rng(3))
+    other = domain.sample_boundary(50, np.random.default_rng(4))
+    np.testing.assert_array_equal(first, again)
+    assert np.array_equal(first, other) == (domain.dim == 1)  # 1D: two end points
+
+
+@pytest.mark.parametrize("domain", SAMPLED)
+def test_no_boundary_points_is_an_empty_array(domain):
+    assert domain.sample_boundary(0, np.random.default_rng(0)).shape == (0, domain.dim)
+
+
+def test_the_number_of_boundary_points_is_checked():
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="n must be at least 0"):
+        Box((0, 0), (1, 1)).sample_boundary(-1, rng)
+    with pytest.raises(TypeError, match="n must be an integer"):
+        CutQuarterDisk().sample_boundary(2.5, rng)
+
+
+def test_box_faces_get_points_in_proportion_to_their_area():
+    box = Box((0, 0, 0), (1, 2, 3))  # face areas 6, 6, 3, 3, 2, 2 for x, y, z
+    points = box.sample_boundary(220, np.random.default_rng(0))
+    on_face = [
+        np.sum(points[:, axis] == end)
+        for axis in range(3)
+        for end in (box.lo[axis], box.hi[axis])
+    ]
+    assert on_face == [60, 60, 30, 30, 20, 20]
+
+
+def test_cut_quarter_disk_sides_get_points_in_proportion_to_their_length():
+    domain = CutQuarterDisk()
+    points = domain.sample_boundary(1000, np.random.default_rng(0))
+    x, y = points[:, 0], points[:, 1]
+    bottom, left = np.sum(y == 0.0), np.sum(x == 0.0)
+    arc = np.sum(np.isclose(x**2 + y**2, 1.0) & (x > 0) & (y > 0))
+    cut = np.sum(np.isclose(y, x - 0.5) & (y > 0))
+    cut_length = (np.sqrt(7.0) - 1.0) / (2.0 * np.sqrt(2.0))
+    corner_angle = np.arctan2((np.sqrt(7.0) - 1.0) / 4.0, (1.0 + np.sqrt(7.0)) / 4.0)
+    lengths = np.array([0.5, cut_length, np.pi / 2 - corner_angle, 1.0])
+    expected = 1000 * lengths / lengths.sum()
+    assert (bottom, cut, arc, left) == tuple(int(v) for v in _allocate(1000, lengths))
+    np.testing.assert_allclose([bottom, cut, arc, left], expected, atol=1.0)
+
+
+def test_allocation_adds_up_and_rounds_by_largest_remainder():
+    counts = _allocate(10, np.array([1.0, 1.0, 1.0]))
+    assert counts.tolist() == [4, 3, 3]
+    assert _allocate(0, np.array([2.0, 1.0])).tolist() == [0, 0]
+    assert _allocate(7, np.array([0.5, 0.25, 0.25])).sum() == 7
+
+
+@pytest.mark.parametrize(
+    ("domain", "point", "distance"),
+    [
+        (Box((0, 0), (1, 2)), (0.25, 1.5), 0.25),
+        (Box((0, 0, 0), (1, 1, 1)), (0.5, 0.5, 0.9), 0.1),
+        (Disk((1, 0), 2), (0.5, 0.0), 1.5),
+        (CutQuarterDisk(), (0.1, 0.5), 0.1),  # the y axis is nearest
+        (CutQuarterDisk(), (0.5, 0.1), 0.1 / np.sqrt(2.0)),  # the cut
+        (CutQuarterDisk(), (0.3, 0.8), 1.0 - np.hypot(0.3, 0.8)),  # the arc
+    ],
+)
+def test_boundary_distance_is_the_distance_to_the_nearest_side(domain, point, distance):
+    assert domain.boundary_distance(np.array(point)) == pytest.approx(distance)
+
+
+def test_boundary_distance_keeps_the_leading_shape():
+    assert CutQuarterDisk().boundary_distance(np.full((3, 4, 2), 0.2)).shape == (3, 4)
+
+
+def test_ellipse_neither_samples_its_boundary_nor_knows_its_distance():
+    ellipse = Ellipse((0, 0), (2, 1))
+    assert not isinstance(ellipse, BoundarySampling)
+    assert not isinstance(ellipse, BoundaryDistance)

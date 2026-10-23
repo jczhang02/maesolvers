@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from maesolvers.core import integer, positive
+from maesolvers.core import boolean, integer, nonnegative, positive
 
 
 @pytest.mark.parametrize("value", [3, np.int64(3), np.int32(3)])
@@ -42,3 +42,35 @@ def test_positive_rejects_a_non_real_naming_the_parameter(value):
 def test_positive_rejects_zero_negative_and_non_finite_values(value):
     with pytest.raises(ValueError, match="tol must be positive and finite"):
         positive("tol", value)
+
+
+@pytest.mark.parametrize("value", [0, 0.0, 1e4, np.float32(0.5), np.int64(2)])
+def test_nonnegative_accepts_zero_and_returns_a_plain_float(value):
+    out = nonnegative("weight", value)
+    assert out == float(value)
+    assert type(out) is float
+
+
+@pytest.mark.parametrize("value", [False, "0", None])
+def test_nonnegative_rejects_a_non_real_naming_the_parameter(value):
+    with pytest.raises(TypeError, match="weight must be a real number"):
+        nonnegative("weight", value)
+
+
+@pytest.mark.parametrize("value", [-1e-12, float("inf"), float("nan")])
+def test_nonnegative_rejects_negative_and_non_finite_values(value):
+    with pytest.raises(ValueError, match="weight must be nonnegative and finite"):
+        nonnegative("weight", value)
+
+
+@pytest.mark.parametrize("value", [True, False, np.bool_(True)])
+def test_boolean_returns_a_plain_bool(value):
+    out = boolean("flag", value)
+    assert out == bool(value)
+    assert type(out) is bool
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", None, np.int64(1)])
+def test_boolean_rejects_a_non_bool_naming_the_parameter(value):
+    with pytest.raises(TypeError, match="flag must be a bool"):
+        boolean("flag", value)

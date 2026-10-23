@@ -6,7 +6,8 @@ condition, exact solution when known), a :class:`Solver` whose
 for grid methods, the nodes, values and discrete Hessian), and
 :func:`maesolvers.metrics.evaluate`, which measures any result the same way.
 :func:`from_config` builds a solver from its configuration
-(it needs the ``cli`` extra).
+(it needs the ``cli`` extra). The neural solvers of :mod:`maesolvers.neural`
+need the ``neural`` extra to solve, not to be imported.
 """
 
 from maesolvers.catalogue import (
@@ -28,8 +29,14 @@ from maesolvers.catalogue import (
     T22,
 )
 from maesolvers.classical import (
+    FDFiltered,
+    FDHybrid,
+    FDMonotone,
     FDNewton,
     FDPoisson,
+    Filtered,
+    Hybrid,
+    Monotone17,
     Newton,
     PoissonIteration,
     Scheme,
@@ -53,10 +60,27 @@ from maesolvers.core import (
     Transport,
     UnsupportedProblemError,
 )
+from maesolvers.neural import (
+    BFGS,
+    ICNN,
+    LBFGS,
+    MLP,
+    Adam,
+    DirichletICNN,
+    HardDirichlet,
+    NeuralSolver,
+    PenaltyLoss,
+    PenaltyMLP,
+    UniformSampler,
+)
 from maesolvers.registry import SOLVERS
 
 __all__ = [
+    "BFGS",
     "CATALOGUE",
+    "ICNN",
+    "LBFGS",
+    "MLP",
     "SHARED_TEST_SET",
     "SOLVERS",
     "T1",
@@ -73,16 +97,28 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "Adam",
     "Box",
     "Callback",
     "CutQuarterDisk",
     "Dirichlet",
+    "DirichletICNN",
     "Disk",
     "Ellipse",
+    "FDFiltered",
+    "FDHybrid",
+    "FDMonotone",
     "FDNewton",
     "FDPoisson",
+    "Filtered",
+    "HardDirichlet",
+    "Hybrid",
     "IterativeSolver",
+    "Monotone17",
+    "NeuralSolver",
     "Newton",
+    "PenaltyLoss",
+    "PenaltyMLP",
     "PoissonIteration",
     "Problem",
     "Result",
@@ -93,6 +129,7 @@ __all__ = [
     "Standard9",
     "Trace",
     "Transport",
+    "UniformSampler",
     "UnsupportedProblemError",
     "from_config",
 ]

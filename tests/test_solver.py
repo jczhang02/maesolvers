@@ -104,6 +104,39 @@ def test_iterative_loop_stops_unconverged_when_a_step_stalls():
     assert result.info["history"] == (0.5, 0.25)
 
 
+def test_run_from_steps_from_the_iterate_it_is_given():
+    trace = Halving().run_from(T1, 1.0, (), 0.4)
+    assert trace.history == (0.2, 0.1, 0.05) and trace.state == 0.05
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Reporting(Halving):
+    """Reports through Trace.info what only its run knows."""
+
+    entries: tuple[tuple[str, int], ...] = (("halvings", 4),)
+
+    def run(self, problem, context, callbacks):
+        trace = super().run(problem, context, callbacks)
+        return dataclasses.replace(trace, info=dict(self.entries))
+
+
+def test_trace_info_reaches_the_result_info():
+    assert _Reporting().solve(T1).info["halvings"] == 4
+    assert Halving().run(T1, 1.0, ()).info == {}
+
+
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        ("iterations", r"Trace\.info must not set \['iterations'\]"),
+        ("final", r"Trace\.info and Solution\.info both set \['final'\]"),
+    ],
+)
+def test_trace_info_must_not_overwrite_another_entry(key, message):
+    with pytest.raises(ValueError, match=message):
+        _Reporting(entries=((key, 0),)).solve(T1)
+
+
 def test_max_iter_must_be_positive():
     with pytest.raises(ValueError, match="max_iter"):
         Halving(max_iter=0)
@@ -198,7 +231,8 @@ def test_hparams_nest_containers_of_parts():
 def test_supports_checks_domain_boundary_and_dimension():
     assert Halving().supports(T8) and Halving().supports(T1)
     assert not Halving().supports(T12)
-    assert FDNewton().supports(T1) and not FDNewton().supports(T8)
+    assert FDNewton().supports(T1) and FDNewton().supports(T8)
+    assert not FDNewton().supports(T12)
     cube = Problem("C", Box((0,) * 3, (1,) * 3), _zero, Dirichlet(_zero))
     assert Halving().supports(cube) and not FDPoisson().supports(cube)
 
@@ -386,7 +420,6 @@ def test_solution_info_may_not_override_run_fields():
         (dict(tol=np.inf), ValueError, "tol must be"),
         (dict(spline_degree=0), ValueError, "spline_degree"),
         (dict(spline_degree=6), ValueError, "spline_degree"),
-        (dict(n=2, spline_degree=3), ValueError, "spline_degree"),
         (dict(max_iter=0), ValueError, "max_iter"),
         (dict(n=8.5), TypeError, "n must be an integer"),
         (dict(n=True), TypeError, "n must be an integer"),

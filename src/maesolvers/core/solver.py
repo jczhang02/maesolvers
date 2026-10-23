@@ -55,12 +55,17 @@ class Trace(Generic[StateT]):
         Whether the stopping criterion was met.
     history
         The convergence measure after every step.
+    info
+        Method-specific entries for ``Result.info`` that only the run knows
+        (such as how a start solve ended); the same rules as
+        :attr:`Solution.info`, whose entries must not repeat these keys.
     """
 
     state: StateT
     iterations: int
     converged: bool
     history: tuple[float, ...] = ()
+    info: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, eq=False)
@@ -77,7 +82,9 @@ class Solution:
     info
         Method-specific entries for ``Result.info``; must not use the keys
         the base class sets (``time``, ``iterations``, ``converged``,
-        ``history``, ``unknowns``).
+        ``history``, ``unknowns``). ``stop`` has the meaning
+        :class:`~maesolvers.core.result.Result` gives it: set
+        ``"stop": "diverged"`` for a run that failed.
     """
 
     u: Field
@@ -173,6 +180,47 @@ def _check_part_definition(cls: type, label: str) -> None:
             f"{label} takes {', '.join(unrecorded)}, which the configuration "
             "cannot record; make every constructor parameter a field"
         )
+
+
+def check_part(owner: str, part: object, base: type) -> None:
+    """Raise TypeError unless ``part`` is an instance of a well-defined subclass of ``base``.
+
+    Call it in the ``__post_init__`` of a solver or part that takes a part,
+    as the shipped composed solvers do, so that passing the class ``MLP``
+    for ``MLP()``, or a part of the wrong kind, fails at construction with a
+    message that names the field.
+
+    Parameters
+    ----------
+    owner
+        How the error messages name the field, such as ``"Newton.scheme"``.
+    part
+        The value of the field.
+    base
+        The part's base class, such as :class:`~maesolvers.classical.Scheme`.
+
+    Raises
+    ------
+    TypeError
+        If ``part`` is a class, is not an instance of ``base``, or its class
+        fails the check a solver class passes: its own frozen dataclass
+        decorator and keyword-only fields.
+
+    Examples
+    --------
+    In the ``__post_init__`` of a network that wraps another:
+
+    >>> check_part("PlusQuadratic.network", self.network, Network)  # doctest: +SKIP
+    """
+    if isinstance(part, type):
+        raise TypeError(
+            f"{owner} must be an instance, got the class {part.__name__}; "
+            f"write {part.__name__}(...)"
+        )
+    cls = type(part)
+    if not isinstance(part, base):
+        raise TypeError(f"{owner} must subclass {base.__name__}, got {cls.__name__}")
+    _check_part_definition(cls, f"{owner}: {cls.__name__}")
 
 
 def _class_path(cls: type) -> str:
@@ -352,7 +400,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
         Result
             With ``info`` holding ``time`` (seconds, setup to finalize),
             ``iterations``, ``converged``, ``history``, ``unknowns`` when known,
-            and the method's own entries.
+            and the method's own entries from ``Trace.info`` and
+            ``Solution.info``.
         """
         config = self.hparams
         self.check(problem)
@@ -363,9 +412,13 @@ class Solver(ABC, Generic[ContextT, StateT]):
         trace = self.run(problem, context, callbacks)
         solution = self.finalize(problem, context, trace.state)
         elapsed = time.perf_counter() - start
-        clash = set(solution.info) & set(_RUN_KEYS)
+        for name, entries in (("Trace", trace.info), ("Solution", solution.info)):
+            clash = set(entries) & set(_RUN_KEYS)
+            if clash:
+                raise ValueError(f"{name}.info must not set {sorted(clash)}")
+        clash = set(trace.info) & set(solution.info)
         if clash:
-            raise ValueError(f"Solution.info must not set {sorted(clash)}")
+            raise ValueError(f"Trace.info and Solution.info both set {sorted(clash)}")
         info: dict[str, Any] = {
             "time": elapsed,
             "iterations": trace.iterations,
@@ -374,6 +427,7 @@ class Solver(ABC, Generic[ContextT, StateT]):
         }
         if solution.unknowns is not None:
             info["unknowns"] = solution.unknowns
+        info.update(trace.info)
         info.update(solution.info)
         result = Result(
             problem=problem,
@@ -501,7 +555,38 @@ class IterativeSolver(Solver[ContextT, IterateT]):
         -------
         Trace
         """
-        iterate = self.initial_guess(problem, context)
+        return self.run_from(
+            problem, context, callbacks, self.initial_guess(problem, context)
+        )
+
+    def run_from(
+        self,
+        problem: Problem,
+        context: ContextT,
+        callbacks: Sequence[Callback],
+        iterate: IterateT,
+    ) -> Trace[IterateT]:
+        """Step from ``iterate`` until converged, stalled or ``max_iter``.
+
+        What :meth:`run` does after :meth:`initial_guess`; a subclass whose
+        first iterate needs more than the context (another solve, say)
+        overrides :meth:`run` and calls this.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            What :meth:`Solver.setup` returned.
+        callbacks
+            Each gets ``on_step_end`` with ``{measure: value}`` after every step.
+        iterate
+            The first iterate.
+
+        Returns
+        -------
+        Trace
+        """
         history: list[float] = []
         converged = False
         while len(history) < self.max_iter:

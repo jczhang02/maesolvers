@@ -1,6 +1,6 @@
 [project]
 name = "maesolvers"
-version = "0.0.2"
+version = "0.1.0"
 description = "Solvers for the Monge-Ampere equation: classical and neural methods behind one interface"
 readme = "README.md"
 license = "MIT"
@@ -8,18 +8,18 @@ authors = [{ name = "JC Zhang" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
 
 [project.optional-dependencies]
-# Declared for the neural solvers to come; nothing in 0.0.x imports torch.
-neural = ["torch"]
+# The neural solvers (ADR 0006, 0008); imported only when a neural solver solves.
+neural = ["torch", "lightning>=2"]
 # Configs and the `maesolvers solve` command line (ADR 0005); imported only by
 # maesolvers.from_config and maesolvers.cli. CI and `just check` add it with --extra cli.
-cli = ["jsonargparse>=4.49"]
+cli = ["jsonargparse[signatures]>=4.49"]
 
 [project.scripts]
 maesolvers = "maesolvers.cli:main"
@@ -35,11 +35,25 @@ dev = [
 ]
 # Experiment logging on a100server (see CLAUDE.md, Experiments); not a library dependency.
 experiments = ["mlflow>=3.4"]
+# The neural extra with the CPU build of torch, for CI and `just check` on machines
+# without a GPU: the torch wheel on PyPI pulls the multi-GB CUDA libraries.
+neural-cpu = ["torch", "lightning>=2"]
 
 [tool.uv]
 # The lock (not the published metadata) pins torch 2.7.1: newer wheels need a
 # CUDA driver newer than a100server's 12.6. Users install any torch they like.
 constraint-dependencies = ["torch==2.7.1"]
+# The neural extra takes torch from PyPI (the CUDA 12.6 build, installed on
+# a100server through its mirror); the neural-cpu group takes the CPU build.
+conflicts = [[{ extra = "neural" }, { group = "neural-cpu" }]]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", group = "neural-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

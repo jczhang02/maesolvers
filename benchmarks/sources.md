@@ -9,8 +9,12 @@ Each value was checked against a rendered image of the printed page.
 The arXiv and Numdam links are public equivalents; their tables were not checked against the journal tables.
 Values keep the printed scaling (for example "24.45 x 10^-5", not 2.445e-4).
 A "--" means the paper printed a dash: the run was not done, or it was too slow to report.
+The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network).
 
-## Grid convention (unresolved)
+## Grid convention (settled by ADR 0001)
+
+ADR 0001 settles the convention at `h = 1/N`, `N` cells per side: on T1 at N = 31 only `h = 1/N` matches the published 7.14 x 10^-5 (`standard_fd.md`, Finding 1).
+The quotes below are what the papers say; the last two lines list the tables that count nodes instead.
 
 Benamou-Froese-Oberman 2010, Section 3.3, says verbatim: "The solutions are computed on an N x N grid ... By convention, h is the spatial discretization parameter h = L/N where L is the length of one side of the square domain."
 Froese-Oberman JCP 2011, Section 8, says only: "These computations are performed on an N x N grid on the square [0, 1]^2."
@@ -18,8 +22,9 @@ Froese-Oberman SIAM 2011, Section 6, says only: "We perform the computations usi
 SIAM Table 2 adds: "Here M = N^2 is the total number of grid points."
 None of the 2011 papers defines h in terms of N.
 The odd N values (21, 41, ...; 31, 63, 127, 255) suggest N points per side including the boundary, so h = 1/(N-1), but no paper says so.
-A useful check: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, and it should tell h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
+The check that decided it: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, which tells h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
 One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (`standard_fd.md`, Finding 3).
+Froese-Oberman 2013 (section 5 below) counts nodes too, in every table: its values match n = N - 1 cells (`filtered.md`, Finding 1).
 
 ## 1. Benamou, Froese, Oberman (2010)
 
@@ -126,11 +131,12 @@ Read: local journal PDF from the Zotero folder (two copies of the same journal v
 Open copy: https://arxiv.org/abs/1007.0765 (not checked).
 
 Method: a wide-stencil monotone discretisation MA_M[u] = min over orthogonal grid-direction pairs (nu_1, nu_2) of the product of the positive parts of D_{nu nu} u.
-For Newton, the max and min are replaced by smooth monotone versions (MA^delta).
+Section 3.5 defines a regularised scheme MA^delta, with max^delta(a, b) = (a + b + sqrt((a - b)^2 + delta^2))/2 and min^delta likewise (delta^2 read in arXiv 1007.0765; the journal text layer garbles it), the positive parts max^delta(D u, 0) and the minimum over pairs a succession of min^delta; Theorem 9 proves that Newton converges for MA^delta.
+No value of delta is printed, and Section 5 states Newton for MA_M itself, with Danskin's theorem for the Jacobian, so the tables need not come from MA^delta.
 The equations are solved by damped Newton, with the step reduced until the residual decreases.
 The linear systems are solved by MATLAB backslash (sparse LU).
 The initial guess is one step of the semi-implicit scheme, Laplacian u^0 = sqrt(2f) in 2D, convexified only for the most singular example.
-The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon) with a small epsilon; the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon), with epsilon = 10^-8 / (2 dx^2) (Section 5.3, read from the page image; the text layer garbles it).
 Section 6 uses a 17-point stencil for Table 1; Table 3 also uses 9- and 33-point stencils.
 No Newton stopping tolerance is stated.
 The "F.D." columns of Table 3 are the standard 9-point scheme "using the results of [5]" ([5] is Benamou-Froese-Oberman 2010).
@@ -187,6 +193,35 @@ Table 1: Newton on the 17-point monotone scheme.
 
 Table 2 gives the CPU time scaling, with M = N^2: Gauss-Seidel about O(M^1.8) on C^{2,alpha} and O(M^1.9) on C^{1,alpha}; Poisson about O(M^1.4), "blowup" on less regular solutions; Newton about O(M^1.3) for all regularities.
 
+### C^1 example (11), T20 in the catalogue
+
+Table 3: max error; the F.D. column prints a dash at N = 255 and 361.
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | F.D. |
+|---|---|---|---|---|
+| 31 | 3.0 x 10^-3 | 1.7 x 10^-3 | 1.5 x 10^-3 | 2.6 x 10^-4 |
+| 63 | 2.5 x 10^-3 | 1.0 x 10^-3 | 0.6 x 10^-3 | 1.5 x 10^-4 |
+| 127 | 2.3 x 10^-3 | 0.8 x 10^-3 | 0.3 x 10^-3 | 0.6 x 10^-4 |
+| 255 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+| 361 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 4, 7, 11, 16, 20 at N = 31, 63, 127, 255, 361.
+
+### C^{0,1} (Lipschitz) example (13), the cone T21
+
+Table 3: max error; the Standard F.D. column prints a dash at N = 255 and 361.
+f is the Dirac mass pi delta_{x0} averaged over the disk |x - x0| <= h/2: 4/h^2 there, 0 elsewhere (Section 6.1).
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | Standard F.D. |
+|---|---|---|---|---|
+| 31 | 12 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 | 10 x 10^-3 |
+| 63 | 11 x 10^-3 | 3 x 10^-3 | 2 x 10^-3 | 6 x 10^-3 |
+| 127 | 11 x 10^-3 | 4 x 10^-3 | 2 x 10^-3 | 3 x 10^-3 |
+| 255 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+| 361 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 9, 15, 32, 34, 29 at N = 31, 63, 127, 255, 361.
+
 ### Other test solutions in this paper
 
 - "C^1 example" (11): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5).
@@ -206,7 +241,7 @@ Methods: three discretisations, each solved by damped Newton.
 On the square, the monotone scheme is used near the boundary, so the hybrid scheme is less accurate than the standard one for (a).
 The linear systems are solved by LU decomposition.
 The initial guess is one semi-implicit step followed by a convex envelope on a coarse grid, interpolated to the fine grid.
-The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon); the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon), with epsilon = 10^-8 / (2 dx^2) as in the SIAM paper (Section 7.2).
 Hardware: a laptop with a 2 GHz Intel processor, MATLAB, Windows Vista.
 No Newton stopping tolerance is stated.
 Section 8.1 reports that Newton on the standard scheme fails for solution (b): started from the exact solution, after two iterations it oscillates and becomes non-convex (Fig. 2).
@@ -278,6 +313,36 @@ Table 1: Newton on the hybrid scheme.
 
 Table 2 gives the same CPU time scalings as the SIAM paper (Newton about O(M^1.3), M = N^2).
 
+### C^1 Example (15), T20 in the catalogue
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 2.6 x 10^-4 | 17.5 x 10^-4 | 12.2 x 10^-4 |
+| 45 | 1.8 x 10^-4 | 11.6 x 10^-4 | 5.9 x 10^-4 |
+| 63 | 1.5 x 10^-4 | 9.8 x 10^-4 | 4.2 x 10^-4 |
+| 89 | 0.9 x 10^-4 | 8.4 x 10^-4 | 2.6 x 10^-4 |
+| 127 | 0.6 x 10^-4 | 7.9 x 10^-4 | 2.0 x 10^-4 |
+| 181 | 0.4 x 10^-4 | 7.4 x 10^-4 | 1.2 x 10^-4 |
+| 255 | -- | 7.2 x 10^-4 | 1.0 x 10^-4 |
+| 361 | -- | 7.0 x 10^-4 | 0.7 x 10^-4 |
+
+### C^{0,1} (Lipschitz) Example (17), the cone T21
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 10 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 45 | 8 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 63 | 6 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 89 | 4 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 127 | 3 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 181 | 2 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 255 | -- | 4 x 10^-3 | 4 x 10^-3 |
+| 361 | -- | 4 x 10^-3 | 4 x 10^-3 |
+
 ### Other test solutions in this paper
 
 - "C^1 Example" (15): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5); hybrid accuracy O(h).
@@ -297,6 +362,99 @@ Test density: rho = 1 + beta sin(2 pi k x) sin(2 pi k y), with beta = 0.8, k = 2
 Results are only in figures: about 10 Newton iterations reach an L2 error on rho of about 10^-10 for N = 16 to 512 (Fig. 1).
 The only printed numbers are in the Fig. 2 caption (beta = 0.8, k = 2, N = 64): "The highest absolute value is 0.0609 (n = 1, top left), 0.0239 (n = 2, top right), 0.00949 (n = 3, bottom left) and 0.00379 (n = 4, bottom right)".
 Fig. 4 shows the L2 and L-infinity error of u for u_ex = beta sin(2 pi k x) sin(2 pi k y), beta = 0.02, k = 1, at N = 16, 32, 64, 128, 256 after 10 Newton iterations; the text gives order O(1/N^2) but prints no values.
+
+## 5. Froese, Oberman, SIAM J. Numer. Anal. (2013)
+
+B. D. Froese, A. M. Oberman, "Convergent filtered schemes for the Monge-Ampere partial differential equation", SIAM J. Numer. Anal. 51(1) (2013) 423-444, DOI 10.1137/120875065.
+Read: local journal PDF (Zotero item Y55FLDKL, attachment 2BQN6YP2); every value below was checked against a rendered image of pp. 438-442 (journal page numbers).
+
+Method (Section 4.1): the filtered scheme `F_H = F_M + eps S((F_A - F_M) / eps)`, with `F_M` the monotone wide-stencil scheme of their Section 1.7 (`min over pairs of prod max{D_vv u, delta} + sum min{D_vv u, delta}`, `delta` not printed), `F_A` the standard 9-point scheme ("see [FO11b] for details"), the filter `S` of eq. (1.3) (identity on `[-1, 1]`, `sign(x)(2 - |x|)` for `1 <= |x| <= 2`, zero beyond) and `eps(h, dtheta) = sqrt(h) + dtheta / 10`.
+`dtheta` is not given a value, neither here nor in FO 2011 (SINUM p. 1700 names it the parameter of the directional discretisation); Oberman 2008, eq. (3.3), defines it as `max over theta of min over i |theta - theta_i|`, the largest angle between a direction and the nearest stencil direction, half the largest gap between stencil directions.
+maesolvers takes the full gap (`pi/4`, `atan(1/2)`, `atan(1/3)`), which the T2 filtered columns of Table 4.1 fit (`filtered.md`, Finding 3).
+Solved by Newton, `u^{n+1} = u^n - (grad F_H[u^n])^{-1} F_H[u^n]`, with the Jacobian approximated by `(1 - S') grad F_M + max{S', 0} grad F_A` "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
+"We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
+[FO11b] is the JCP 2011 hybrid paper (section 3 above; the reference list, and p. 424, "In [FO11b] a hybrid solver was built"), not the SINUM paper [FO11a]; its Section 7.2 replaces `u_vv` by `max{u_vv, eps}` in the Jacobian, `eps = 10^-8 / (2 dx^2)`, which leaves the scheme and its roots unchanged.
+The Newton iteration is printed with the full step, no damping; no start or stopping rule is stated.
+Section 4.2: "All computations are performed on the domain [0, 1] x [0, 1], which is discretized on an N x N grid."
+No definition of `h` in terms of `N`; the values match `h = 1/(N - 1)`, `N` nodes per side (`filtered.md`, Finding 1).
+
+Name map (Section 4.2, `x0 = (0.5, 0.5)`):
+- "C^2 example", eq. (4.1): `u = exp(|x - x0|^2 / 2)`, `f = (1 + |x - x0|^2) exp(|x - x0|^2)`. Centred at `x0`, so not T1 (`exp(|x|^2 / 2)`), although the text says the four examples are those of [FO11a].
+- "C^1 example", eq. (4.2): T20.
+- "Example with blow-up", eq. (4.3): T2, `u = -sqrt(2 - |x|^2)`, uncentred.
+- "C^{0,1} (Lipschitz) example", eq. (4.4): the cone T21, `f = 4/h^2` on `|x - x0| <= h/2`, 0 elsewhere.
+
+### Table 4.1, "Accuracy of the monotone and filtered schemes", max error
+
+C^2 example (4.1), all values `x 10^-5`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 9.45 | 4.54 | 9.12 | 4.54 | 9.38 | 4.54 |
+| 63 | 4.91 | 1.04 | 3.42 | 1.04 | 3.40 | 1.04 |
+| 127 | 3.79 | 0.26 | 1.67 | 0.26 | 1.39 | 0.26 |
+| 255 | 3.51 | 0.06 | 1.17 | 0.06 | 0.66 | 0.06 |
+| 361 | 3.48 | 0.03 | 1.08 | 0.03 | 0.51 | 0.03 |
+
+C^1 example (4.2), all values `x 10^-4`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 21.54 | 3.73 | 8.66 | 3.99 | 6.39 | 3.67 |
+| 63 | 21.33 | 1.51 | 6.82 | 1.40 | 3.18 | 1.46 |
+| 127 | 21.55 | 0.92 | 6.63 | 0.76 | 2.49 | 0.78 |
+| 255 | 21.51 | 0.38 | 6.58 | 0.46 | 2.36 | 0.37 |
+| 361 | 21.53 | 0.23 | 6.62 | 0.31 | 2.37 | 0.28 |
+
+Example with blow-up (4.3), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 |
+| 63 | 0.86 | 0.59 | 0.59 | 0.59 | 0.59 | 0.59 |
+| 127 | 0.83 | 0.20 | 0.35 | 0.20 | 0.20 | 0.20 |
+| 255 | 0.83 | 0.15 | 0.33 | 0.13 | 0.16 | 0.08 |
+| 361 | 0.83 | 0.17 | 0.33 | 0.13 | 0.15 | 0.08 |
+
+C^{0,1} (Lipschitz) example (4.4), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 11.83 | 10.42 | 3.56 | 4.16 | 1.61 | 1.23 |
+| 63 | 11.10 | 11.56 | 3.49 | 2.82 | 1.65 | 1.90 |
+| 127 | 11.80 | 10.97 | 3.45 | 2.83 | 1.64 | 1.11 |
+| 255 | 10.47 | 11.03 | 3.46 | 3.06 | 1.64 | 1.15 |
+| 361 | 10.40 | 10.37 | 3.45 | 3.22 | 1.64 | 1.12 |
+
+### Table 4.2, "Newton iterations, computation time, and accuracy for the hybrid and filtered schemes on a 17-point stencil"
+
+The "Standard" column prints a dash at `N = 255` and 361 for the C^1 and the Lipschitz examples.
+The hybrid columns are the a priori hybrid scheme of FO 2011 JCP.
+
+| Example | N | Iterations Hybrid | Iterations Filtered | CPU s Hybrid | CPU s Filtered | Max error Hybrid | Max error Filtered | Max error Standard |
+|---|---|---|---|---|---|---|---|---|
+| C^2 (`x 10^-5`) | 31 | 3 | 2 | 0.1 | 0.1 | 6.76 | 4.54 | 4.54 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 1.46 | 1.06 | 1.06 |
+| | 127 | 3 | 2 | 2.4 | 2.0 | 0.35 | 0.26 | 0.26 |
+| | 255 | 3 | 2 | 12.5 | 9.9 | 0.09 | 0.06 | 0.06 |
+| | 361 | 3 | 2 | 28.2 | 22.5 | 0.04 | 0.03 | 0.03 |
+| C^1 (`x 10^-4`) | 31 | 2 | 2 | 0.1 | 0.1 | 6.62 | 3.99 | 3.78 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 2.75 | 1.40 | 1.34 |
+| | 127 | 5 | 3 | 3.8 | 2.6 | 1.68 | 0.76 | 0.59 |
+| | 255 | 5 | 3 | 19.1 | 12.9 | 0.85 | 0.46 | -- |
+| | 361 | 5 | 6 | 48.3 | 50.6 | 0.60 | 0.31 | -- |
+| Blow-up (`x 10^-3`) | 31 | 6 | 7 | 0.3 | 0.3 | 1.74 | 1.74 | 17.38 |
+| | 63 | 9 | 9 | 1.4 | 1.5 | 0.59 | 0.59 | 12.62 |
+| | 127 | 11 | 11 | 8.6 | 8.4 | 0.20 | 0.20 | 9.04 |
+| | 255 | 7 | 8 | 30.5 | 32.4 | 0.07 | 0.13 | 6.43 |
+| | 361 | 11 | 12 | 101.5 | 108.7 | 0.04 | 0.13 | 5.42 |
+| Lipschitz (`x 10^-3`) | 31 | 6 | 7 | 0.2 | 0.2 | 3.57 | 4.16 | 5.19 |
+| | 63 | 6 | 9 | 1.0 | 1.4 | 3.49 | 2.82 | 2.86 |
+| | 127 | 8 | 8 | 6.6 | 6.4 | 3.45 | 2.83 | 1.54 |
+| | 255 | 9 | 10 | 47.1 | 38.2 | 3.46 | 3.06 | -- |
+| | 361 | 10 | 9 | 155.8 | 81.7 | 3.45 | 3.22 | -- |
+
+The two tables print different filtered values for the C^2 example at `N = 63` (1.04 in Table 4.1, 1.06 in Table 4.2); every other filtered 17-point value appears in both and agrees.
 
 ## What a reproduction must match
 
