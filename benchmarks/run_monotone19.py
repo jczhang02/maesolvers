@@ -10,10 +10,13 @@ step, laplace u = (d! f)^(1/d), SINUM eq. (8), solved on the grid itself) for
 1 to 8 steps at every N, as monotone17.md, Finding 2 does in 2D.
 
 With --checks it writes monotone19_checks.csv instead, the evidence for the
-findings on the C^1 example: Newton on the bare scheme as the paper prints it
-(min over triples of prod (D u)^+, no slope below zero, the paper's floored
-Jacobian) from our start and from the paper's, and Monotone17 under the
-paper's Jacobian floor 1e-8 against the default 1e-12.
+findings: Newton on the bare scheme as the paper prints it (min over triples
+of prod (D u)^+, no slope below zero, the paper's floored Jacobian) from our
+start and from the paper's, on the C^1 example; Monotone17 there under the
+paper's Jacobian floor 1e-8, the default 1e-12, and the default floored once
+(SingleFloorMonotone19), each with its distance to the default's solution;
+and FDMonotone on all three problems with h = 1/(N + 1), the third grid
+convention of ADR 0001.
 
 Every solve is one MLflow run in maesolvers-monotone19-<problem> (T9, C1-3D,
 T22) unless --no-mlflow is given. The converged solves run in --processes
@@ -52,7 +55,12 @@ from maesolvers import (
     Solver,
     tracking,
 )
-from maesolvers.classical.monotone import MonotoneGrid
+from maesolvers.classical.monotone import (
+    MonotoneGrid,
+    frame_jacobian,
+    frame_jacobian_coefficients,
+    frame_values,
+)
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -123,7 +131,7 @@ def published_value(published: tuple[str, int]) -> str:
 
 def cells(N: int, convention: str) -> int:
     """Cells per side for the printed N under a grid convention."""
-    return N if convention == "1/N" else N - 1
+    return {"1/N": N, "1/(N-1)": N - 1, "1/(N+1)": N + 1}[convention]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -163,22 +171,39 @@ class BareMonotone19(Monotone17):
         """The paper's floored Danskin Jacobian."""
         d = self.directional_differences(grid, v)
         chosen = np.arange(grid.frames)[:, None] == self._bare(grid, v).argmin(axis=0)
-        floored = np.maximum(d, grid.floor)
-        weights = np.stack(
-            [np.delete(floored, k, axis=1).prod(axis=1) for k in range(d.shape[1])],
-            axis=1,
+        # no factor below the floor, so no kappa: prod_{j != k} max(a_j, floor)
+        weights = frame_jacobian_coefficients(
+            np.maximum(d, grid.floor), grid.kappa, grid.floor
         )
-        weights = (weights * chosen[:, None, :]).ravel()
-        m = grid.f.size
-        rows = np.tile(np.arange(m), d.shape[0] * d.shape[1])
-        collapse = sp.csr_matrix(
-            (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
-        )
-        return sp.csc_matrix(collapse @ grid.operators)
+        return frame_jacobian(grid.operators, weights * chosen[:, None, :])
 
     def _bare(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
         d = self.directional_differences(grid, v)
         return np.maximum(d, 0.0).prod(axis=1)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SingleFloorMonotone19(Monotone17):
+    """Monotone17 in 3D with the Jacobian's coefficient floored once.
+
+    Where ``a_k >= 0`` the coefficient is ``max(prod_{j != k} a_j^+, floor)``
+    in place of :func:`frame_jacobian_coefficients`' product of floored
+    factors, ``prod_{j != k} max(a_j, floor)``, which is ``floor^2`` where two
+    factors vanish. The two agree where at most one other factor is below
+    the floor, so in 2D; ``-J`` stays an M-matrix.
+    """
+
+    stencil: Any = 19
+
+    def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
+        """The Danskin Jacobian with the coefficient floored once."""
+        d = self.directional_differences(grid, v)
+        values = np.where(grid.available, frame_values(d, grid.kappa), np.inf)
+        chosen = np.arange(grid.frames)[:, None] == values.argmin(axis=0)
+        plus = np.maximum(d, 0.0)  # no factor below zero, so no kappa
+        others = frame_jacobian_coefficients(plus, grid.kappa, 0.0)
+        weights = np.where(d < 0.0, grid.kappa, np.maximum(others, grid.floor))
+        return frame_jacobian(grid.operators, weights * chosen[:, None, :])
 
 
 def solve(
@@ -259,48 +284,91 @@ def iterates(task: tuple[str, bool]) -> list[dict[str, Any]]:
 
 CHECK_TASKS: list[tuple[str, str, int, Any]] = [
     *(
+        (check, "C1-3D", N, floor)
+        for N in (31, 21, 15)
+        for check, floor in (("floor", 1e-8), ("floor", 1e-12), ("floor once", 1e-12))
+    ),
+    *(("convention", name, N, "1/(N+1)") for N in SINUM_N[::-1] for name in PROBLEMS),
+    *(
         ("bare", "C1-3D", N, start)
         for N in (7, 11, 15, 21)
         for start in ("ours", "papers")
     ),
-    *(("floor", "C1-3D", N, floor) for N in (15, 21) for floor in (1e-8, 1e-12)),
 ]
-"""(check, problem, N, variant) of every row of monotone19_checks.csv, h = 1/N; the
-variant is the start for "bare", the Jacobian floor for "floor"."""
+"""(check, problem, N, variant) of every row of monotone19_checks.csv, the slowest
+first; the variant is the grid convention for "convention", the start for
+"bare" and the Jacobian floor for "floor" and "floor once", all three with
+h = 1/N."""
 
 
-def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
-    """One row of monotone19_checks.csv."""
-    check, name, N, variant, log = task
-    problem = PROBLEMS[name]
-    solver: Solver
+def check_solver(check: str, N: int, variant: Any) -> Solver:
+    """The solver of one row of monotone19_checks.csv."""
+    if check == "convention":
+        return FDMonotone(n=cells(N, variant), stencil=19)
     if check == "bare":
         start_class = PapersStartNewton if variant == "papers" else Newton
-        solver = start_class(scheme=BareMonotone19(n=N), max_iter=200)
-    else:  # "floor"
-        solver = Newton(
-            scheme=Monotone17(n=N, stencil=19, jacobian_floor=variant), max_iter=200
-        )
-    run_name = f"check={check} N={N} h=1/N variant={variant}"
+        return start_class(scheme=BareMonotone19(n=N), max_iter=200)
+    if check == "floor once":
+        return Newton(scheme=SingleFloorMonotone19(n=N), max_iter=200)
+    return Newton(
+        scheme=Monotone17(n=N, stencil=19, jacobian_floor=variant), max_iter=200
+    )
+
+
+def checks(task: tuple[str, str, int, Any, bool]) -> tuple[dict[str, Any], np.ndarray]:
+    """One row of monotone19_checks.csv, and the node values of its solution."""
+    check, name, N, variant, log = task
+    problem = PROBLEMS[name]
+    solver = check_solver(check, N, variant)
+    convention = variant if check == "convention" else "1/N"
+    run_name = f"check={check} N={N} h={convention} variant={variant}"
     m, result = solve(solver, problem, run_name, log)
     print(f"{name} {run_name}: max {m['max']:.4g} its {m['iterations']}", flush=True)
     scheme: Any = solver.scheme  # type: ignore[attr-defined]
     grid = scheme.discretize(problem)
-    d = scheme.directional_differences(grid, result.values[grid.interior])
-    return {
+    values = result.values
+    assert values is not None  # a grid method's result has node values
+    d = scheme.directional_differences(grid, values[grid.interior])
+    published = SINUM[name][SINUM_N.index(N)]
+    row = {
         "check": check,
         "problem": name,
         "N": N,
-        "h_convention": "1/N",
+        "h_convention": convention,
+        "n_cells": scheme.n,
         "start": variant if check == "bare" else "ours",
-        "jacobian_floor": 1e-8 if check == "bare" else variant,
+        "jacobian_floor": scheme.jacobian_floor,
         "max_err_nodes": m["max"],
+        "published": published_value(published),
+        "ours_as_printed": printed(m["max"], published),
         "iterations": m["iterations"],
         "converged": m["converged"],
         "residual_max": m["residual_max"],
         "min_difference": float(d.min()),
+        "max_diff_default": "",
         "time_s": f"{m['time']:.2f}",
     }
+    return row, values
+
+
+def with_default_distance(
+    rows: list[dict[str, Any]], values: list[np.ndarray]
+) -> list[dict[str, Any]]:
+    """Fill max_diff_default of the floor rows: max |u - u_default| over the nodes.
+
+    The default is the "floor" row with the floor 1e-12 at the same N.
+    """
+    default = {
+        row["N"]: v
+        for row, v in zip(rows, values, strict=True)
+        if row["check"] == "floor" and row["jacobian_floor"] == 1e-12
+    }
+    return [
+        {**row, "max_diff_default": float(np.max(np.abs(v - default[row["N"]])))}
+        if row["check"] in ("floor", "floor once")
+        else row
+        for row, v in zip(rows, values, strict=True)
+    ]
 
 
 def write(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -323,8 +391,9 @@ def main() -> None:
     log = not args.no_mlflow
     if args.checks:
         with Pool(args.processes) as pool:
-            check_rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
-        write(HERE / "monotone19_checks.csv", check_rows)
+            solved = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
+        rows, values = [row for row, _ in solved], [v for _, v in solved]
+        write(HERE / "monotone19_checks.csv", with_default_distance(rows, values))
         return
     tasks = [
         (name, N, convention, log)
