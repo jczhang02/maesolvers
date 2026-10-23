@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import json
 import math
+import sys
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -27,18 +30,24 @@ from maesolvers.catalogue import SHARED_TEST_SET
 ROOT = Path(__file__).parent.parent
 
 
-def _load():
-    """benchmarks/comparison.py as a module; it needs numpy and maesolvers only."""
+def _load(name: str):
+    """benchmarks/<name>.py as a module, its ``import comparison`` bound to ours.
+
+    Both scripts import numpy and maesolvers only at module level; the runner
+    imports torch inside a neural seed's run and mlflow only to log one.
+    """
     spec = importlib.util.spec_from_file_location(
-        "comparison", ROOT / "benchmarks" / "comparison.py"
+        name, ROOT / "benchmarks" / f"{name}.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with mock.patch.dict(sys.modules, {"comparison": globals().get("comparison")}):
+        spec.loader.exec_module(module)
     return module
 
 
-comparison = _load()
+comparison = _load("comparison")
+run_comparison = _load("run_comparison")
 
 
 def _row(**fields: object) -> dict[str, str]:
@@ -293,3 +302,85 @@ def test_csv_covers_every_preset_on_the_shared_test_set():
             options = comparison.preset_options(name, {"n": comparison.N, "seed": seed})
             hparams = SOLVERS[name](**options).hparams
             assert json.loads(row["hparams"]) == hparams, (problem_id, name, seed)
+
+
+# The runner
+
+
+def test_tasks_give_a_run_per_seed_neural_first_and_the_unsupported_rows():
+    options = {"n": 8, "max_steps": None}
+    runs, unsupported = run_comparison.tasks(
+        ["FDNewton", "PenaltyMLP", "DirichletICNN"],
+        ["T1", "T9"],
+        [0, 1],
+        options,
+        False,
+    )
+    assert [run[:3] for run in runs] == [
+        ("DirichletICNN", "T9", 0),
+        ("DirichletICNN", "T9", 1),
+        ("PenaltyMLP", "T1", 0),
+        ("PenaltyMLP", "T1", 1),
+        ("DirichletICNN", "T1", 0),
+        ("DirichletICNN", "T1", 1),
+        ("FDNewton", "T1", None),
+    ]
+    assert all(run[3:] == (options, False) for run in runs)
+    assert unsupported == [
+        {"solver": name, "problem": "T9", "status": "unsupported", "reason": "2D only"}
+        for name in ("FDNewton", "PenaltyMLP")
+    ]
+
+
+def test_run_one_gives_a_full_row_for_a_classical_run():
+    row = run_comparison.run_one(("FDNewton", "T1", None, {"n": 8, "seed": 0}, False))
+    assert set(row) == set(comparison.FIELDS)
+    assert row["status"] == "ok" and row["reason"] == ""
+    assert (row["solver"], row["problem"], row["seed"], row["n"]) == (
+        "FDNewton",
+        "T1",
+        "",
+        8,
+    )
+    assert json.loads(row["hparams"]) == SOLVERS["FDNewton"](n=8).hparams
+    assert row["converged"] is True and row["stop"] == "" and row["device"] == "cpu"
+    assert 0.0 < row["max"] < 1e-2 and row["threads"] == 1
+
+
+@dataclasses.dataclass(frozen=True)
+class _Raises(SOLVERS["FDNewton"]):
+    def setup(self, problem):
+        raise RuntimeError("no  grid\nhere")
+
+
+@dataclasses.dataclass(frozen=True)
+class _Diverges(SOLVERS["FDNewton"]):
+    def finalize(self, problem, context, state):
+        solution = super().finalize(problem, context, state)
+        return dataclasses.replace(solution, info={**solution.info, "stop": "diverged"})
+
+
+@dataclasses.dataclass(frozen=True)
+class _NotFinite(SOLVERS["FDNewton"]):
+    def finalize(self, problem, context, state):
+        solution = super().finalize(problem, context, state)
+        nan = np.full_like(solution.values, np.nan)
+        return dataclasses.replace(solution, values=nan)
+
+
+@pytest.mark.parametrize(
+    ("solver", "reason"),
+    [
+        (_Raises, "RuntimeError: no grid here"),
+        (_Diverges, "stopped as diverged"),
+        (_NotFinite, "non-finite"),
+    ],
+)
+def test_run_one_reports_a_failed_run_as_a_row(monkeypatch, solver, reason):
+    solvers = {**SOLVERS, "Broken": solver}  # SOLVERS itself is read-only
+    for module in (comparison, run_comparison):
+        monkeypatch.setattr(module, "SOLVERS", solvers)
+    row = run_comparison.run_one(("Broken", "T1", None, {"n": 8}, False))
+    assert (row["status"], row["reason"]) == ("failed", reason)
+    assert row["solver"] == "Broken"
+    assert json.loads(row["hparams"]) == solver(n=8).hparams
