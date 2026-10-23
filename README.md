@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is pre-alpha (0.0.x): the interface may change until 0.1; four finite-difference solvers and two neural solvers are in.
+> It is pre-alpha (0.0.x): the interface may change until 0.1; five finite-difference solvers and two neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -184,6 +184,55 @@ The `seed` fixes the collocation points and the initial network, and `evaluate` 
 `DirichletICNN()` swaps the network for `ICNN()`, convex in its input by construction, the loss for `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)` and the optimizer for `BFGS()`, with `max_steps=10_000`.
 [`docs/methods/penalty_mlp.md`](docs/methods/penalty_mlp.md) and [`docs/methods/icnn.md`](docs/methods/icnn.md) describe the two methods.
 
+## Comparison
+
+The comparison table runs every preset of `SOLVERS` with its defaults on the shared test set, measured by `evaluate` (ADR 0007); it carries no published numbers, which belong to the reproduction tables below.
+The max error is the one that ranks methods; the non-convex fraction is the share of points with a negative smallest Hessian eigenvalue (the interior nodes for a classical preset, the shared grid for a neural one).
+[`benchmarks/comparison.md`](benchmarks/comparison.md) states how the runs were made and what the table shows; `benchmarks/run_comparison.py` writes [`benchmarks/comparison.csv`](benchmarks/comparison.csv) on a100server, one row per run, and `just comparison-table` writes the tables below from it (a test checks that they are current).
+
+<!-- comparison table: written by benchmarks/comparison.py, do not edit -->
+**Max error at the primary points**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 5.28e-7 (361) | 5.28e-7 (361) | 4.40e-4 (361) | 1.57e-6 (361) | 9.68e-5 (361) \* | 7.06e-3 [4.57e-3, 1.66e-2], 10/10 | 5.14e-5 [2.02e-5, 1.93e-4], 10/10 |
+| T2 | 2.22e-2 (361) | 5.41e-3 (361) | 3.26e-4 (361) | 4.18e-5 (361) | 1.34e-4 (361) \* | 1.21e-1 [7.46e-2, 1.88e-1], 0/10 | 8.31e-1 [5.64e-2, 1.20e3], 0/10 |
+| T20 | 5.48e-5 (361) | 1.59e-5 (361) | 6.60e-4 (361) | 2.97e-5 (361) | 4.48e-5 (361) \* | 4.34e-3 [3.65e-3, 7.93e-3], 0/10 | 1.35e-2 [4.25e-3, 2.45e-2], 0/10 |
+| T8 | 3.26e-13 (361) | 1.55e-12 (361) | not on a Disk | not on a Disk | not on a Disk | 5.04e-3 [3.90e-3, 8.96e-3], 5/10 | 6.61e-6 [2.88e-6, 1.22e-5], 10/10 |
+| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1.22e-2 [4.14e-3, 1.04e3], 7/10 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 9.09e2 [2.99e0, 4.46e4], 0/10 |
+
+**Non-convex fraction**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 0 | 0 | 0 | 0 | 0 \* | 0.00124% | 0 |
+| T2 | 1.09% | 0 | 0.00772% | 0.00772% | 0.00772% \* | 7.39% | 0 |
+| T20 | 9.79% | 3.38% | 4.83% | 3.5% | 8.46% \* | 2.52% | 0 |
+| T8 | 0 | 0 | not on a Disk | not on a Disk | not on a Disk | 0 | 0 |
+| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 0 |
+
+**Time in seconds**
+
+| Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `PenaltyMLP` | `DirichletICNN` |
+|---|---|---|---|---|---|---|---|
+| T1 | 7.29 | 2.55 | 52.8 | 63.9 | 30.5 \* | 373 | 910 |
+| T2 | 36.4 | 5.08 | 132 | 132 | 39.7 \* | 384 | 503 |
+| T20 | 64.2 | 33.3 | 116 | 219 | 129 \* | 379 | 912 |
+| T8 | 2.49 | 3.51 | not on a Disk | not on a Disk | not on a Disk | 364 | 744 |
+| T12 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 | unsupported until 0.2 |
+| T9 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 1295 |
+| T10 | 2D only | 2D only | 2D only | 2D only | 2D only | 2D only | 148 |
+
+A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers (`h = 1/n`, ADR 0001), at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
+A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's largest absolute value there; the non-convex fraction and the time are medians, and a failed seed counts as an infinite error (ADR 0007).
+Every run used one CPU thread on a100server; the neural presets train on the CPU, their default.
+A cell with a reason marks a preset that does not support the problem: `unsupported until 0.2` for the transport boundary condition of T12, `2D only` for a 2D method on T9 (3D) and T10 (4D), `not on a Disk` for a box-only scheme.
+<!-- comparison table end -->
+
 ## Reproduction
 
 A method counts as reproduced when it matches the source paper's own table, on the paper's own test problem, to the printed digits.
@@ -249,7 +298,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
-- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.
+- `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them, and the comparison table's CSV (`comparison.csv`) with its runner and renderer.
 - `docs/guide.md`: the user guide; `docs/methods/`: one page per method, or per scheme with its iterations (`standard9.md`); `docs/adr/`: the design decisions; `GLOSSARY.md`: the terms.
 - `tests/`: the tests, among them the reproduction pins (`test_reproduction.py`) and the guide's code blocks (`test_guide.py`).
 

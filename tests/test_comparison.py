@@ -9,7 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from maesolvers import SOLVERS, T1, T8, T9, T12, T20
+from maesolvers import CATALOGUE, SOLVERS, T1, T8, T9, T12, T20, NeuralSolver
+from maesolvers.catalogue import SHARED_TEST_SET
 
 ROOT = Path(__file__).parent.parent
 
@@ -175,3 +176,31 @@ def test_replace_block_keeps_the_text_around_the_markers():
     assert new == f"intro\n{comparison.START}\nnew\n{comparison.END}\nrest\n"
     with pytest.raises(ValueError, match="markers"):
         comparison.replace_block("no markers", "new")
+
+
+# The receipt
+
+
+def test_readme_table_is_current():
+    """README's block is what comparison.py writes from comparison.csv."""
+    readme = comparison.README.read_text()
+    block = comparison.render(comparison.read())
+    assert comparison.replace_block(readme, block) == readme, (
+        "README.md is not current: run `just comparison-table`"
+    )
+
+
+def test_csv_covers_every_preset_on_the_shared_test_set():
+    """A new preset, or a change of support, needs a rerun of run_comparison.py."""
+    groups = comparison.group(comparison.read())
+    assert {solver for _, solver in groups} == set(SOLVERS)
+    assert {problem for problem, _ in groups} == set(SHARED_TEST_SET)
+    for (problem, name), rows in groups.items():
+        solver = SOLVERS[name]()
+        if not solver.supports(CATALOGUE[problem]):
+            assert [r["status"] for r in rows] == ["unsupported"], (problem, name)
+        elif isinstance(solver, NeuralSolver):
+            assert [r["seed"] for r in rows] == [str(s) for s in range(10)]
+        else:
+            assert len(rows) == 1 and rows[0]["n"] == "361", (problem, name)
+        assert all(r["status"] in comparison.STATUSES for r in rows)
