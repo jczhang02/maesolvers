@@ -29,7 +29,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
   No run of this receipt failed.
 - A classical run whose iteration stops before its tolerance (`converged` False) is kept at its last iterate and marked `\*`; a neural seed that stops at its step budget or stalls is a normal seed.
 - Unsupported pairs: `unsupported_reason` in `comparison.py` names the first of the boundary condition, the dimension and the domain that the preset does not declare.
-  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); the transport presets come in 0.2.
+  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); the roadmap brings transport boundary conditions to the finite-difference presets in 0.2, and to no neural preset.
 - Orientation: the problems are the rows and the presets the columns, as GLOSSARY (共用集) and the test-set specification say; the scope comment of #14 calls T12 a "column".
 
 ## Differences from the test-set specification

@@ -220,6 +220,12 @@ def test_notes_derive_from_the_rows():
         _row(solver="FDNewton", problem="T9", status="unsupported", reason="2D only"),
         _row(solver="FDNewton", problem="T10", status="unsupported", reason="2D only"),
         _row(solver="FDMonotone", problem="T8", status="unsupported", reason="r"),
+        _row(
+            solver="FDNewton",
+            problem="T12",
+            status="unsupported",
+            reason="Dirichlet only",
+        ),
     ]
     notes = comparison.notes(comparison.group(map(_machine, rows)))
     assert "`h = 1/n` on T1, `h = 2/n` on T8 (ADR 0001)" in notes[0]
@@ -227,12 +233,14 @@ def test_notes_derive_from_the_rows():
     assert notes[3] == (
         "Every run took 1 CPU thread and ran on the device `cpu`; CPU: Some CPU."
     )
-    assert notes[4].endswith(": `r` on T8; `2D only` on T9 and T10.")
-    assert notes[5] == (
-        "The roadmap puts n-dimensional boxes for the finite-difference presets "
-        "(T9 and T10) in 0.2."
+    assert notes[4].endswith(
+        ": `r` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10."
     )
-    assert len(comparison.notes(comparison.group(map(_machine, rows[:-3])))) == 5
+    assert notes[5] == (
+        "The roadmap's 0.2 gives the finite-difference presets transport boundary "
+        "conditions (T12) and n-dimensional boxes (T9 and T10)."
+    )
+    assert len(comparison.notes(comparison.group(map(_machine, rows[:-4])))) == 5
 
 
 def test_notes_need_one_machine():

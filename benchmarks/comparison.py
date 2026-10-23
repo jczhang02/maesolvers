@@ -86,11 +86,13 @@ grid, which a constant added to ``u`` does not change."""
 
 PLANNED = {
     "Dirichlet only": "transport boundary conditions",
-    "2D only": "n-dimensional boxes for the finite-difference presets",
+    "2D only": "n-dimensional boxes",
 }
-"""The unsupported reasons that the roadmap's 0.2 removes, by the feature that
-removes them (README, Roadmap; the scope of issue #14). ``PenaltyMLP`` stays
-2D only: its penalty makes the network convex only in 2D."""
+"""The unsupported reasons that the roadmap's 0.2 removes for the
+finite-difference presets, by the feature that removes them (README, Roadmap;
+the scope of issue #14). The neural presets keep them: 0.2 plans no neural
+transport preset, and ``PenaltyMLP`` stays 2D only, as its penalty makes the
+network convex only in 2D."""
 
 
 def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
@@ -322,7 +324,11 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
         "A cell with a reason marks a preset that does not support the problem: "
         + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
         + ".",
-    ] + ([f"The roadmap puts {_listing(planned)} in 0.2."] if planned else [])
+    ] + (
+        [f"The roadmap's 0.2 gives the finite-difference presets {_listing(planned)}."]
+        if planned
+        else []
+    )
 
 
 def replace_block(text: str, block: str) -> str:
