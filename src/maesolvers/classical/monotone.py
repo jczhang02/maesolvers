@@ -28,7 +28,7 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical._grid import interior_mask, spline
+from maesolvers.classical.grid import BoxGrid, _reach, tensor_spline
 from maesolvers.classical.schemes import Scheme, difference_operators
 from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
@@ -152,16 +152,9 @@ def directional_difference(
     grid_i, grid_j = np.meshgrid(np.arange(1, n), np.arange(1, n), indexing="ij")
     i, j = grid_i.ravel(), grid_j.ravel()
 
-    def reach(sign: int) -> np.ndarray:
-        t = np.ones(i.size)
-        for index, step in ((i, sign * a), (j, sign * b)):
-            if step > 0:
-                t = np.minimum(t, (n - index) / step)
-            elif step < 0:
-                t = np.minimum(t, index / -step)
-        return t
-
-    forward, backward = reach(1), reach(-1)
+    index = np.stack([i, j], axis=-1)
+    forward = _reach(index, n, np.array([a, b]))
+    backward = _reach(index, n, np.array([-a, -b]))
     length2 = float(a * a + b * b) * h * h
     scale = 2.0 / (length2 * forward * backward * (forward + backward))
     m = (n - 1) ** 2
@@ -451,10 +444,8 @@ class Monotone17(Scheme):
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         n, box, g = self.n, problem.domain.bbox, problem.boundary.g
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = interior_mask(n).ravel()
+        lattice = BoxGrid(box, n)
+        (x, y), nodes, interior = lattice.axes, lattice.nodes, lattice.interior
         pairs = stencil_pairs(self.stencil)
         parts = [
             directional_difference(x, y, (int(a), int(b)), g)
@@ -622,7 +613,7 @@ class Monotone17(Scheme):
         hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = dxy @ values
         return Solution(
             # a spline needs degree + 1 knots, so a coarse grid lowers the degree
-            u=spline(grid.x, grid.y, values, min(self.spline_degree, n)),
+            u=tensor_spline((grid.x, grid.y), values, min(self.spline_degree, n)),
             nodes=grid.nodes,
             values=values,
             node_hessian=hess,

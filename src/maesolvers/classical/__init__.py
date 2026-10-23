@@ -6,11 +6,14 @@ standard 9-point scheme, :class:`FDMonotone` for the monotone wide-stencil
 scheme :class:`Monotone17`, :class:`FDHybrid` for the hybrid scheme
 :class:`Hybrid` that averages the two, and :class:`FDFiltered` for the
 filtered scheme :class:`Filtered`, which filters one with the other. A new
-scheme subclasses :class:`Scheme`, a new iteration :class:`SchemeIteration`.
+scheme subclasses :class:`Scheme`, a new iteration :class:`SchemeIteration`;
+:class:`BoxGrid` is the grid of ``n`` cells per side over a box in any
+dimension, with its operators in :mod:`maesolvers.classical.grid`.
 Everything here needs numpy and scipy only.
 """
 
 from maesolvers.classical.filtered import Filtered
+from maesolvers.classical.grid import BoxGrid
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration, SchemeIteration
 from maesolvers.classical.monotone import Monotone17
@@ -24,6 +27,7 @@ from maesolvers.classical.presets import (
 from maesolvers.classical.schemes import Scheme, Standard9
 
 __all__ = [
+    "BoxGrid",
     "FDFiltered",
     "FDHybrid",
     "FDMonotone",

@@ -23,7 +23,7 @@ import scipy.sparse as sp
 from scipy.interpolate import CloughTocher2DInterpolator
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical._grid import interior_mask, spline
+from maesolvers.classical.grid import BoxGrid, second_differences
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Domain, Ellipse, Field
@@ -114,7 +114,8 @@ def difference_operators(
 
     Node ``(i, j)`` has flat index ``i * (n + 1) + j``, ``i`` along x. The
     stencils are the 3-point ``u_xx`` and ``u_yy`` and the 4-point ``u_xy``,
-    nine points together.
+    nine points together: the 2D case of
+    :func:`~maesolvers.classical.grid.second_differences`.
 
     Parameters
     ----------
@@ -130,29 +131,8 @@ def difference_operators(
         from the values at all nodes to the differences at the interior nodes,
         in flat order.
     """
-    m = n + 1
-    interior = interior_mask(n).ravel()
-    index = np.flatnonzero(interior)
-    rows = np.arange(index.size)
-
-    def build(offsets: list[tuple[int, int, float]], scale: float) -> sp.csr_matrix:
-        r, c, v = [], [], []
-        for di, dj, w in offsets:
-            r.append(rows)
-            c.append(index + di * m + dj)
-            v.append(np.full(rows.size, w * scale))
-        return sp.csr_matrix(
-            (np.concatenate(v), (np.concatenate(r), np.concatenate(c))),
-            shape=(index.size, m * m),
-        )
-
-    dxx = build([(1, 0, 1.0), (0, 0, -2.0), (-1, 0, 1.0)], 1.0 / hx**2)
-    dyy = build([(0, 1, 1.0), (0, 0, -2.0), (0, -1, 1.0)], 1.0 / hy**2)
-    dxy = build(
-        [(1, 1, 1.0), (1, -1, -1.0), (-1, 1, -1.0), (-1, -1, 1.0)],
-        1.0 / (4.0 * hx * hy),
-    )
-    return dxx, dyy, dxy
+    d = second_differences(n, (hx, hy))
+    return d[0, 0], d[1, 1], d[0, 1]
 
 
 def monge_ampere(uxx: np.ndarray, uyy: np.ndarray, uxy: np.ndarray) -> np.ndarray:
@@ -277,11 +257,9 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     ValueError
         If no grid node carries an unknown.
     """
-    box = domain.bbox
-    x = np.linspace(box.lo[0], box.hi[0], n + 1)
-    y = np.linspace(box.lo[1], box.hi[1], n + 1)
-    h = np.array([x[1] - x[0], y[1] - y[0]])
-    grid = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
+    lattice = BoxGrid(domain.bbox, n)
+    h = np.array(lattice.h)
+    grid = lattice.nodes.reshape(*lattice.shape, 2)
     inside = domain.interior(grid)
     # The edges of the bounding box only touch the closed domain, so a node
     # there joins the boundary even if it tests inside by rounding; every
@@ -523,19 +501,16 @@ class Standard9(Scheme):
                 "Disk, Ellipse or CutQuarterDisk with a Dirichlet boundary"
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
-        n, box = self.n, problem.domain.bbox
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
+        n, lattice = self.n, BoxGrid(problem.domain.bbox, self.n)
         if isinstance(problem.domain, Box):
-            nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-            interior = interior_mask(n).ravel()
-            dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
+            nodes, interior = lattice.nodes, lattice.interior
+            dxx, dyy, dxy = difference_operators(n, *lattice.h)
             row_scale = np.ones(np.count_nonzero(interior))
             degree = min(self.spline_degree, n)  # a spline needs degree + 1 knots
             interpolant = f"spline({degree})"
 
             def interpolate(values: np.ndarray) -> Field:
-                return spline(x, y, values, degree)
+                return lattice.interpolant(values, degree)
 
         else:
             nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
@@ -550,7 +525,7 @@ class Standard9(Scheme):
             (d[:, interior].tocsc(), d[:, ~interior].tocsc()) for d in (dxx, dyy, dxy)
         )
         return Grid(
-            h=(float(x[1] - x[0]), float(y[1] - y[0])),
+            h=(lattice.h[0], lattice.h[1]),
             nodes=nodes,
             interior=interior,
             f=problem.f(nodes[interior]),

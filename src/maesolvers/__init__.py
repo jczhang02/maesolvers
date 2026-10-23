@@ -29,6 +29,7 @@ from maesolvers.catalogue import (
     T22,
 )
 from maesolvers.classical import (
+    BoxGrid,
     FDFiltered,
     FDHybrid,
     FDMonotone,
@@ -99,6 +100,7 @@ __all__ = [
     "T22",
     "Adam",
     "Box",
+    "BoxGrid",
     "Callback",
     "CutQuarterDisk",
     "Dirichlet",
