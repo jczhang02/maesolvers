@@ -12,7 +12,7 @@ is monotone (degenerate elliptic) and converges to the viscosity solution as
 the grid and the angular resolution of the stencil are refined.
 
 The numerical kernels are module-level pure functions: :func:`stencil_pairs`,
-:func:`directional_difference`, :func:`pair_values` and
+:func:`angular_resolution`, :func:`directional_difference`, :func:`pair_values` and
 :func:`pair_jacobian_coefficients`. :class:`Monotone17` composes them into a
 :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.Newton` solves.
@@ -76,6 +76,37 @@ def stencil_pairs(points: int) -> np.ndarray:
         if np.gcd(a, b) == 1
     ]
     return np.array([[(a, b), (-b, a)] for a, b in first], dtype=int)
+
+
+def angular_resolution(points: int) -> float:
+    """Return the angular resolution ``dtheta`` of a wide stencil.
+
+    Oberman (2008), eq. (3.3): the largest angle between a line through the
+    origin and the nearest direction of the stencil, half the largest gap
+    between neighbouring directions. ``pi/8`` for 9 points, ``atan(1/2)/2``
+    for 17 and ``atan(1/3)/2`` for 33.
+    :class:`~maesolvers.classical.filtered.Filtered` takes twice this, the
+    full gap, as its ``dtheta``.
+
+    Parameters
+    ----------
+    points
+        9, 17 or 33.
+
+    Returns
+    -------
+    float
+        In radians.
+
+    Raises
+    ------
+    ValueError
+        If ``points`` is not 9, 17 or 33.
+    """
+    directions = stencil_pairs(points).reshape(-1, 2)
+    angles = np.sort(np.mod(np.arctan2(directions[:, 1], directions[:, 0]), np.pi))
+    gaps = np.diff(np.append(angles, angles[0] + np.pi))
+    return float(np.max(gaps) / 2.0)
 
 
 def directional_difference(
@@ -363,6 +394,11 @@ class Monotone17(Scheme):
             self, "jacobian_floor", positive("jacobian_floor", self.jacobian_floor)
         )
         object.__setattr__(self, "spline_degree", spline_degree)
+
+    @property
+    def angular_resolution(self) -> float:
+        """The stencil's angular resolution ``dtheta`` (:func:`angular_resolution`)."""
+        return angular_resolution(self.stencil)
 
     def supports(self, problem: Problem) -> bool:
         """Whether the problem is a 2D box with equal sides and a Dirichlet boundary.

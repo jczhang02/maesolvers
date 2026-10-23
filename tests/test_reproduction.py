@@ -14,9 +14,28 @@ it is not pinned. T7 is also the one pinned problem on a box whose side is not
 1 and whose lower corner is not the origin.
 """
 
-import pytest
+import dataclasses
+import math
+from typing import Any
 
-from maesolvers import T1, T2, T7, FDHybrid, FDMonotone, FDNewton, FDPoisson
+import numpy as np
+import pytest
+from centred import C2_CENTRED
+from scipy.sparse.linalg import spsolve
+
+from maesolvers import (
+    T1,
+    T2,
+    T7,
+    T20,
+    FDFiltered,
+    FDHybrid,
+    FDMonotone,
+    FDNewton,
+    FDPoisson,
+    Newton,
+    Problem,
+)
 from maesolvers.metrics import evaluate
 
 PUBLISHED_T1 = {31: 7.14e-5, 63: 1.73e-5}
@@ -98,3 +117,92 @@ JCP_HYBRID_T2 = {127: 0.20, 181: 0.12}  # units of 1e-3
 def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
     err = evaluate(FDHybrid(n=n).solve(T2))["max"]
     assert round(err / 1e-3, 2) == expected
+
+
+# Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
+# counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
+# and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
+# Only converged solves in exact columns (ADR 0002) are pinned. On T2
+# FDFiltered's damped Newton stalls; with the paper's undamped iteration
+# (p. 438) the 9-point filtered column of Table 4.1 is exact (Finding 4), so it
+# is pinned with a test-local copy of run_filtered.UndampedNewton.
+
+
+# (N, stencil): units of 1e-5. The 17-point cells are Table 4.2's filtered
+# column, which is exact. N = 63: 1.06; Table 4.1 prints 1.04 there for every
+# stencil, read as a misprint (Finding 2), so its three filtered columns are
+# graded order of magnitude and 9 and 33 points are not pinned at N = 63. They
+# are pinned at N = 31: the filter keeps the standard scheme at every node
+# (monotone_fraction 0), so each stencil solves the standard scheme of the exact
+# Table 4.2 column, 4.54, and the pins check that 9 and 33 points do too.
+FO2013_FILTERED_C2 = {(31, 9): 4.54, (31, 17): 4.54, (31, 33): 4.54, (63, 17): 1.06}
+FO2013_STANDARD = {  # Table 4.2, column "Standard": (problem, N, units, value)
+    "C2": (C2_CENTRED, 31, 1e-5, 4.54),
+    "T20": (T20, 31, 1e-4, 3.78),
+    "T2-31": (T2, 31, 1e-3, 17.38),
+    "T2-63": (T2, 63, 1e-3, 12.62),
+}
+FO2013_MONOTONE = {  # Table 4.1, columns "Monotone": (problem, N, stencil, units, value)
+    "C2-17": (C2_CENTRED, 31, 17, 1e-5, 9.12),
+    "C2-17-63": (C2_CENTRED, 63, 17, 1e-5, 3.42),
+    "T2-9": (T2, 63, 9, 1e-3, 0.86),
+    "T2-17": (T2, 63, 17, 1e-3, 0.59),
+    "T2-33": (T2, 63, 33, 1e-3, 0.59),
+}
+
+
+@pytest.mark.parametrize(("N", "stencil"), sorted(FO2013_FILTERED_C2))
+def test_filtered_smooth_example_matches_froese_oberman_2013(N, stencil):
+    result = FDFiltered(n=N - 1, stencil=stencil).solve(C2_CENTRED)
+    assert result.info["converged"]
+    expected = FO2013_FILTERED_C2[N, stencil]
+    assert round(evaluate(result)["max"] / 1e-5, 2) == expected
+
+
+@pytest.mark.parametrize("case", sorted(FO2013_STANDARD))
+def test_standard_column_of_froese_oberman_2013_has_n_minus_one_cells(case):
+    problem, N, units, expected = FO2013_STANDARD[case]
+    err = evaluate(FDPoisson(n=N - 1).solve(problem))["max"]
+    assert round(err / units, 2) == expected
+
+
+@pytest.mark.parametrize("case", sorted(FO2013_MONOTONE))
+def test_monotone_columns_of_froese_oberman_2013(case):
+    problem, N, stencil, units, expected = FO2013_MONOTONE[case]
+    err = evaluate(FDMonotone(n=N - 1, stencil=stencil).solve(problem))["max"]
+    assert round(err / units, 2) == expected
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class UndampedNewton(Newton):
+    """The full Newton step, as run_filtered.UndampedNewton (FO 2013, p. 438)."""
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float] | None:
+        r = self._scheme.residual(context, iterate)
+        norm = float(np.max(np.abs(r)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
+        candidate = iterate + spsolve(self._scheme.jacobian(context, iterate), -r)
+        new_norm = float(np.max(np.abs(self._scheme.residual(context, candidate))))
+        return (candidate, new_norm) if math.isfinite(new_norm) else None
+
+
+# Table 4.1, T2, 9-point filtered column, units of 1e-3: exact with the undamped
+# iteration (74 and 173 steps). The 17- and 33-point columns are a mismatch (no
+# convergence from N = 127) and are not pinned; at N = 31 and 63 they would not
+# discriminate anyway, since there every filtered solve and the 17- and 33-point
+# monotone scheme give the same error. At N = 63 the 9-point monotone scheme
+# gives 0.86, so this pin tells the filtered scheme from it.
+FO2013_FILTERED_T2_9 = {31: 1.74, 63: 0.59}
+
+
+@pytest.mark.parametrize(("N", "expected"), sorted(FO2013_FILTERED_T2_9.items()))
+def test_filtered_t2_matches_froese_oberman_2013_with_their_undamped_newton(
+    N, expected
+):
+    scheme = FDFiltered(n=N - 1, stencil=9).scheme
+    result = UndampedNewton(scheme=scheme, max_iter=600).solve(T2)
+    assert result.info["converged"]
+    assert round(evaluate(result)["max"] / 1e-3, 2) == expected

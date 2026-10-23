@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar, Generic, Literal, TypeVar
 
+from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17
@@ -103,7 +104,7 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
-_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid)
+_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid, Filtered)
 
 
 class _SquareBoxCheck(Generic[_SquareSchemeT]):
@@ -316,4 +317,84 @@ class FDHybrid(_HybridPreset, Newton):
         side takes degree ``n``.
     """
 
+    max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _FilteredPreset(_SquareBoxCheck[Filtered]):
+    """The fields and support of a preset on :class:`Filtered`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme, :class:`Standard9` filtered with :class:`Monotone17` on one grid,
+    from the flat fields before the iteration checks it. The support is
+    Monotone17's, which Standard9's contains.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = Monotone17.domains
+    boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
+
+    scheme: Filtered = field(init=False, repr=False)
+    n: int = Monotone17.n
+    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
+    jacobian_floor: float = Monotone17.jacobian_floor
+    epsilon: float | None = None
+    spline_degree: int = Monotone17.spline_degree
+
+    def __post_init__(self) -> None:
+        monotone = Monotone17(
+            n=self.n,
+            stencil=self.stencil,
+            boundary=self.boundary,
+            jacobian_floor=self.jacobian_floor,
+            spline_degree=self.spline_degree,
+        )
+        accurate = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
+        scheme = Filtered(accurate=accurate, monotone=monotone, epsilon=self.epsilon)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", monotone.n)
+        object.__setattr__(self, "stencil", monotone.stencil)
+        object.__setattr__(self, "jacobian_floor", monotone.jacobian_floor)
+        object.__setattr__(self, "epsilon", scheme.epsilon)
+        object.__setattr__(self, "spline_degree", monotone.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDFiltered(_FilteredPreset, Newton):
+    """The filtered scheme of Froese and Oberman (2013) solved by Newton.
+
+    ``FDFiltered(n=n, stencil=s, ...)`` is ``Newton(scheme=Filtered(
+    accurate=Standard9(n=n), monotone=Monotone17(n=n, stencil=s, ...)))``
+    with ``max_iter=200``: the standard 9-point scheme where it nearly agrees
+    with the monotone wide-stencil scheme, the monotone scheme where they
+    differ by more than twice the filter width (``docs/methods/filtered.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the monotone scheme's stencil: 9, 17 or 33.
+    boundary
+        ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
+    jacobian_floor
+        The floor of the monotone Jacobian's factors, times ``1 / (2 h^2)``,
+        as in :class:`Monotone17`.
+    epsilon
+        The filter width; None takes Froese and Oberman's
+        ``sqrt(h) + dtheta / 10``, as in :class:`Filtered`.
+    max_iter
+        Most Newton steps.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
+    """
+
+    start: None = field(default=None, init=False, repr=False)
     max_iter: int = 200
