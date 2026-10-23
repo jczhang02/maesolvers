@@ -15,12 +15,14 @@ from maesolvers import (
     T2,
     T8,
     T12,
+    T16,
     DirichletICNN,
     FDFiltered,
     FDHybrid,
     FDMonotone,
     FDNewton,
     FDPoisson,
+    FDTransport,
     Filtered,
     Newton,
     PenaltyMLP,
@@ -228,7 +230,7 @@ def test_the_registry_lists_the_presets_read_only():
 
 
 @pytest.mark.parametrize(
-    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson]
+    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson, FDTransport]
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
@@ -240,7 +242,7 @@ def test_classical_presets_declare_the_support_of_their_scheme(solver):
         declared.boundaries,
         declared.dims,
     )
-    for problem in (T8, T12, T1):
+    for problem in (T8, T12, T16, T1):
         assert solver().supports(problem) == scheme.supports(problem)
 
 
