@@ -257,9 +257,9 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     ValueError
         If no grid node carries an unknown.
     """
-    lattice = BoxGrid(domain.bbox, n)
-    h = np.array(lattice.h)
-    grid = lattice.nodes.reshape(*lattice.shape, 2)
+    box_grid = BoxGrid(domain.bbox, n)
+    h = np.array(box_grid.h)
+    grid = box_grid.nodes.reshape(*box_grid.shape, 2)
     inside = domain.interior(grid)
     # The edges of the bounding box only touch the closed domain, so a node
     # there joins the boundary even if it tests inside by rounding; every
@@ -501,16 +501,16 @@ class Standard9(Scheme):
                 "Disk, Ellipse or CutQuarterDisk with a Dirichlet boundary"
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
-        n, lattice = self.n, BoxGrid(problem.domain.bbox, self.n)
+        n, box_grid = self.n, BoxGrid(problem.domain.bbox, self.n)
         if isinstance(problem.domain, Box):
-            nodes, interior = lattice.nodes, lattice.interior
-            dxx, dyy, dxy = difference_operators(n, *lattice.h)
+            nodes, interior = box_grid.nodes, box_grid.interior
+            dxx, dyy, dxy = difference_operators(n, *box_grid.h)
             row_scale = np.ones(np.count_nonzero(interior))
             degree = min(self.spline_degree, n)  # a spline needs degree + 1 knots
             interpolant = f"spline({degree})"
 
             def interpolate(values: np.ndarray) -> Field:
-                return lattice.interpolant(values, degree)
+                return box_grid.interpolant(values, degree)
 
         else:
             nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
@@ -525,7 +525,7 @@ class Standard9(Scheme):
             (d[:, interior].tocsc(), d[:, ~interior].tocsc()) for d in (dxx, dyy, dxy)
         )
         return Grid(
-            h=(lattice.h[0], lattice.h[1]),
+            h=(box_grid.h[0], box_grid.h[1]),
             nodes=nodes,
             interior=interior,
             f=problem.f(nodes[interior]),
@@ -665,6 +665,7 @@ class Standard9(Scheme):
         values[grid.interior] = v
         values[~grid.interior] = grid.boundary_values
         uxx, uyy, uxy = self.second_derivatives(grid, v)
+        # Not centred_hessian: the Shortley-Weller stencils reach crossing nodes.
         hess = np.full((len(grid.nodes), 2, 2), np.nan)
         hess[grid.interior, 0, 0] = uxx
         hess[grid.interior, 1, 1] = uyy

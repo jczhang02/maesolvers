@@ -7,7 +7,8 @@ ADR 0001): its nodes, the mask of the interior nodes that carry the unknowns
 neighbours of a node along a direction of index offsets, and the tensor
 spline through values at the nodes, which evaluates a solution off the nodes
 (``Result.u``, and so ``max_grid`` on the shared evaluation grid). The
-operators on it are module-level pure functions: :func:`stencil`, any linear
+operators on it are module-level pure functions: :func:`reach`, how far a
+step along a direction stays in the box; :func:`stencil`, any linear
 stencil of width 1; :func:`second_differences`, the centred second
 differences; :func:`centred_hessian`, the discrete Hessian at the nodes that
 a scheme reports as ``Result.node_hessian``; and :func:`tensor_spline`.
@@ -36,8 +37,8 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.interpolate import NdBSpline, RectBivariateSpline, make_interp_spline
 
-from maesolvers.core._params import integer
-from maesolvers.core.domains import Box, Field, _points
+from maesolvers.core._params import integer, points, positive
+from maesolvers.core.domains import Box, Field
 
 
 @dataclass(frozen=True)
@@ -128,15 +129,10 @@ class BoxGrid:
     def reach(self, direction: Sequence[int]) -> np.ndarray:
         """Return the fraction of a step that stays in the box, at each interior node.
 
-        From the interior node with multi-index ``i`` the step goes to
-        ``i + t direction``; ``t`` is the largest value in ``(0, 1]`` for
-        which every index stays in ``[0, n]``. ``t = 1`` where the node
-        ``i + direction`` is in the grid (in the interior or on the ring);
-        otherwise the step leaves the box, through a face, at the point
-        ``lo + (i + t direction) h`` of the boundary. The arms of a wide
-        stencil, such as the 17-point stencil of
-        :class:`~maesolvers.classical.monotone.Monotone17`, are steps of this
-        kind.
+        :func:`reach` at :attr:`interior_index`. The arms of a wide stencil,
+        such as the 17-point stencil of
+        :class:`~maesolvers.classical.monotone.Monotone17`, are steps of
+        this kind.
 
         Parameters
         ----------
@@ -148,10 +144,7 @@ class BoxGrid:
         numpy.ndarray
             Shape ``((n - 1)^d,)``: ``t`` at each interior node, in flat order.
         """
-        step = _direction(direction, self.dim)
-        if not np.any(step):
-            raise ValueError("the direction must not be zero")
-        return _reach(self.interior_index, self.n, step)
+        return reach(self.interior_index, self.n, direction)
 
     def interpolant(self, values: np.ndarray, degree: int) -> Field:
         """Return the tensor spline through values at the nodes.
@@ -166,7 +159,8 @@ class BoxGrid:
         Returns
         -------
         Field
-            :func:`tensor_spline` on :attr:`axes`.
+            :func:`tensor_spline` on :attr:`axes`, defined on the box; off
+            the box it depends on the dimension (see :func:`tensor_spline`).
         """
         return tensor_spline(self.axes, values, degree)
 
@@ -195,23 +189,40 @@ def _direction(direction: Sequence[int], d: int) -> np.ndarray:
     return step
 
 
-def _reach(index: np.ndarray, n: int, step: np.ndarray) -> np.ndarray:
-    """``t`` of :meth:`BoxGrid.reach` at the nodes with multi-indices ``index``.
+def reach(index: np.ndarray, n: int, direction: Sequence[int]) -> np.ndarray:
+    """Return the fraction of a step that stays in the box, at given nodes.
+
+    From the node with multi-index ``i`` the step goes to
+    ``i + t direction``; ``t`` is the largest value in ``[0, 1]`` for which
+    every index stays in ``[0, n]``, positive at an interior node.
+    ``t = 1`` where the node ``i + direction`` is in the grid (in the
+    interior or on the boundary ring); otherwise the step leaves the box,
+    through a face, at the point ``lo + (i + t direction) h`` of the
+    boundary. ``t`` depends on the indices only, not on the box.
 
     Parameters
     ----------
     index
-        Shape ``(m, d)``, int: multi-indices in ``[0, n]``.
+        Shape ``(m, d)``, int: multi-indices, each in ``[0, n]``.
     n
         Cells per side.
-    step
-        Shape ``(d,)``, int: the index offsets, not all zero.
+    direction
+        ``d`` integer index offsets, not all zero.
 
     Returns
     -------
     numpy.ndarray
-        Shape ``(m,)``.
+        Shape ``(m,)``: ``t`` at each node.
     """
+    n = integer("n", n, 1)
+    index = np.asarray(index)
+    if index.ndim != 2 or not np.issubdtype(index.dtype, np.integer):
+        raise ValueError(
+            f"index must be an int array of shape (m, d), got {index.shape}"
+        )
+    step = _direction(direction, index.shape[1])
+    if not np.any(step):
+        raise ValueError("the direction must not be zero")
     t = np.ones(len(index))
     for k, s in enumerate(step):
         if s > 0:
@@ -233,8 +244,8 @@ def stencil(n: int, offsets: np.ndarray, weights: Sequence[float]) -> sp.csr_mat
     n
         Cells per side, at least 2.
     offsets
-        Shape ``(k, d)``, int, every entry -1, 0 or 1: the index offsets of
-        the stencil's points.
+        Shape ``(k, d)``, ``d >= 1``, of an integer dtype, every entry -1, 0
+        or 1: the index offsets of the stencil's points.
     weights
         ``k`` numbers: the weight of each point.
 
@@ -246,8 +257,10 @@ def stencil(n: int, offsets: np.ndarray, weights: Sequence[float]) -> sp.csr_mat
     """
     n = integer("n", n, 2)
     offsets = np.asarray(offsets)
-    if offsets.ndim != 2 or len(offsets) != len(weights):
-        raise ValueError("stencil needs offsets of shape (k, d) and k weights")
+    if offsets.ndim != 2 or offsets.shape[1] < 1 or len(offsets) != len(weights):
+        raise ValueError("stencil needs offsets of shape (k, d), d >= 1, and k weights")
+    if not np.issubdtype(offsets.dtype, np.integer):
+        raise ValueError(f"stencil offsets must be integers, got dtype {offsets.dtype}")
     if np.any(np.abs(offsets) > 1):
         raise ValueError("stencil offsets must be -1, 0 or 1")
     d = offsets.shape[1]
@@ -281,7 +294,7 @@ def second_differences(
     n
         Cells per side, at least 2.
     h
-        The spacing along each axis, ``d`` numbers.
+        The spacing along each axis: ``d >= 1`` positive, finite numbers.
 
     Returns
     -------
@@ -289,6 +302,9 @@ def second_differences(
         ``D_kl`` for ``k <= l`` under the key ``(k, l)``: a
         :func:`stencil`, shape ``((n - 1)^d, (n + 1)^d)``.
     """
+    if len(h) < 1:
+        raise ValueError("h must hold the spacing along at least one axis")
+    h = tuple(positive(f"h[{k}]", hk) for k, hk in enumerate(h))
     d = len(h)
     eye = np.eye(d, dtype=int)
     out = {}
@@ -342,15 +358,19 @@ def tensor_spline(axes: Sequence[np.ndarray], values: np.ndarray, degree: int) -
     that 2D results do not change. In any other dimension it is the tensor
     product of the 1D interpolating splines of
     ``scipy.interpolate.make_interp_spline`` (not-a-knot end conditions),
-    fitted one axis after the other and evaluated by ``NdBSpline``; it is
-    the same spline to rounding (in 2D the two agree to about ``1e-15``),
-    and it fits and evaluates the 21^4 points of the 4D shared evaluation
-    grid in well under a second (``benchmarks/nd_grids.md``).
+    fitted one axis after the other and evaluated by ``NdBSpline``, and it
+    fits and evaluates the 21^4 points of the 4D shared evaluation grid in
+    well under a second (``benchmarks/nd_grids.md``). On the box spanned by
+    the axes the two are the same spline to rounding: on 2D axes they agree
+    to about ``1e-15`` times the largest value (``tests/test_grid.py``).
+    The spline is defined on that box only. Off it the two paths differ:
+    FITPACK clamps each coordinate to the box, ``NdBSpline`` extends the
+    polynomial pieces at the ends.
 
     Parameters
     ----------
     axes
-        ``d`` increasing coordinate arrays.
+        ``d >= 1`` increasing coordinate arrays.
     values
         The values at the grid points, of shape ``(len(axes[0]) * ... ,)``
         in C order (the last axis fastest) or of the grid's shape.
@@ -364,23 +384,33 @@ def tensor_spline(axes: Sequence[np.ndarray], values: np.ndarray, degree: int) -
         Takes points of shape ``(..., d)``, returns values of shape ``(...)``.
     """
     degree = integer("degree", degree, 1)
+    if len(axes) < 1:
+        raise ValueError("axes must hold at least one coordinate array")
     shape = tuple(len(x) for x in axes)
     if degree > 5 or degree >= min(shape):
         raise ValueError(
             f"degree must be between 1 and 5 and below {min(shape)}, got {degree}"
         )
     values = np.asarray(values, dtype=float).reshape(shape)
+    if len(axes) != 2:
+        return _nd_spline(axes, values, degree)
+    x, y = axes
+    fit = RectBivariateSpline(x, y, values, kx=degree, ky=degree)
+
+    def u(p: np.ndarray) -> np.ndarray:
+        p = points(p, 2)
+        out = fit(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
+        return out.reshape(p.shape[:-1])
+
+    return u
+
+
+def _nd_spline(axes: Sequence[np.ndarray], values: np.ndarray, degree: int) -> Field:
+    """Return the ``NdBSpline`` path of :func:`tensor_spline`, in any dimension.
+
+    ``values`` has the grid's shape and ``degree`` is checked.
+    """
     d = len(axes)
-    if d == 2:
-        x, y = axes
-        fit2 = RectBivariateSpline(x, y, values, kx=degree, ky=degree)
-
-        def u2(p: np.ndarray) -> np.ndarray:
-            p = _points(p, 2)
-            out = fit2(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
-            return out.reshape(p.shape[:-1])
-
-        return u2
     coefficients, knots = values, []
     for k, x in enumerate(axes):
         fit = make_interp_spline(x, coefficients, k=degree, axis=k)
@@ -389,7 +419,7 @@ def tensor_spline(axes: Sequence[np.ndarray], values: np.ndarray, degree: int) -
     spline = NdBSpline(tuple(knots), coefficients, degree)
 
     def u(p: np.ndarray) -> np.ndarray:
-        p = _points(p, d)
+        p = points(p, d)
         return spline(p.reshape(-1, d)).reshape(p.shape[:-1])
 
     return u

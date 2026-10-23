@@ -2,7 +2,9 @@
 
 The shipped solvers and parts call these in ``__post_init__``; they are
 exported from :mod:`maesolvers.core` so that a solver of your own checks its
-parameters in the same way, with the same messages.
+parameters in the same way, with the same messages. :func:`points`, the
+shape check of an array of points, is shared by the domains and the grids
+inside the package and is not exported.
 """
 
 from __future__ import annotations
@@ -164,3 +166,30 @@ def boolean(name: str, value: object) -> bool:
     if not isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be a bool, got {type(value).__name__}")
     return bool(value)
+
+
+def points(x: object, dim: int) -> np.ndarray:
+    """Check an array of points and return it as floats.
+
+    Parameters
+    ----------
+    x : object
+        Points, array-like of shape ``(..., dim)``.
+    dim : int
+        The space dimension.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``x`` as a float array.
+
+    Raises
+    ------
+    ValueError
+        If the last axis of ``x`` is not of length ``dim``:
+        ``"points must have shape (..., <dim>), got <shape>"``.
+    """
+    out = np.asarray(x, dtype=float)
+    if out.ndim == 0 or out.shape[-1] != dim:
+        raise ValueError(f"points must have shape (..., {dim}), got {out.shape}")
+    return out

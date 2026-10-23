@@ -332,15 +332,16 @@ Every finite-difference scheme maesolvers ships is two-dimensional (`dims` is `(
 
 - `nodes`, shape `((n + 1)^d, d)`, in C order (the last axis fastest), so `values.reshape(grid.shape)` is the d-dimensional array; for even `n` the nodes of the grid with `n // 2` cells are the nodes with even indices;
 - `interior`, the mask of the `(n - 1)^d` nodes that carry the unknowns, and `interior_index`, their multi-indices; the boundary ring `~interior` carries the Dirichlet data `g(grid.nodes[~grid.interior])`;
-- `offset(direction)`, the step of the flat index to the neighbour along a direction of index offsets, and `reach(direction)`, the fraction of that step that stays in the box at each interior node, for the arms of a wide stencil;
+- `offset(direction)`, the step of the flat index to the neighbour along a direction of index offsets, and `reach(direction)`, the fraction of that step that stays in the box at each interior node, for the arms of a wide stencil (the pure function `reach(index, n, direction)` gives it at any nodes);
 - `stencil(n, offsets, weights)`, any linear stencil of width 1 as a sparse matrix; `second_differences(n, h)`, the centred second differences (9 points in 2D, 19 in 3D, 33 in 4D); `centred_hessian(grid, values)`, the discrete Hessian at the nodes in the shape `Result.node_hessian` takes;
-- `interpolant(values, degree)`, the tensor spline through values at the nodes, which `evaluate` reads on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D; fitting and evaluating it there takes well under a second, `benchmarks/nd_grids.md`).
+- `interpolant(values, degree)`, the tensor spline through values at the nodes, which `evaluate` reads on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D; fitting and evaluating it there takes well under a second, `benchmarks/nd_grids.md`); it is defined on the box, and off the box the 2D spline clamps the points to the box while the spline in any other dimension extends its end polynomials.
 
 A grid method with the exact values at its nodes has no error there, in any dimension:
 
 ```python
 from maesolvers import T9, BoxGrid, Result
 from maesolvers.classical.grid import centred_hessian
+from maesolvers.metrics import evaluate
 
 grid = BoxGrid(T9.domain, 16)  # (0, 1)^3, h = 1/16
 values = T9.exact(grid.nodes)

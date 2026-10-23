@@ -14,12 +14,13 @@ The shared evaluation grid has 51^3 = 132651 points in 3D and 21^4 = 194481 in 4
 Times are wall-clock seconds: `fit_s` to fit the spline, `eval_s` to evaluate it on the shared grid (the best of three), `evaluate_s` for the whole of `evaluate`.
 `peak_rss_mb` is the peak resident memory of the process so far, so a row inherits the peak of the rows before it.
 
-In 3D and 4D the spline is the tensor product of scipy's `make_interp_spline` (not-a-knot), fitted one axis after the other and evaluated by `NdBSpline`; in 2D it stays FITPACK's `RectBivariateSpline`, so that 2D results do not change (the two agree to about `1e-15`, `tests/test_grid.py`).
+In 3D and 4D the spline is the tensor product of scipy's `make_interp_spline` (not-a-knot), fitted one axis after the other and evaluated by `NdBSpline`; in 2D it stays FITPACK's `RectBivariateSpline`, so that 2D results do not change.
+On the box the two agree to about `1e-15` times the largest value, which `tests/test_grid.py` checks on 2D axes; off the box they differ (FITPACK clamps the points to the box, `NdBSpline` extends the end polynomials), but `evaluate` reads the spline only on the box.
 
 ## Results
 
 Every row has `max = 0` and `nonconvex_fraction = 0`: with exact values at the nodes `evaluate` sees no error there, and the centred Hessian of the convex `exp(|x|^2/2)` is positive definite at every interior node, in 3D and in 4D.
-`max_grid` is the spline's error on the shared grid; the order is `log2` of the ratio to the row above.
+`max_grid` is the spline's error on the shared grid; the order is `log2` of the ratio to the same degree at the previous `n`.
 
 T9 (3D), 51^3 shared points:
 

@@ -8,7 +8,9 @@ from scipy.interpolate import RectBivariateSpline
 
 from maesolvers import T9, T10, Box, BoxGrid, Result
 from maesolvers.classical.grid import (
+    _nd_spline,
     centred_hessian,
+    reach,
     second_differences,
     stencil,
     tensor_spline,
@@ -124,6 +126,20 @@ def test_reach_matches_the_full_arms_of_the_17_point_stencil():
 def test_reach_rejects_a_bad_direction(bad):
     with pytest.raises(ValueError, match="direction"):
         BoxGrid(BOXES[3], 4).reach(bad)
+    with pytest.raises(ValueError, match="direction"):
+        reach(BoxGrid(BOXES[3], 4).interior_index, 4, bad)
+
+
+def test_reach_of_the_grid_is_the_kernel_at_its_interior_nodes():
+    grid = BoxGrid(BOXES[2], 6)
+    for direction in [(1, 0), (2, -1), (-3, 3)]:
+        np.testing.assert_array_equal(
+            grid.reach(direction), reach(grid.interior_index, 6, direction)
+        )
+    # On the ring the step can leave the box at once.
+    assert reach(np.array([[6, 3], [0, 3]]), 6, (1, 0)).tolist() == [0.0, 1.0]
+    with pytest.raises(ValueError, match="index must be an int array"):
+        reach(np.array([[1.0, 2.0]]), 6, (1, 0))
 
 
 def test_grid_validates_its_fields_and_keeps_its_arrays_read_only():
@@ -159,6 +175,27 @@ def test_stencil_rejects_wide_offsets_and_mismatched_weights():
         stencil(4, np.array([[2, 0]]), [1.0])
     with pytest.raises(ValueError, match="offsets of shape"):
         stencil(4, np.array([[1, 0], [0, 1]]), [1.0])
+    with pytest.raises(ValueError, match="offsets of shape"):
+        stencil(4, np.zeros((1, 0), dtype=int), [1.0])
+    # A fractional offset would land on a wrong column; an integral float is
+    # refused too, as BoxGrid.offset refuses it.
+    for offsets in ([[0.5, 0.0]], [[1.0, 0.0]]):
+        with pytest.raises(ValueError, match="integers"):
+            stencil(4, np.array(offsets), [1.0])
+
+
+@pytest.mark.parametrize(
+    ("h", "match"),
+    [
+        ((), "at least one axis"),
+        ((0.1, 0.0), r"h\[1\] must be positive"),
+        ((np.inf,), r"h\[0\] must be positive"),
+        ((np.nan, 0.1), r"h\[0\]"),
+    ],
+)
+def test_second_differences_check_the_spacing(h, match):
+    with pytest.raises(ValueError, match=match):
+        second_differences(4, h)
 
 
 @pytest.mark.parametrize("d", [2, 3, 4])
@@ -211,7 +248,45 @@ def test_tensor_spline_in_3d_extends_the_2d_spline(degree):
     )
 
 
+@pytest.mark.parametrize("degree", [1, 2, 3, 4, 5])
+def test_both_spline_paths_agree_on_2d_axes(degree):
+    # tensor_spline keeps FITPACK in 2D; the NdBSpline path of every other
+    # dimension gives the same spline on the box, to about 1e-15 relative.
+    x, y = np.linspace(0.0, 1.0, 9), np.linspace(-1.0, 2.0, 7)
+    xx, yy = np.meshgrid(x, y, indexing="ij")
+    values = np.exp(xx * yy) + np.sin(3.0 * xx)
+    flat = RectBivariateSpline(x, y, values, kx=degree, ky=degree)
+    points = np.random.default_rng(1).uniform([0, -1], [1, 2], size=(500, 2))
+    np.testing.assert_allclose(
+        _nd_spline((x, y), values, degree)(points),
+        flat(points[:, 0], points[:, 1], grid=False),
+        rtol=0.0,
+        atol=1e-14 * np.max(np.abs(values)),
+    )
+
+
+def _cubic(p):
+    """``sum_k p_k^3``, which a cubic spline reproduces on the box."""
+    return np.sum(p**3, axis=-1)
+
+
+def test_off_the_box_fitpack_clamps_and_ndbspline_extends():
+    # The documented difference of the two paths: the spline is defined on
+    # the box only.
+    x = np.linspace(0.0, 1.0, 9)
+    grid2 = np.stack(np.meshgrid(x, x, indexing="ij"), axis=-1)
+    grid3 = np.stack(np.meshgrid(x, x, x, indexing="ij"), axis=-1)
+    u2 = tensor_spline((x, x), _cubic(grid2), 3)
+    u3 = tensor_spline((x, x, x), _cubic(grid3), 3)
+    assert u2(np.array([1.5, 0.5])) == pytest.approx(_cubic(np.array([1.0, 0.5])))
+    assert u3(np.array([1.5, 0.5, 0.0])) == pytest.approx(
+        _cubic(np.array([1.5, 0.5, 0.0]))
+    )
+
+
 def test_tensor_spline_checks_degree_and_points():
+    with pytest.raises(ValueError, match="at least one coordinate array"):
+        tensor_spline((), np.zeros(1), 1)
     axes = (np.linspace(0, 1, 4),) * 3
     with pytest.raises(ValueError, match="degree"):
         tensor_spline(axes, np.zeros(64), 4)
