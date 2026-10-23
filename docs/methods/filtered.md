@@ -12,7 +12,7 @@ from maesolvers.metrics import evaluate
 result = FDFiltered(n=62, stencil=17).solve(T20)  # the preset
 parts = Filtered(accurate=Standard9(n=62), monotone=Monotone17(n=62, stencil=17))
 same = Newton(scheme=parts, max_iter=200).solve(T20)  # its parts
-print(evaluate(result)["max"], result.info["monotone_fraction"])  # 1.85e-4, 0.0021
+print(evaluate(result)["max"], result.info["monotone_fraction"])  # 1.73e-4, 0.0
 ```
 
 ## The scheme
@@ -39,8 +39,11 @@ eps = sqrt(h) + dtheta / 10      (filter_width)
 ```
 
 with `h` the grid spacing and `dtheta` the angular resolution of the monotone scheme's stencil.
-The paper does not give `dtheta` a value; maesolvers takes Oberman's (2008, eq. (3.3)) definition, the largest angle between a direction and the nearest stencil direction: `pi/8` for 9 points, `atan(1/2)/2` for 17 and `atan(1/3)/2` for 33 (`angular_resolution`).
-`Filtered(epsilon=None)` computes it from the monotone part's `n` and `angular_resolution`; a number fixes it.
+The paper does not give `dtheta` a value.
+maesolvers takes the largest angle between neighbouring stencil directions: `pi/4` for 9 points, `atan(1/2)` for 17 and `atan(1/3)` for 33.
+That is twice Oberman's (2008, eq. (3.3)) angular resolution, the largest angle between a direction and the nearest stencil direction (`angular_resolution`, `pi/8`, `atan(1/2)/2`, `atan(1/3)/2`).
+The evidence for the full gap is the paper's own T2 columns of Table 4.1: with it our last iterates print as the published values in 14 of 15 cells, with half of it in none of the six at `N = 255` and 361 (`benchmarks/filtered.md`, Finding 3); none of these solves converges.
+`Filtered(epsilon=None)` computes the width from the monotone part's `n` and `angular_resolution`; a number fixes it.
 
 Why it converges: the monotone scheme is consistent, monotone and stable, and the filtered scheme differs from it by at most `eps`, which goes to zero with `h`; Froese and Oberman extend the Barles-Souganidis argument to such nearly monotone schemes (their Theorem 1, Lemma 3).
 Why it is accurate: on a smooth solution the two schemes differ by their consistency errors, `O(h^2)` and `O(h^2 + dtheta)`, and if these are smaller than `eps` the filter keeps the accurate scheme everywhere (their Lemma 4).
@@ -86,7 +89,7 @@ So in the band Newton is a quasi-Newton method, and where a node in the band att
 | `Filtered` | `monotone` | (required) | the monotone scheme |
 | `Filtered` | `epsilon` | None | the filter width; None is `sqrt(h) + dtheta / 10` from the monotone part |
 | `Newton` | `max_iter` | 50 (`FDFiltered`: 200) | most steps |
-| `Newton` | `start` | None (`FDFiltered`: None, fixed) | another iteration whose final unknowns Newton starts from; starts from the monotone or the standard root do not make it converge either (Known limits) |
+| `Newton` | `start` | None (`FDFiltered`: None, fixed) | another iteration whose final unknowns Newton starts from; on T2 neither `FDMonotone` nor `FDPoisson` as start makes it converge, on T20 the monotone start stalls and the standard root is already a filtered root (Known limits) |
 | `Newton` | `tol` | 1e-10 | largest residual, relative to `max(1, max \|f\|)` |
 
 The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boundary="interpolate", jacobian_floor=1e-12, epsilon=None, spline_degree=3)` is `Newton(scheme=Filtered(accurate=Standard9(n=126, spline_degree=3), monotone=Monotone17(n=126, stencil=33, boundary="interpolate", jacobian_floor=1e-12, spline_degree=3), epsilon=None), max_iter=200)`.
@@ -94,13 +97,28 @@ The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boun
 ## Known limits
 
 - Only what both parts support: with `Standard9` and `Monotone17`, a 2D `Box` with equal sides and a `Dirichlet` boundary.
-- `Newton` often does not converge.
-  Where a node in the filter band attains the largest residual, the paper's Jacobian gives no direction of descent and the line search ends the solve with `converged` False and a residual of `1e-2` to `1e-1`: on T2 at every `n`, on T20 from `n = 126`, on the cone, and on T1 at every `n` (`benchmarks/filtered.md`, Finding 4).
-  The last iterate is still a fair answer: on T2 it matches the paper's errors to the printed digits up to `N = 127`, and on T1 its error lies between the monotone and the standard scheme's.
-  Undamped steps, the exact Jacobian `2 J_M - J_A` in the band, and starts from the monotone or the standard solution do not converge either.
-- Where the filter keeps the standard scheme, the filtered scheme has the standard scheme's non-convex roots, and Newton from `laplace u_0 = 2 sqrt(f)` can reach one: on T20 its error is `1.85e-4` at `N = 63` against `1.34e-4` for the convex root, which is a root of the filtered scheme too (Finding 5).
-  `nonconvex_fraction` is 0.08 to 0.11 there.
+- `Newton` with the paper's approximate Jacobian often does not converge, and the solve ends with `converged` False (`benchmarks/filtered.md`, Finding 4; issue #56).
+  With the default width and `max_iter = 200`, on the catalogue problems it supports:
+
+  | Problem | `n = 16` | `n = 64` |
+  |---|---|---|
+  | T1 | converged | not converged |
+  | T2 | converged | not converged |
+  | T3 | converged | converged |
+  | T4 | not converged | not converged |
+  | T5 | not converged, 0 steps | not converged |
+  | T7 | converged | not converged |
+  | T20 | converged | not converged |
+
+  On the paper's grids it ends that way on T2 at every `N`, on T20 from `N = 127` on, on the cone, and on T1 at all `N` but one.
+  Three situations stop it: a node of the filter band, where the paper's Jacobian is not the derivative, attains the largest residual, and the line search finds no decrease (T2, T1; residual `1e-2` to `2e-1`); the approximate Jacobian is nearly or exactly singular, so no step decreases the residual (T5 at `n = 16`, which returns the Laplace start; the cone at `n = 62`); or the largest residual sits at a node of the accurate piece, next to a jump of `f` (T4; also the cone at `n = 126`).
+  On T2 the last iterates print as the paper's errors in 14 of 15 cells of its Table 4.1, but they are not discrete solutions, and on T1 their errors lie between the monotone and the standard scheme's.
+  Tried without success: the paper's regularised max (FO 2011's `(MA)^delta`, `delta` from `1e-4` to `0.1`, which the paper says it used), other widths, `kappa = 1`, undamped steps, the exact Jacobian `2 J_M - J_A` in the band, and starts from the monotone or the standard root (on T2 neither start converges; on T20 the monotone start stalls, while the standard root is already a filtered root).
+- Where the filter keeps the standard scheme, the filtered scheme has the standard scheme's non-convex roots, and Newton from `laplace u_0 = 2 sqrt(f)` can reach one: on T20 at `N = 63` it reaches exactly `FDNewton`'s root, error `1.73e-4`, against `1.34e-4` for the convex root, which is a root of the filtered scheme too (Finding 5).
+  `nonconvex_fraction` is 0.07 to 0.11 there.
 - The monotone part is `Monotone17`, not the paper's operator: below zero `Monotone17` continues each pair's product with the slope `kappa = sqrt(max(f, mean f, 1))` (`monotone17.md`, "Below zero"), the paper's `sum min{D, delta}` with slope 1, so `F_A - F_M`, and with it the filter's choice, differ at nodes with a negative second difference.
+  And the paper regularises the max operator for Newton (p. 438, "as in [FO11b]", no `delta` printed), where `Monotone17` takes the bare max and min with their semi-smooth Jacobian; the regularised part composes into `Filtered` but does not make Newton converge (Finding 4).
+- The default `dtheta` is the largest angle between neighbouring stencil directions, twice Oberman's angular resolution; the paper does not define it, and its T2 columns are the evidence for this choice (Finding 3).
 
 ## Reproduction
 
@@ -108,9 +126,9 @@ Against Froese-Oberman 2013, Tables 4.1 and 4.2, at the levels of ADR 0002, as `
 
 | Problem | Filtered (Tables 4.1 and 4.2) | Monotone (Table 4.1) | Standard (Table 4.2) |
 |---|---|---|---|
-| centred `C^2` | exact against Table 4.2; Table 4.1 prints `1.04e-5` for `1.06e-5` at `N = 63` | 17 points exact, 9 and 33 exact from `N = 63` | exact |
-| T20 | mismatch: a non-convex root (Finding 5) | order of magnitude, last digit | exact |
-| T2 | exact to `N = 127`, order of magnitude beyond (9 points: mismatch); not converged | exact | exact |
+| centred `C^2` | exact against Table 4.2; order of magnitude against Table 4.1 (exact but at `N = 63`, where it prints `1.04e-5` for `1.06e-5`) | 17 points exact; 9 and 33 order of magnitude (exact from `N = 63`) | exact |
+| T20 | mismatch: a non-convex root (Finding 5) | order of magnitude (last digit) | exact |
+| T2 | mismatch: Newton does not converge (Finding 4); the last iterates print as the published values in 14 of 15 cells | exact | exact |
 | T21 (cone) | mismatch | mismatch | exact |
 
 `tests/test_reproduction.py` pins the converged values; the full comparison and the findings are in [`benchmarks/filtered.md`](../../benchmarks/filtered.md).

@@ -366,7 +366,8 @@ B. D. Froese, A. M. Oberman, "Convergent filtered schemes for the Monge-Ampere p
 Read: local journal PDF (Zotero item Y55FLDKL, attachment 2BQN6YP2); every value below was checked against a rendered image of pp. 438-442 (journal page numbers).
 
 Method (Section 4.1): the filtered scheme `F_H = F_M + eps S((F_A - F_M) / eps)`, with `F_M` the monotone wide-stencil scheme of their Section 1.7 (`min over pairs of prod max{D_vv u, delta} + sum min{D_vv u, delta}`, `delta` not printed), `F_A` the standard 9-point scheme ("see [FO11b] for details"), the filter `S` of eq. (1.3) (identity on `[-1, 1]`, `sign(x)(2 - |x|)` for `1 <= |x| <= 2`, zero beyond) and `eps(h, dtheta) = sqrt(h) + dtheta / 10`.
-`dtheta` is not given a value; Oberman 2008, eq. (3.3), defines it as the largest angle between a direction and the nearest stencil direction.
+`dtheta` is not given a value, neither here nor in FO 2011 (SINUM p. 1700 names it the parameter of the directional discretisation); Oberman 2008, eq. (3.3), defines it as `max over theta of min over i |theta - theta_i|`, the largest angle between a direction and the nearest stencil direction, half the largest gap between stencil directions.
+maesolvers takes the full gap (`pi/4`, `atan(1/2)`, `atan(1/3)`), which the T2 filtered columns of Table 4.1 fit (`filtered.md`, Finding 3).
 Solved by Newton, `u^{n+1} = u^n - (grad F_H[u^n])^{-1} F_H[u^n]`, with the Jacobian approximated by `(1 - S') grad F_M + max{S', 0} grad F_A` "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
 "We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
 No start, damping or stopping rule is stated.

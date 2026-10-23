@@ -114,8 +114,8 @@ def test_hybrid_blowup_example_matches_the_jcp_table(n, expected):
 # Froese-Oberman, SIAM J. Numer. Anal. 51 (2013), Tables 4.1 and 4.2. Their N
 # counts nodes per side, so n = N - 1 cells (benchmarks/filtered.md, Finding 1),
 # and their C^2 example is T1 centred at (1/2, 1/2), which the catalogue lacks.
-# Only converged solves are pinned: on T2 the filtered scheme matches to the
-# printed digits up to N = 127 without converging (Finding 4).
+# Only converged solves are pinned: on T2 no filtered solve converges, though
+# the last iterates print as most published values (Finding 4).
 
 
 # (N, stencil): units of 1e-5. N = 31: Table 4.1, all three stencils, and
