@@ -158,9 +158,9 @@ Sections 4.3 to 4.5 (an ellipse onto a rotated ellipse, Gaussian densities on th
 
 ### Known limits
 
-- With independent random points on the two boundaries, even the exact map leaves the transport term at about 1e-4 on T12 with 800 points each, and the training ends there with a map error of about 2e-3 (root mean square); points on the two boundaries that the exact map pairs make the term zero and the error ten times smaller, but that pairing needs the solution (`benchmarks/icnn.md`, Finding 3). More points lower the floor.
+- With independent random points on the two boundaries, even the exact map leaves the transport term at about 1e-4 on T12 with 800 points each, and the training ends there with a map error of about 2e-3 (root mean square); points on the two boundaries that the exact map pairs make the term zero and the error about seven times smaller, but that pairing needs the solution (`benchmarks/icnn.md`, Finding 3). More points on both boundaries lower the floor; more target points alone leave its `onto` half in place.
 - The transport term compares every image with every target point, `K L` distances per step, so its time and memory grow with the product of the two counts.
-- `check` integrates `f` with `check_mass_balance`, which knows a `Box`, a `Disk` and an `Ellipse`: the preset declares these domains, and on another domain whose boundary is sampled, such as `CutQuarterDisk`, a composed `NeuralSolver` with the same parts runs but the caller checks the mass.
+- `check` integrates `f` with `check_mass_balance`, which knows a `Box`, a `Disk` and an `Ellipse`, so the preset supports a problem only when its domain and its target are among these: on a `CutQuarterDisk` source or target, `supports` is False and `solve` raises `UnsupportedProblemError`. A composed `NeuralSolver` with the same parts runs there, and its caller checks the mass (for a `CutQuarterDisk` source onto a known target, with `check_mass_balance(problem, mass=...)`).
 - The L-BFGS phase dominates the time: 14 minutes per seed on an A100 for the receipt, ten seeds side by side; the Adam-only schedule takes under 2 minutes.
 - The network is convex by construction, so `grad u` is a monotone map; it maps the boundary onto the target's boundary only as well as the loss enforces it.
 
@@ -172,10 +172,11 @@ At the levels of ADR 0002, as [`benchmarks/icnn.md`](../../benchmarks/icnn.md) s
 |---|---|---|---|
 | T1 | Nystrom-Vestberg 2023, Figure 2 (colorbar up to 2.97e-5) | figure only | max error 5.14e-5 [2.02e-5, 1.93e-4] on the shared grid |
 | T6 | Nystrom-Vestberg 2023, Table 1, `stdev = 0`: max 8.58e-6, average 1.17e-6 at 10^6 random interior points | mismatch | max 1.10e-4 [5.49e-5, 2.36e-4], average 1.49e-5 [8.63e-6, 3.71e-5] at the same kind of points |
-| T12 (`TransportICNN`) | Caboussat-Peruso 2025, Table 2, L-BFGS row: L2 error of `grad u` 2.67e-3 (train), 2.68e-3 (test), mean over 10 runs | statistical | 2.06e-3 [1.45e-3, 3.79e-3] (train), 2.05e-3 [1.45e-3, 3.78e-3] (test), root mean square |
+| T12 (`TransportICNN`) | Caboussat-Peruso 2025, Table 2, L-BFGS row: L2 error of `grad u` 2.67e-3 (train), 2.68e-3 (test), mean over 10 runs | statistical, for the errors only | 2.06e-3 [1.45e-3, 3.78e-3] (train), 2.05e-3 [1.44e-3, 3.78e-3] (test), root mean square; the bootstrap band of our ten-seed mean, [1.83e-3, 2.75e-3], holds 2.67e-3 too, but only just |
 | T12 (`TransportICNN(adam_steps=2000)`) | the same table, Adam row: 2.40e-2 (train), 2.50e-2 (test); the final losses of both rows | mismatch | 7.45e-3 [3.71e-3, 2.15e-2] (train); the final L-BFGS loss 1.38e-4 [1.16e-4, 1.66e-4] against 1.13e-5 |
 
 On T6 our errors are about 13 times the paper's, and on T1 the figure's top lies near the lower end of our band: the paper's runs trained further, and `benchmarks/icnn.md` records what we found about why (Findings 1 and 2).
 With a mean in place of the printed sum in the equation term, T6 is still a mismatch, about 3.6 times above Table 1, though the runs meet the paper's stopping test (Finding 2); the preset and the level above stay with the print until #13 decides.
 On T12 the L-BFGS errors match the paper at the statistical level, but its final loss lies ten times below what the exact map reaches with our independent boundary points, and its Adam runs trained less far than ours (`benchmarks/icnn.md`, Findings 3 and 4).
+The agreement is in the error columns only: the paper's figure is a mean over ten runs with a standard deviation larger than the mean, set against our per-seed band and against the band of our mean, and Finding 3 suggests that it joins two regimes and is in part a coincidence.
 No value is pinned in `tests/test_reproduction.py`: a figure-only level gives no number to pin, a mismatch is not pinned, and a statistical level rests on ten GPU runs of 14 minutes each, which the tests cannot repeat.
