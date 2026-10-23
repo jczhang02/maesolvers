@@ -197,9 +197,9 @@ def test_the_matrix_is_invertible_with_singular_values_near_alpha():
 
 @pytest.mark.parametrize("s", [-50.0, -3.0, 0.0, 4.0])
 def test_alpha_is_positive_for_every_value_of_its_parameter(s):
-    # u depends on alpha through alpha^2 only, so alpha = 0 (u = b . x + c, a
-    # zero Hessian) would be a stationary point of every loss: the
-    # parametrisation alpha = alpha_start exp(s) never reaches it.
+    # u depends on alpha through alpha^2 only, so at alpha = 0 (u = b . x + c, a
+    # zero Hessian) every gradient through A vanishes: with the plane fitted to g,
+    # a stationary point of the loss. alpha = alpha_start exp(s) never reaches it.
     module = _scramble(_module(problem=T1), seed=5)
     with torch.no_grad():
         module.log_scale.fill_(s)

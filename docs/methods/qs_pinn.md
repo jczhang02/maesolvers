@@ -34,7 +34,7 @@ where `Z(x)` is the `d x d` output of a plain network (`width` units in each of 
 The scaling is smooth and maps every matrix into the open Frobenius ball of radius `ratio`, so `|B|_op <= |B|_F < ratio`.
 The note's bound `epsilon` on `|B|` is here `ratio alpha`, tied to `alpha`, and the note's eq. (9) needs `epsilon < alpha`, so `alpha > 0`.
 The exponential keeps `alpha` positive for every value of `s`; with `ratio < 1`, `A` is then invertible at every point, with singular values in `alpha (1 - ratio, 1 + ratio)` (Weyl), and the condition on `A(x0)` in Corollary 5.1 holds by construction.
-A bare trained `alpha` would not do: `u` depends on `alpha` through `alpha^2` only, so at `alpha = 0`, where `A = 0` and `u = b . x + c` has a zero Hessian, every gradient of the loss vanishes, a stationary point the training could stop at.
+A bare trained `alpha` would not do: `u` depends on `alpha` through `alpha^2` only, so at `alpha = 0`, where `A = 0` and `u = b . x + c` has a zero Hessian, every gradient through `A` vanishes, and with the plane fitted to the boundary data it is a stationary point of the loss, one the training could stop at.
 `Result.info["network"]["alpha"]` records the final `alpha`, so a run that drifts towards 0 is visible.
 Proposition 4.4 (a) says the scale of `A` does not matter for the convexity condition, only its relative variation; `ratio` bounds that variation, `|A / alpha - I|_F < ratio`, so the singular values of `A` at a point differ by a factor below `(1 + ratio) / (1 - ratio)`, at the price of a smaller margin `sigma_min(A) >= alpha (1 - ratio)`.
 `alpha` starts at `alpha_start = f(x0)^(1/(2d)) / sqrt(2)` (Section 6), `b`, `c` at 0, and the output layer of the plain network at 0, so `B = 0` at the start and the training starts from `u = |x - x0|^2 f(x0)^(1/d) / 2`: its Hessian determinant is `f(x0)` everywhere and its gradient map is `f(x0)^(1/d) (x - x0)`, the identity map when `f(x0) = 1` and `x0 = 0`.
@@ -69,7 +69,7 @@ The baselines are those of `docs/methods/penalty_mlp.md` and `docs/methods/icnn.
 | `QuadraticForm` | `width`, `depth` | 10, 5 (`DirichletQSPINN`), 10, 4 (`TransportQSPINN`) | not in the note; the sizes of the ICNN of the preset it replaces, giving 518 and 408 trained parameters in 2D against the ICNN's 563 and 433 |
 | `QuadraticForm` | `activation` | `"tanh"` | the note, Section 6 (smooth, with bounded first and second derivatives) |
 | `QuadraticForm` | `ratio` | 0.6 | ours, below |
-| `QuadraticForm` | `reference` | None, the centre of the bounding box | the note, Definition 3.1 ("for example the centre of the domain") |
+| `QuadraticForm`, `DirichletQSPINN`, `TransportQSPINN` | `reference` | None, the centre of the bounding box | the note, Definition 3.1 ("for example the centre of the domain") |
 | `QuadraticForm` | the start of `alpha` | `f(x0)^(1/(2d)) / sqrt(2)` | the note, Section 6 |
 | `DirichletQSPINN` | `boundary_weight`, `interior_points`, `boundary_points`, `max_steps` | 100, 3000, 400, 10000 | `DirichletICNN`'s |
 | `TransportQSPINN` | `boundary_weight`, the points, `adam_lr`, `adam_steps`, `max_steps`, `tol` | 1, 800 each, 1e-3, 200, 2000, 1e-7 | `TransportICNN`'s |
