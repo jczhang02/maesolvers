@@ -32,11 +32,12 @@ The levels follow ADR 0002; the order of a column is the least-squares slope of 
 |---|---|---|---|---|
 | C2 | 17 points exact; 9 and 33 order of magnitude (exact from `N = 63`) | order of magnitude (exact but at `N = 63`, Finding 2) | exact | exact |
 | T20 | order of magnitude (last digit) | mismatch (Finding 5) | mismatch (Finding 5) | exact |
-| T2 | exact | with the paper's undamped Newton: exact in 9 of 15 cells (every `N` with 9 points, `N = 31` and 63 with 17 and 33), mismatch in the other six, where it does not converge; `FDFiltered`'s damped Newton converges in none (Finding 4) | undamped Newton: exact at `N = 31` and 63, mismatch from 127 | exact |
+| T2 | exact | 9 points exact with the paper's undamped Newton step (`run_filtered.UndampedNewton`; `FDFiltered`'s damped Newton converges at no `N`, Finding 4); 17 and 33 points mismatch (neither iteration converges from `N = 127`) | mismatch, for the errors (no convergence from `N = 127`) and for the Newton steps (published 7 to 12) | exact |
 | T21 | mismatch (Finding 6) | mismatch | mismatch | exact |
 
+A level is one per published column (ADR 0002), never per cell; a column whose solves do not converge from some `N` on is a mismatch, whatever its last iterates print, and the cells that agree are evidence in the problem's section, not a level.
 `tests/test_reproduction.py` pins the filtered values on C2 at `N = 31` (all three stencils) and at `N = 63` (17 points, Table 4.2), the standard values on C2, T2 and T20, and monotone values on C2 and T2, each to the printed digits, all with `n = N - 1`.
-It pins the T2 filtered values at `N = 31` (all three stencils) with a test-local copy of the paper's undamped iteration, since `FDFiltered` does not converge there.
+It pins the T2 9-point filtered column at `N = 31` and 63 with a test-local copy of the paper's undamped iteration, since `FDFiltered` does not converge there; the 17- and 33-point columns are a mismatch and are not pinned.
 
 ## C2, the centred smooth example
 
@@ -138,9 +139,9 @@ The paper's own iteration, the full Newton step with the same approximate Jacobi
 
 Units of `1e-3`; residual is the max residual of the last iterate, tolerance `1e-10 max(1, max f)` (`max f` grows like `1 / (8 h^2)` at the corner).
 Where it does not converge the undamped iteration still has a max residual between `4e2` and `7e3` after 2000 steps, finite, and its last iterate an error of `0.6e-3` to `1.9e-3`.
-So the level is set cell by cell with the paper's iteration: exact at every `N` with 9 points and at `N = 31` and 63 with 17 and 33; mismatch with 17 and 33 points from `N = 127` on, where neither iteration converges.
-Table 4.2 (17 points): exact at `N = 31` and 63, mismatch from 127 on.
-`tests/test_reproduction.py` pins the three cells at `N = 31` with a test-local copy of the undamped iteration; `FDFiltered` itself, whose `Newton` halves the step until the max residual decreases, does not converge on T2 (Finding 4), so a user of the preset gets the starred values.
+So, one level per column (ADR 0002): the 9-point filtered column of Table 4.1 is exact with the paper's undamped iteration, not with `FDFiltered`; the 17- and 33-point columns are a mismatch, because neither iteration converges from `N = 127` on.
+Table 4.2's filtered column (17 points) is a mismatch for the same reason, and its Newton-step column is a mismatch as well (published 7 to 12; undamped 113 and 182 steps at `N = 31` and 63, then no convergence; damped no convergence at any `N`).
+`tests/test_reproduction.py` pins the 9-point column at `N = 31` and 63 with a test-local copy of the undamped iteration; `FDFiltered` itself, whose `Newton` halves the step until the max residual decreases, does not converge on T2 (Finding 4), so a user of the preset gets the starred values.
 
 In the seven cells at `N = 31`, 63 and 127 where the undamped iteration converges, the damped one stops next to its root, at the same error to four or five digits, with a max residual between `1e-2` and `2e-1`: its line search, which asks the max residual to decrease, finds no step there (Finding 4).
 At `N = 255` and 361 with 9 points the damped last iterates (`0.147e-3`, `0.173e-3`) are farther from the roots (`0.154e-3`, `0.167e-3`), though both print as the published values.
@@ -272,7 +273,7 @@ FO 2013 prints monotone values on the cone (`11.83e-3` with 9 points at `N = 31`
 
 ## Iterations and time
 
-With 17 points our Newton takes 3 or 4 steps on C2 (published 2), 12 to 75 on T20 (2 to 6) and stops after 11 to 26 steps on T2, or runs out of its 200 at `N = 361` (published 7 to 12); the paper's undamped step converges on T2 in 113 and 182 steps at `N = 31` and 63, and not from 127 on; see Finding 4.
+With 17 points our Newton takes 3 or 4 steps on C2 (published 2), 12 to 75 on T20 (2 to 6) and stops after 11 to 26 steps on T2, or runs out of its 200 at `N = 361` (published 7 to 12); the paper's undamped step converges on T2 in 113 and 182 steps at `N = 31` and 63, and not from 127 on, so Table 4.2's step column on T2 is a mismatch; see Finding 4.
 CPU times are 2013 MATLAB hardware and are not compared; at `N = 361` a filtered solve with 17 points takes 11 seconds on C2, 400 on T2 (200 steps), 167 on T20 and 15 on the cone (3 steps), on one core of a100server.
 `Filtered.jacobian` evaluates both parts' residuals again at the iterate where `residual` has just done so, one more residual evaluation per step, kept so that the scheme holds no state.
 

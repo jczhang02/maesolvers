@@ -131,7 +131,7 @@ Against Froese-Oberman 2013, Tables 4.1 and 4.2, at the levels of ADR 0002, as `
 |---|---|---|---|
 | centred `C^2` | exact against Table 4.2; order of magnitude against Table 4.1 (exact but at `N = 63`, where it prints `1.04e-5` for `1.06e-5`) | 17 points exact; 9 and 33 order of magnitude (exact from `N = 63`) | exact |
 | T20 | mismatch: a non-convex root (Finding 5) | order of magnitude (last digit) | exact |
-| T2 | with the paper's undamped Newton: exact in 9 of 15 cells of Table 4.1 (every `N` with 9 points, `N = 31` and 63 with 17 and 33) and at `N = 31` and 63 in Table 4.2, mismatch where it does not converge (17 and 33 points from `N = 127`); `FDFiltered`'s damped Newton converges in no cell (Finding 4) | exact | exact |
+| T2 | Table 4.1: 9 points exact with the paper's undamped Newton step (`run_filtered.UndampedNewton`; `FDFiltered`'s damped Newton converges at no `N`, Finding 4), 17 and 33 points mismatch (neither iteration converges from `N = 127`); Table 4.2 (17 points): mismatch, for the errors and for the Newton steps | exact | exact |
 | T21 (cone) | mismatch | mismatch | exact |
 
-`tests/test_reproduction.py` pins the converged values, on T2 at `N = 31` with a test-local undamped Newton; the full comparison and the findings are in [`benchmarks/filtered.md`](../../benchmarks/filtered.md).
+`tests/test_reproduction.py` pins the exact columns, on T2 the 9-point filtered column at `N = 31` and 63 with a test-local undamped Newton; the full comparison and the findings are in [`benchmarks/filtered.md`](../../benchmarks/filtered.md).
