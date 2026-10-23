@@ -38,6 +38,14 @@ repository root::
     CUDA_VISIBLE_DEVICES=2 python benchmarks/run_icnn_transport.py
     python benchmarks/run_icnn_transport.py --schedules lbfgs --seeds 0 1 \\
         --adam-lr 1e-2 --name diagnostic --out /tmp/t12.csv
+
+Two modes train nothing and log nothing. ``--summary`` prints the cells of
+the T12 tables in icnn.md from the receipt (or --out): per schedule and
+column the mean (std) as Table 2 prints them, the median [5%, 95%] over the
+seeds, and a bootstrap 5% to 95% band of the mean over the seeds, all to
+three significant digits. ``--floor`` prints, for each seed of --seeds, the
+transport term of eq. (3.4) that T12's exact map leaves at the preset's
+collocation points (icnn.md, Finding 3).
 """
 
 from __future__ import annotations
@@ -52,11 +60,16 @@ from pathlib import Path
 
 import numpy as np
 from comparison import with_parts
-from run_penalty_mlp import band
 
 from maesolvers import T12, Problem, TransportICNN, TransportSampler, tracking
 from maesolvers.core import Disk, Ellipse, Transport
-from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error, shared_grid
+from maesolvers.metrics import (
+    evaluate,
+    gradient_fd,
+    gradient_map_error,
+    shared_grid,
+    summarize_errors,
+)
 from maesolvers.neural import Collocation, NeuralSolver, sample_interior
 
 HERE = Path(__file__).parent
@@ -64,6 +77,12 @@ CSV = HERE / "icnn_t12.csv"
 
 SCHEDULES = ("lbfgs", "adam")
 """Table 2's rows: Adam then L-BFGS (the preset), and Adam alone."""
+
+SUMMARY = ("loss", "train_rms", "test_rms", "test_max", "grid_max", "into", "onto")
+"""The columns of the receipt that icnn.md cites."""
+
+BOOTSTRAP = 10_000
+"""Resamples of the seeds for the band of the mean, from numpy's generator seed 0."""
 
 OPTIONS = ("init_std", "fit_steps", "adam_lr", "adam_steps", "max_steps", "accelerator")
 """Preset settings the command line can change; a change needs --out."""
@@ -95,14 +114,25 @@ FIELDS = (
 class SharedAngleSampler(TransportSampler):
     """Boundary points of a disk and target points of an ellipse at the same angles.
 
-    A diagnostic sampler (icnn.md, T12, Finding 1): the interior points as
+    A diagnostic sampler (icnn.md, T12, Finding 3) for a transport problem
+    from a :class:`Disk` onto an :class:`Ellipse`: the interior points as
     :class:`TransportSampler` draws them, then ``boundary_points`` angles
     ``t``, uniform, giving the points ``center + r (cos t, sin t)`` on the
     circle and ``center + (a1 cos t, a2 sin t)`` on the ellipse. T12's exact
     map sends each boundary point to the target point of its angle, so its
     Hausdorff-type term is 0 here, not about 1e-4 as with independent
-    points; ``target_points`` is not used.
+    points. ``target_points`` is ignored: there are as many target points
+    as boundary points.
     """
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the problem maps a disk onto an ellipse."""
+        boundary = problem.boundary
+        return (
+            isinstance(problem.domain, Disk)
+            and isinstance(boundary, Transport)
+            and isinstance(boundary.target, Ellipse)
+        )
 
     def sample(self, problem: Problem, rng: np.random.Generator) -> Collocation:
         disk, boundary = problem.domain, problem.boundary
@@ -196,7 +226,64 @@ def run_seed(
 
 def mean_std(values: list[float]) -> str:
     """Mean and sample standard deviation, as Table 2 prints them."""
-    return f"{np.mean(values):.3e} ({np.std(values, ddof=1):.3e})"
+    return f"{np.mean(values):.2e} ({np.std(values, ddof=1):.2e})"
+
+
+def mean_band(values: list[float]) -> str:
+    """Bootstrap 5% to 95% band of the mean over the seeds (``BOOTSTRAP`` resamples)."""
+    rng = np.random.default_rng(0)
+    draws = rng.choice(values, size=(BOOTSTRAP, len(values))).mean(axis=1)
+    return f"[{np.quantile(draws, 0.05):.2e}, {np.quantile(draws, 0.95):.2e}]"
+
+
+def summary(path: Path) -> None:
+    """Print the cells of icnn.md's T12 tables from a receipt, three digits each."""
+    with path.open() as file:
+        rows = list(csv.DictReader(file))
+    for schedule in sorted({r["schedule"] for r in rows}, key=SCHEDULES.index):
+        mine = [r for r in rows if r["schedule"] == schedule]
+        for key in SUMMARY:
+            values = [float(r[key]) for r in mine]
+            s = summarize_errors(values, threshold=np.inf)
+            print(
+                f"{schedule} {key}: mean (std) {mean_std(values)}; "
+                f"median [5%, 95%] {s.median:.2e} [{s.q05:.2e}, {s.q95:.2e}]; "
+                f"mean's band {mean_band(values)}"
+            )
+
+
+def exact_map_floor(seed: int, parametric: bool = False) -> tuple[float, float]:
+    """The two halves of eq. (3.4) that T12's exact map leaves at a seed's points.
+
+    The boundary and target points are the preset's collocation points of
+    the seed; with ``parametric`` the target points are instead 800 points
+    uniform in the parameter angle of the ellipse, from numpy's generator
+    seed ``100 + seed``.
+    """
+    import torch
+
+    from maesolvers.neural.functional import nearest_squared_distances
+
+    collocation = TransportSampler().sample(T12, np.random.default_rng(seed))
+    x = collocation.boundary
+    image = np.stack([2.0 * x[:, 0] + 3.5, 0.5 * x[:, 1]], axis=-1)
+    target = collocation.target_boundary
+    if parametric:
+        t = np.random.default_rng(100 + seed).uniform(0.0, 2.0 * np.pi, len(target))
+        target = np.stack([3.5 + 2.0 * np.cos(t), 0.5 * np.sin(t)], axis=-1)
+    into, onto = nearest_squared_distances(torch.tensor(image), torch.tensor(target))
+    return float(into.mean()), float(onto.mean())
+
+
+def floor(seeds: list[int]) -> None:
+    """Print :func:`exact_map_floor` of each seed, both ways of drawing the target."""
+    for seed in seeds:
+        into, onto = exact_map_floor(seed)
+        par = sum(exact_map_floor(seed, parametric=True))
+        print(
+            f"seed {seed}: into {into:.3e} + onto {onto:.3e} = {into + onto:.3e}; "
+            f"parametric target {par:.3e}"
+        )
 
 
 def main() -> None:
@@ -212,14 +299,27 @@ def main() -> None:
     parser.add_argument(
         "--shared-angles",
         action="store_true",
-        help="boundary and target points at shared angles (icnn.md, T12, Finding 1)",
+        help="boundary and target points at shared angles (icnn.md, T12, Finding 3)",
     )
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument(
         "--name", default="", help="prefix of the MLflow run names, e.g. 'diagnostic'"
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--summary", action="store_true", help="print the tables' cells from the CSV"
+    )
+    mode.add_argument(
+        "--floor", action="store_true", help="print the exact map's transport term"
+    )
     args = parser.parse_args()
+    if args.summary:
+        summary(args.out or CSV)
+        return
+    if args.floor:
+        floor(args.seeds)
+        return
     options = {name: getattr(args, name) for name in OPTIONS}
     changed = {
         k: v
@@ -251,12 +351,9 @@ def main() -> None:
             writer.writerow(
                 {k: f"{v:.6e}" if isinstance(v, float) else v for k, v in row.items()}
             )
+    summary(out)
     for schedule in args.schedules:
-        mine = [r for r in rows if r["schedule"] == schedule]
-        for key in ("loss", "train_rms", "test_rms", "test_max", "grid_max"):
-            values = [r[key] for r in mine]
-            print(f"{schedule} {key}: {band(values)}; mean (std) {mean_std(values)}")
-        stops = [r["stop"] for r in mine]
+        stops = [r["stop"] for r in rows if r["schedule"] == schedule]
         print(
             f"{schedule} stops: {dict((s, stops.count(s)) for s in sorted(set(stops)))}"
         )
