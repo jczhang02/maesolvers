@@ -78,8 +78,8 @@ CSV = HERE / "icnn_t12.csv"
 SCHEDULES = ("lbfgs", "adam")
 """Table 2's rows: Adam then L-BFGS (the preset), and Adam alone."""
 
-SUMMARY = ("loss", "train_rms", "test_rms", "test_max", "grid_max", "into", "onto")
-"""The columns of the receipt that icnn.md cites."""
+SUMMARY = ("loss", "train_rms", "test_rms", "test_max", "grid_max", "transport")
+"""The columns of the receipt that icnn.md cites; ``transport`` is ``into + onto``."""
 
 BOOTSTRAP = 10_000
 """Resamples of the seeds for the band of the mean, from numpy's generator seed 0."""
@@ -236,6 +236,13 @@ def mean_band(values: list[float]) -> str:
     return f"[{np.quantile(draws, 0.05):.2e}, {np.quantile(draws, 0.95):.2e}]"
 
 
+def cell(row: dict[str, str], key: str) -> float:
+    """A column of a receipt row, ``transport`` being ``into + onto``."""
+    if key == "transport":
+        return float(row["into"]) + float(row["onto"])
+    return float(row[key])
+
+
 def summary(path: Path) -> None:
     """Print the cells of icnn.md's T12 tables from a receipt, three digits each."""
     with path.open() as file:
@@ -243,7 +250,7 @@ def summary(path: Path) -> None:
     for schedule in sorted({r["schedule"] for r in rows}, key=SCHEDULES.index):
         mine = [r for r in rows if r["schedule"] == schedule]
         for key in SUMMARY:
-            values = [float(r[key]) for r in mine]
+            values = [cell(r, key) for r in mine]
             s = summarize_errors(values, threshold=np.inf)
             print(
                 f"{schedule} {key}: mean (std) {mean_std(values)}; "
