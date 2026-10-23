@@ -2,6 +2,20 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `MixedHJB(n=64, angles=None, seven_point=True, spline_degree=3)`, the monotone mixed scheme of Chen-Wan-Lin 2018 on a 2D box with equal sides, exported at the top level and from `maesolvers.classical`: the Monge-Ampere equation in HJB form, the maximum over the controls `(a, theta)` of a linear operator, each control with the standard 7-point stencil where it is monotone and the semi-Lagrangian wide stencil (arms `sqrt(h)`, bilinear interpolation, arms shortened to the boundary) elsewhere.
+  The 7-point controls are optimised in closed form, the wide-stencil ones over `angles` angles in `[-pi/4, pi/4)` (None takes `n - 1`, the paper's `M = N`); `seven_point=False` gives the pure semi-Lagrangian scheme the paper compares with.
+  It provides `policy_system(grid, v)`, the sparse M-matrix `A` and the vector `F` of the optimal control at `v`, with `A v - F` the residual; `residual`, `jacobian` (that `A`) and `solve_laplace` (5-point), so `Newton` solves it too.
+  `discretize` raises `ValueError` for an `f` that is negative or not finite at an interior node.
+  Results carry `info["wide_fraction"]`, the share of unknowns whose optimal control takes the wide stencil, and `info["angles"]`.
+  The pure kernels `control_coefficients`, `seven_point_case`, `seven_point_band`, `seven_point_controls` (with its named tuple `SevenPointControls`), `wide_stencil_weight` and `wide_stencil_value` are in `maesolvers.classical.mixed`, with `MixedGrid`, the context `MixedHJB.discretize` returns, whose fields may change with the scheme.
+- `PolicyIteration(scheme, max_iter=100, tol=1e-6)`, Howard's algorithm, exported at the top level and from `maesolvers.classical`: for a scheme with `policy_system` and `solve_laplace`, from `laplace u = 2 sqrt(f)`, each step solves the linear system of the optimal policy; it stops when `max |A v - F| <= tol` at the current unknowns.
+  A step measures the residual at the unknowns it starts from and returns them unchanged once it meets `tol`, so `Result.info["history"]` holds the residual of each iterate before its update and `iterations` counts the policies evaluated.
+- The preset `FDMixed(n, angles, spline_degree, max_iter=100, tol=1e-6)`, `PolicyIteration` on `MixedHJB`, exported at the top level and from `maesolvers.classical`; for a box with unequal sides its `UnsupportedProblemError` names the equal sides, as `FDMonotone`'s does.
+
 ## 0.1.0 (2026-10-23)
 
 This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.

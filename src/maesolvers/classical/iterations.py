@@ -521,3 +521,130 @@ class PoissonIteration(SchemeIteration):
         bool
         """
         return measure <= self.tol
+
+
+class _PolicyScheme(Protocol):
+    """The scheme methods :class:`PolicyIteration` calls: ``rhs`` and its ``requires``."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def policy_system(
+        self, grid: Any, v: np.ndarray
+    ) -> tuple[sp.spmatrix, np.ndarray]: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+@dataclass(frozen=True, kw_only=True)
+class PolicyIteration(SchemeIteration):
+    """Policy iteration (Howard's algorithm) on a scheme in HJB form.
+
+    For a scheme whose residual is a maximum over controls of linear
+    operators, ``max over policies of A v - F``, each step finds the optimal
+    policy at the current unknowns and solves its linear system,
+    ``A v_new = F`` (Chen-Wan-Lin 2018, Section 5.1; Howard 1960). When the
+    matrix of every policy is an M-matrix, as for a monotone scheme, the
+    iteration converges from any start (Bokanowski, Maroso and Zidani 2009);
+    it is Newton's method with full steps and the policy's matrix as the
+    Jacobian.
+
+    Starts from ``laplace u = 2 sqrt(f)``, the solution for the control
+    ``a = 1/2`` (Chen-Wan-Lin 2018, eq. (50)).
+
+    Parameters
+    ----------
+    scheme
+        A scheme with ``policy_system(grid, v)``, which returns the sparse
+        ``A`` and the vector ``F`` of the optimal policy at ``v``, and
+        ``solve_laplace(grid, rhs)``.
+    max_iter
+        Most steps.
+    tol
+        Stop when ``max |A v - F| <= tol`` at the current unknowns, the
+        paper's tolerance on the residual by default.
+
+    Notes
+    -----
+    A step measures the residual at the unknowns it starts from, as
+    Howard's algorithm does, and returns them unchanged once that residual
+    is at most ``tol``. So ``Result.info["history"]`` holds the residual of
+    each iterate before its update, the last one at most ``tol`` when the
+    solve converged, and ``iterations`` counts the policies evaluated,
+    the paper's "number of policy iterations".
+    """
+
+    measure: ClassVar[str] = "residual"
+    requires: ClassVar[tuple[str, ...]] = ("policy_system", "solve_laplace")
+
+    max_iter: int = 100
+    tol: float = 1e-6
+
+    @property
+    def _scheme(self) -> _PolicyScheme:
+        """The scheme, typed by the methods :meth:`check` makes sure it has."""
+        return cast(_PolicyScheme, self.scheme)
+
+    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
+        """Solve ``laplace u = 2 sqrt(f)``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            The unknowns.
+        """
+        return self._scheme.solve_laplace(
+            context, 2.0 * np.sqrt(self._scheme.rhs(context))
+        )
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float] | None:
+        """Evaluate the optimal policy at ``iterate`` and solve its system.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        iterate
+            The current unknowns.
+
+        Returns
+        -------
+        tuple or None
+            The next unknowns and the max residual at ``iterate``; ``iterate``
+            itself once that residual is at most ``tol``. None if the solve
+            of the policy's system is not finite.
+        """
+        matrix, rhs = self._scheme.policy_system(context, iterate)
+        norm = float(np.max(np.abs(matrix @ iterate - rhs)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
+        new = np.asarray(spsolve(sp.csc_matrix(matrix), rhs))
+        if not np.all(np.isfinite(new)):
+            return None
+        return new, norm
+
+    def converged(self, problem: Problem, context: Any, measure: float) -> bool:
+        """Whether the max residual is at most ``tol``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        measure
+            The max residual.
+
+        Returns
+        -------
+        bool
+        """
+        return measure <= self.tol

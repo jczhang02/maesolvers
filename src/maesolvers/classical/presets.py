@@ -14,7 +14,8 @@ from typing import ClassVar, Generic, Literal, TypeVar
 
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
-from maesolvers.classical.iterations import Newton, PoissonIteration
+from maesolvers.classical.iterations import Newton, PoissonIteration, PolicyIteration
+from maesolvers.classical.mixed import MixedHJB
 from maesolvers.classical.monotone import Monotone17
 from maesolvers.classical.schemes import Standard9
 from maesolvers.core.problem import Problem
@@ -104,7 +105,7 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
-_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid, Filtered)
+_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid, Filtered, MixedHJB)
 
 
 class _SquareBoxCheck(Generic[_SquareSchemeT]):
@@ -398,3 +399,62 @@ class FDFiltered(_FilteredPreset, Newton):
 
     start: None = field(default=None, init=False, repr=False)
     max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _MixedPreset(_SquareBoxCheck[MixedHJB]):
+    """The fields and support of a preset on :class:`MixedHJB`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = MixedHJB.domains
+    boundaries: ClassVar[tuple[type, ...]] = MixedHJB.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = MixedHJB.dims
+
+    scheme: MixedHJB = field(init=False, repr=False)
+    n: int = MixedHJB.n
+    angles: int | None = MixedHJB.angles
+    spline_degree: int = MixedHJB.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = MixedHJB(
+            n=self.n, angles=self.angles, spline_degree=self.spline_degree
+        )
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "angles", scheme.angles)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDMixed(_MixedPreset, PolicyIteration):
+    """The monotone mixed scheme of Chen, Wan and Lin (2018) solved by policy iteration.
+
+    ``FDMixed(n=n, angles=M, ...)`` is
+    ``PolicyIteration(scheme=MixedHJB(n=n, angles=M, ...), ...)``, the
+    "proposed mixed stencil scheme" of Chen-Wan-Lin 2018, Tables 1 to 4:
+    the standard 7-point stencil for the controls where it is monotone, the
+    semi-Lagrangian wide stencil for the others (``docs/methods/chen_wan_lin2018.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2. The
+        paper's ``N`` is ``n - 1``.
+    angles
+        The number of angles of the wide-stencil search; None takes
+        ``n - 1``, the paper's ``M = N``.
+    max_iter
+        Most policy iterations.
+    tol
+        Stop when the max residual of the HJB equation is at most ``tol``,
+        the paper's ``1e-6`` by default.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
+    """
