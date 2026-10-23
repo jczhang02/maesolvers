@@ -300,3 +300,13 @@ def test_summarize_needs_the_key_in_every_result():
 def test_summarize_rejects_bad_input(seeds, threshold):
     with pytest.raises(ValueError):
         summarize([_seed(1.0)] * seeds, threshold)
+
+
+def test_summarize_counts_a_diverged_seed_as_failed():
+    """A run that stopped on a non-finite loss fails, its finite error aside (#14)."""
+    diverged = Result(
+        T1, _shifted(T1, 1e-3), info={"converged": False, "stop": "diverged"}
+    )
+    s = summarize([diverged, _seed(1e-3), _seed(1e-3)], threshold=1e-2)
+    assert s.failed == 1 and s.success_rate == pytest.approx(2 / 3)
+    assert s.q95 == np.inf and s.median == pytest.approx(1e-3)

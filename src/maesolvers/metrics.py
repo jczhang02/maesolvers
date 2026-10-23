@@ -335,11 +335,11 @@ def summarize(
     """Aggregate the seeds of one method on one problem (ADR 0007).
 
     Each result is measured with :func:`evaluate`. A failed seed (``None``,
-    for a seed that timed out or crashed and so has no result, or a NaN or
-    infinite error) counts with error ``+inf`` and is never dropped, so when
-    more than half the seeds fail the median is ``inf``. With an even number
-    of seeds the median is the mean of the middle two, so exactly half failed
-    also gives ``inf``.
+    for a seed that timed out or crashed and so has no result, a run that
+    stopped as ``"diverged"``, or a NaN or infinite error) counts with error
+    ``+inf`` and is never dropped, so when more than half the seeds fail the
+    median is ``inf``. With an even number of seeds the median is the mean of
+    the middle two, so exactly half failed also gives ``inf``.
 
     A run that stops unconverged with a finite error, at its step budget
     (``info["stop"] == "max_steps"`` for a neural solver) or because a step
@@ -347,9 +347,10 @@ def summarize(
     enters the quantiles at its error, and ``threshold`` decides whether it
     counts in ``success_rate``. Neural training budgets are often spent
     before the gradient tolerance is met, so counting these runs as failed
-    would leave no band to report. Whether a neural run that stopped as
-    ``"diverged"`` (a non-finite loss, with the finite network of the step
-    before) should count as failed is open in issue #14.
+    would leave no band to report. A neural run that stopped as
+    ``"diverged"`` (``info["stop"]``: a non-finite loss) counts as failed
+    even though its network, that of the step before, has a finite error:
+    ADR 0007 names divergence a failure.
 
     Parameters
     ----------
@@ -375,5 +376,9 @@ def summarize(
     if len(results) == 0:
         raise ValueError("summarize needs at least one seed")
     return summarize_errors(
-        [None if r is None else float(evaluate(r)[key]) for r in results], threshold
+        [
+            None if r is None or r.info.get("stop") == "diverged" else evaluate(r)[key]
+            for r in results
+        ],
+        threshold,
     )
