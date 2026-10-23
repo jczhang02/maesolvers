@@ -119,7 +119,7 @@ RECTANGLE = Problem("RECT", Box((0.0, 0.0), (1.0, 2.0)), T1.f, T1.boundary)
         ("DirichletICNN", T12, "Dirichlet only"),
         ("FDNewton", T9, "2D only"),
         ("PenaltyMLP", T9, "2D only"),
-        ("FDMonotone", T9, "2D stencil"),
+        ("FDMonotone", T9, "3D: stencil=19"),
         ("FDMonotone", T10, "2D/3D only"),
         ("FDMonotone", T8, "not on a Disk"),
         ("FDMonotone", RECTANGLE, "unsupported"),
