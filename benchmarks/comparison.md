@@ -38,15 +38,15 @@ README's section "Comparison" shows the tables; this file says how they were mad
 Every value the reproduction receipts share with this one agrees to all digits, so the presets did not move between those receipts and this one:
 
 - `FDNewton` on T1 (5.276e-7) and T2 (2.225e-2), `FDPoisson` on T2 (5.409e-3): `standard_fd.md`, `N = 361`.
-- `FDMonotone` on T1 (4.40e-4): `monotone17.md`, 17 points, `N = 361`; `FDHybrid` on T2 (4.177e-5): `hybrid.csv`, `N = 361`, `h = 1/N`, narrow.
+- `FDMonotone` on T1 (4.400e-4, 14 steps): `monotone17.csv`, 17 points, narrow, `N = 361`, `h = 1/N`; `FDHybrid` on T2 (4.177e-5): `hybrid.csv`, `N = 361`, `h = 1/N`, narrow.
 - `PenaltyMLP` and `DirichletICNN` on T1, seeds 0 to 9: `penalty_mlp_t1.csv` and `icnn_t1.csv`, every seed's shared-grid max error.
 
 ## What the table shows
 
 ### Finding 1: T8 does not separate the standard scheme's iterations by accuracy
 
-The exact solution of T8, `(|x|^2 - 1) / 2`, is quadratic, and the centred differences of `Standard9`, the Shortley-Weller ones next to the circle included, are exact for quadratics.
-So `FDNewton` and `FDPoisson` reach it to rounding at the nodes (3.3e-13 and 1.6e-12), and their secondary value on the shared grid, 2.61e-6, is the error of the Clough-Tocher interpolant, not of the scheme.
+The exact solution of T8, `(|x|^2 - 1) / 2`, is quadratic, and `FDNewton` and `FDPoisson` reach it to rounding at the nodes (3.3e-13 and 1.6e-12): on this `u` the discrete equations of `Standard9`, the Shortley-Weller stencils next to the circle included, hold exactly.
+Their secondary value on the shared grid, 2.61e-6, is the error of the Clough-Tocher interpolant, not of the scheme.
 Both reach the convex branch (non-convex fraction 0), from the Poisson start; T8 tests branch selection, and on it neither iteration picks the concave solution.
 The monotone, hybrid and filtered schemes are box-only in 0.1 (`not on a Disk`).
 
@@ -68,13 +68,13 @@ On T1 and T8, which are smooth, `DirichletICNN` succeeds in every seed (on T8 ei
 
 ### Finding 5: `DirichletICNN` in 3D works in 7 seeds of 10, in 4D in none
 
-On T9 (3D) seven seeds reach max errors from 3.1e-3 to 2.9e-2 at the step budget; seed 4 stalls after 1843 steps at 0.83 and seed 9 after 3 steps at 1.9e3.
+On T9 (3D) eight seeds reach the step budget, seven of them below the threshold of 4.48e-2 (3.1e-3 to 2.9e-2) and seed 0 above it (9.2e-2); seed 4 stalls after 1843 steps at 0.83 and seed 9 after 3 steps at 1.9e3.
 On T10 (4D) nine seeds stall, four of them after one step (errors 1.6e4 to 4.8e4), and the best seed ends at 2.5; `docs/methods/icnn.md` (Known limits) records first losses of 2e33 to 3e36 there, against 2e26 to 3e28 on T9.
 The time median on T10 (148 s) is short because most seeds stop early, not because the solve is cheap.
 
 ### Finding 6: cost
 
-At `n = 361` the classical presets take 2.5 s to 219 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 364 s to 1295 s per seed, and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
+At `n = 361` the classical presets take 2.5 s to 219 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 364 s to 1295 s per seed (medians; T10's 148 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.5 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 132 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 33 s).
 
 ## Rerun
