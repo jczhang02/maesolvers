@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from maesolvers import (
+    SOLVERS,
     T1,
     T12,
     T16,
@@ -312,6 +313,7 @@ def test_the_preset_is_newton_on_the_filtered_scheme_from_the_monotone_root():
         ),
         max_iter=200,
     )
+    assert SOLVERS["FDTransport"] is FDTransport
     assert set(preset.hparams["init_args"]) == {
         "n",
         "stencil",

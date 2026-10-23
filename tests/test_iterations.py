@@ -222,6 +222,7 @@ def test_the_registry_lists_the_presets_read_only():
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
+        "FDTransport": FDTransport,
         "PenaltyMLP": PenaltyMLP,
         "DirichletICNN": DirichletICNN,
     }
