@@ -61,6 +61,6 @@ The CSV has every degree at every `n`.
 
 ## The 2D path is unchanged
 
-`Standard9`, `Monotone17` and, through them, `Hybrid` and `Filtered` now build their grids with `BoxGrid` and their difference operators with `second_differences`.
+`Standard9`, `Monotone17` and, through them, `Hybrid` and `Filtered` now build their grids with `BoxGrid`, and `difference_operators`, which `Standard9` and `Monotone17` call, is now the 2D case of `second_differences`.
 On a100server, every preset (`FDNewton`, `FDPoisson`, `FDMonotone` with 9, 17 and 33 points and both boundary treatments, `FDHybrid`, `FDFiltered`) on T1, T2, T20 and, for the standard scheme, T8 and T6, at `n = 8`, 16 and 25 and spline degrees 1 to 5, gives node values, node Hessians, the spline on the shared grid, `evaluate`'s fields and the final residual that are equal, as float arrays with `numpy.array_equal`, to those of `next` at 4fdd5da (912 arrays); so do the matrices of `difference_operators` and of `directional_difference`.
 So no 2D receipt in `benchmarks/` changes.
