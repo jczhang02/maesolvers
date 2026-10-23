@@ -11,7 +11,8 @@ README's section "Comparison" shows the tables; this file says how they were mad
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
-  The `FDSemiLagrangian` rows (4 runs, 3 unsupported pairs) came later, from `run_comparison.py --solvers FDSemiLagrangian --workers 4` at commit 2afd0fb, clean checkout, in 66 s, merged into a copy of this receipt; every other row is unchanged.
+  The `FDSemiLagrangian` rows (4 runs, 3 unsupported pairs) came later, from `run_comparison.py --solvers FDSemiLagrangian --workers 4` at commit dde1578, clean checkout, in 41 s, merged into a copy of this receipt; every other row is unchanged.
+  A first run at 2afd0fb, before the hull distance got faster, gave the same values to every printed digit and longer times.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
@@ -90,7 +91,7 @@ The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.
 
 ### Finding 7: `FDSemiLagrangian` at its default stencil factor is accurate to about 1e-3
 
-At `n = 361` and `m = 4`, `FDSemiLagrangian` reaches 3.9e-3 on T1, 2.2e-3 on T2 and 1.1e-3 on T20, in 4 to 8 steps of Howard's algorithm and 50 s to 61 s.
+At `n = 361` and `m = 4`, `FDSemiLagrangian` reaches 3.9e-3 on T1, 2.2e-3 on T2 and 1.1e-3 on T20, in 4 to 8 steps of Howard's algorithm and 27 s to 36 s; on T8, 9.0e-6 in 3 steps and 17 s.
 The error is that of the interpolation at the stencil ends, of order `(h / k)^2 = 1/16` times the second derivatives, which does not fall with `h` at a fixed `m`; `feng_jensen2017.md` shows that the paper's best `m` grows with the refinement for the same reason.
 On T2 it is the third most accurate of the classical presets that converge, after `FDHybrid` and `FDMonotone`, and it is the only monotone preset that runs on the disk of T8.
 
