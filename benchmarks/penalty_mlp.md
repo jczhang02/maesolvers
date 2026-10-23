@@ -5,7 +5,7 @@
 On T6 we ran the method next to Table 1, which belongs to the paper's other method; that comparison is context, not a reproduction.
 
 Receipts: `penalty_mlp_t1.csv` and `penalty_mlp_t6.csv`, written by `run_penalty_mlp.py` on a100server at commit da3df82, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-penalty-mlp-T1` and `maesolvers-penalty-mlp-T6`, with its training curve and the device and thread count as parameters.
-The commits this file cites are on the branch of PR #50, which was squash-merged into `next` as c15c545, so they are not in its history; GitHub keeps them under `refs/pull/50/head`.
+The commits this file cites are on the branch of PR #50, which was squash-merged into `next` as c15c545, so they are not in its history; GitHub keeps them under `refs/pull/50/head`; commit 6adc9a1 (Finding 4) is on the branch of PR #59.
 The receipts reproduce only with one thread per seed: the rounding of the fits of `G` and `D`, and so every later number, depends on the thread count.
 Bands are the median and the 5% and 95% quantiles over the ten seeds, computed by `maesolvers.metrics.summarize_errors` with ADR 0007's failed-seed rule; no seed failed, every seed stopped at the 5000-step budget (`stop = max_steps`), and in every seed both fits of the ansatz met their tolerance (`fits_converged`).
 
@@ -97,6 +97,24 @@ The paper's tolerance is therefore what makes the boundary dominate; the preset 
 The penalty acts at the collocation points only.
 On T1, `evaluate` finds a negative Hessian eigenvalue at some points of the shared grid in 5 of 10 seeds, at up to 6.7% of the points (seed 1, the seed that trained worst), and at most 0.91% in the others; on T6 in 2 seeds (0.19% and 0.003%).
 The FD solvers report `nonconvex_fraction` 0 on T1.
+
+## Finding 4: dense BFGS lowers the loss but not the max error
+
+`DirichletICNN` trains only with SciPy's dense BFGS (`icnn.md`, Finding 1), so the penalty MLP was also trained with `BFGS()` in place of `LBFGS()`, every other setting the preset's, the fits of `G` and `D` included.
+`run_penalty_mlp.py T1 --optimizer bfgs` (MLflow `maesolvers-penalty-mlp-T1`, runs `seed=<s> optimizer=bfgs`, commit 6adc9a1, CPU, one thread per seed, CSV kept outside the repository):
+
+| T1, seeds 0 to 9 | `LBFGS()` (preset) | `BFGS()` |
+|---|---|---|
+| max, shared grid | 7.06e-3 [4.57e-3, 1.66e-2] | 7.05e-3 [4.58e-3, 3.39e-1] |
+| mean, 10^6 random interior points | 8.26e-4 [4.76e-4, 2.98e-3] | 5.42e-4 [2.91e-4, 3.14e-3] |
+| max `\|D N\|` on the boundary | 3.05e-3 [1.26e-3, 1.35e-2] | 3.03e-3 [1.29e-3, 3.31e-1] |
+| how the training stopped | 10 at `max_steps` | 7 at `max_steps`, 3 `stalled` (seeds 1, 5, 8) |
+
+- In the eight seeds other than 1 and 8, BFGS ends with a loss 40 to 15000 times lower and a mean interior error 8% to 54% lower, but the max error agrees with L-BFGS's to within 1.2%: it sits on the boundary, where it is the misfit of `G` and the leak `D N` (Finding 2), and the fits of `G` and `D` do not depend on the optimizer of `N`.
+- Seeds 1 and 8 stop early on a failed line search and end worse: max errors 2.55e-2 and 5.95e-1 against 1.79e-2 and 1.50e-2, both from the leak `D N` (2.62e-2 and 5.80e-1).
+
+So the optimizer that makes the ICNN train does not close the gap of the penalty MLP to Figure 1 (median 7.05e-3 against about 5.7e-3); the fits of the ansatz do (Finding 2, `fit_tol = 1e-7`).
+The preset keeps `LBFGS()`, and the level stays figure only.
 
 ## Conventions that differ
 
