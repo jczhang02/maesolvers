@@ -10,8 +10,13 @@ spline through values at the nodes, which evaluates a solution off the nodes
 operators on it are module-level pure functions: :func:`reach`, how far a
 step along a direction stays in the box; :func:`stencil`, any linear
 stencil of width 1; :func:`second_differences`, the centred second
-differences; :func:`centred_hessian`, the discrete Hessian at the nodes that
-a scheme reports as ``Result.node_hessian``; and :func:`tensor_spline`.
+differences as sparse matrices; :func:`centred_differences`, the same
+differences of an array of node values by slicing, with no matrix, which a
+matrix-free scheme evaluates; :func:`centred_hessian`, the discrete Hessian
+at the nodes that a scheme reports as ``Result.node_hessian``;
+:func:`determinant` and :func:`cofactors` of symmetric matrices given by
+their entries, such as those of the discrete Hessian; and
+:func:`tensor_spline`.
 
 The node layout: the node with multi-index ``(i_0, ..., i_{d-1})``,
 ``0 <= i_k <= n``, lies at ``(axes[0][i_0], ..., axes[d-1][i_{d-1}])`` and
@@ -29,7 +34,7 @@ iteration restricts and prolongs on.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -39,6 +44,9 @@ from scipy.interpolate import NdBSpline, RectBivariateSpline, make_interp_spline
 
 from maesolvers.core._params import integer, points, positive
 from maesolvers.core.domains import Box, Field
+
+Entries = Mapping[tuple[int, int], np.ndarray]
+"""The entries ``(k, l)``, ``k <= l``, of symmetric ``d x d`` matrices, one array each."""
 
 
 @dataclass(frozen=True)
@@ -322,6 +330,117 @@ def second_differences(
     return out
 
 
+def centred_differences(
+    u: np.ndarray, h: Sequence[float]
+) -> dict[tuple[int, int], np.ndarray]:
+    """Return the centred second differences of node values at the interior nodes.
+
+    The differences of :func:`second_differences`, computed by slicing the
+    array of node values instead of by a matrix product: ``D_kk`` the
+    3-point difference along axis ``k``, ``D_kl``, ``k < l``, the 4-point
+    cross difference. They equal the entries of :func:`centred_hessian` at
+    the interior nodes to rounding (the two sum the terms in another order).
+
+    Parameters
+    ----------
+    u
+        Shape ``(n + 1,) * d``, ``n >= 2``: the values at the nodes.
+    h
+        The spacing along each axis, ``d`` numbers.
+
+    Returns
+    -------
+    dict
+        ``D_kl`` for ``k <= l`` under the key ``(k, l)``, each of shape
+        ``(n - 1,) * d``: at the interior nodes, in the grid's C order.
+    """
+    u = np.asarray(u, dtype=float)
+    d = u.ndim
+    if len(h) != d:
+        raise ValueError(f"h must hold {d} spacings, got {len(h)}")
+
+    def shifted(step: dict[int, int]) -> np.ndarray:
+        index = tuple(
+            slice(1 + step.get(k, 0), u.shape[k] - 1 + step.get(k, 0)) for k in range(d)
+        )
+        return u[index]
+
+    centre = shifted({})
+    out = {}
+    for k in range(d):
+        out[k, k] = (shifted({k: 1}) - 2.0 * centre + shifted({k: -1})) / h[k] ** 2
+        for m in range(k + 1, d):
+            out[k, m] = (
+                shifted({k: 1, m: 1})
+                - shifted({k: 1, m: -1})
+                - shifted({k: -1, m: 1})
+                + shifted({k: -1, m: -1})
+            ) / (4.0 * h[k] * h[m])
+    return out
+
+
+def determinant(a: Entries, d: int) -> np.ndarray:
+    """Return the determinant of symmetric ``d x d`` matrices given by their entries.
+
+    Parameters
+    ----------
+    a
+        The entries ``(k, l)``, ``k <= l``, arrays of one shape.
+    d
+        2 or 3.
+
+    Returns
+    -------
+    numpy.ndarray
+        The determinants, of the entries' shape.
+    """
+    if d == 2:
+        return a[0, 0] * a[1, 1] - a[0, 1] ** 2
+    if d == 3:
+        return (
+            a[0, 0] * a[1, 1] * a[2, 2]
+            + 2.0 * a[0, 1] * a[0, 2] * a[1, 2]
+            - a[0, 0] * a[1, 2] ** 2
+            - a[1, 1] * a[0, 2] ** 2
+            - a[2, 2] * a[0, 1] ** 2
+        )
+    raise ValueError(f"d must be 2 or 3, got {d}")
+
+
+def cofactors(a: Entries, d: int) -> dict[tuple[int, int], np.ndarray]:
+    """Return the cofactors of symmetric ``d x d`` matrices given by their entries.
+
+    The cofactor ``C_kl`` is the derivative of :func:`determinant` with
+    respect to the entry ``a_kl`` of a general matrix, so the derivative of
+    the determinant of a symmetric matrix along a symmetric perturbation
+    ``E`` is ``sum_k C_kk E_kk + 2 sum_{k<l} C_kl E_kl``.
+
+    Parameters
+    ----------
+    a
+        The entries ``(k, l)``, ``k <= l``, arrays of one shape.
+    d
+        2 or 3.
+
+    Returns
+    -------
+    dict
+        ``C_kl`` for ``k <= l`` under the key ``(k, l)``.
+    """
+    if d == 2:
+        return {(0, 0): a[1, 1], (1, 1): a[0, 0], (0, 1): -a[0, 1]}
+    if d == 3:
+        return {
+            (0, 0): a[1, 1] * a[2, 2] - a[1, 2] ** 2,
+            (1, 1): a[0, 0] * a[2, 2] - a[0, 2] ** 2,
+            (2, 2): a[0, 0] * a[1, 1] - a[0, 1] ** 2,
+            (0, 1): a[0, 2] * a[1, 2] - a[0, 1] * a[2, 2],
+            (0, 2): a[0, 1] * a[1, 2] - a[0, 2] * a[1, 1],
+            (1, 2): a[0, 1] * a[0, 2] - a[0, 0] * a[1, 2],
+        }
+    raise ValueError(f"d must be 2 or 3, got {d}")
+
+
 def centred_hessian(grid: BoxGrid, values: np.ndarray) -> np.ndarray:
     """Return the centred discrete Hessian of node values, at every node.
 
@@ -337,7 +456,8 @@ def centred_hessian(grid: BoxGrid, values: np.ndarray) -> np.ndarray:
     numpy.ndarray
         Shape ``((n + 1)^d, d, d)``, symmetric: the
         :func:`second_differences` at the interior nodes and NaN on the
-        boundary ring, as ``Result.node_hessian`` takes it.
+        boundary ring, as ``Result.node_hessian`` takes it;
+        :func:`centred_differences` gives the same entries by slicing.
     """
     values = np.asarray(values, dtype=float)
     if values.shape != (len(grid.nodes),):

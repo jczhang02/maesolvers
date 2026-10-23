@@ -45,6 +45,7 @@ from maesolvers import (
     FDFiltered,
     FDHybrid,
     FDMonotone,
+    FDMultigrid,
     FDNewton,
     FDPoisson,
     FDTransport,
@@ -255,10 +256,11 @@ def test_the_19_point_scheme_matches_sinum_table_4(problem, n, expected):
     assert round(evaluate(result)["max"] / 1e-4) == expected
 
 
-def _load_runner():
-    """benchmarks/run_monotone19.py, for its test-local problem C1_3D."""
-    path = Path(__file__).parent.parent / "benchmarks" / "run_monotone19.py"
-    spec = importlib.util.spec_from_file_location("run_monotone19", path)
+def _load_runner(name: str = "run_monotone19"):
+    """A runner of benchmarks/: run_monotone19 for its test-local problem C1_3D,
+    run_multigrid for the paper's stand-alone Gauss-Seidel solver."""
+    path = Path(__file__).parent.parent / "benchmarks" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     # its dataclasses look their module up in sys.modules
@@ -288,3 +290,55 @@ def test_the_3d_c1_example_solves_det_d2u_equals_f():
     r = np.linalg.norm(x - 0.5, axis=1)
     np.testing.assert_allclose(c1.f(x), np.where(r > 0.2, 1 - 0.4 / r + 0.04 / r**2, 0))
     assert c1.dim == 3 and c1.name not in CATALOGUE
+
+
+# Liu-Froese-Oberman-Xiao, Int. J. Comput. Math. 94 (2017), Tables 3, 5, 6 and
+# 7, columns "Gauss-Seidel": the paper's stand-alone nonlinear Gauss-Seidel
+# solver, lexicographic sweeps of StandardBox.relax from 1.01 u at the unknowns
+# until the residual's L2 norm is 1e-6 of the start's (gauss_seidel in
+# benchmarks/run_multigrid.py, which writes the receipt). Matched to the
+# printed digits at every printed N, with the same number of sweeps at N = 8
+# and 16 (benchmarks/multigrid.md); N = 8 is pinned here, and N = 16 on T9
+# (some 5 s each).
+LIU_GAUSS_SEIDEL = {  # problem: {N: (error as printed, sweeps)}
+    "T9": {8: (1.2e-3, 72), 16: (3.0e-4, 270)},
+    "T46": {8: (1.7e-2, 82)},
+    "T28": {8: (4.0e-4, 86)},
+    "T22": {8: (1.4e-3, 75)},
+}
+
+
+@pytest.mark.parametrize(
+    "name,n", [(name, n) for name, rows in LIU_GAUSS_SEIDEL.items() for n in rows]
+)
+def test_gauss_seidel_matches_the_liu_et_al_tables(name, n):
+    printed, published_sweeps = LIU_GAUSS_SEIDEL[name][n]
+    run = _load_runner("run_multigrid").gauss_seidel(
+        CATALOGUE[name], n, max_sweeps=2 * published_sweeps
+    )
+    assert run["gs_relres"] <= 1e-6, f"no convergence in {run['gs_iterations']} sweeps"
+    assert float(f"{run['gs_error']:.1e}") == printed
+    assert run["gs_iterations"] == published_sweeps
+
+
+# The same paper, Table 1 (red-black), FMG-FAS through the preset FDMultigrid:
+# cells that agree with the published error to the printed digits inside an
+# order-of-magnitude table (benchmarks/multigrid.md, Tables 1 and 2). The
+# paper's "Iter" is the first cycle whose relative residual is at most 1e-6,
+# against our reference of the residual (Finding 2); T2's 2 cycles at N = 256
+# and 1 at 512 pin that reference with the method.
+LIU_FMG = [  # (problem, N, error as printed, the paper's Iter)
+    (T1, 256, 1.1e-6, 1),
+    (T2, 256, 6.4e-3, 2),
+    (T2, 512, 4.5e-3, 1),
+]
+
+
+@pytest.mark.parametrize(("problem", "n", "printed", "cycles"), LIU_FMG)
+def test_multigrid_matches_the_liu_et_al_table_1(problem, n, printed, cycles):
+    solver = FDMultigrid(n=n, ordering="red-black", max_iter=cycles, tol=1e-30)
+    result = solver.solve(problem)
+    history = result.info["history"]
+    assert len(history) == cycles and history[-1] <= 1e-6
+    assert all(relres > 1e-6 for relres in history[:-1])
+    assert float(f"{evaluate(result)['max']:.1e}") == printed

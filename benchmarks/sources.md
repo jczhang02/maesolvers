@@ -485,6 +485,78 @@ The hybrid columns are the a priori hybrid scheme of FO 2011 JCP.
 
 The two tables print different filtered values for the C^2 example at `N = 63` (1.04 in Table 4.1, 1.06 in Table 4.2); every other filtered 17-point value appears in both and agrees.
 
+## 6. Liu, Froese, Oberman, Xiao, Int. J. Comput. Math. (2017)
+
+J. Liu, B. D. Froese, A. M. Oberman, M. Xiao, "A multigrid scheme for 3D Monge-Ampere equations", Int. J. Comput. Math. 94(9) (2017) 1850-1866, DOI 10.1080/00207160.2016.1247443.
+Read: local journal PDF (Zotero item RWA942I8, attachment EEEVIK3A); every value below was checked against a rendered image of pp. 1861-1864 (journal page numbers).
+The PDF's text layer garbles the first row of Tables 5 to 7 ("86.8e -08") and prints Example 4.5's `|x|^2 / 2` as `(x + y + z) / 2`; the page image has `(x^2 + y^2 + z^2) / 2`.
+
+Method (Sections 2 and 3): the standard centred differences (9 points in 2D, 19 in 3D) in `det D^2 u = f`, solved by FMG-FAS multigrid (Algorithms 1 and 2) with the nonlinear Gauss-Seidel smoother that takes the smallest real root of each node's quadratic (2D, from [2], BFO 2010) or cubic (3D, eq. (12)); 2 pre- and 2 post-sweeps, one sweep on the coarsest grid `h_0 = 1/2` from 0, half-weighting and injection down, (tri)linear interpolation up, "cubic interpolation" in the FMG step.
+Stopping rule: `||r_l||_2 / ||r_0||_2 <= 10^-6`, `r_0` not defined for FMG-FAS.
+Grid: `x_i = i h`, `h = 1/N`, `i = 0, ..., N` (Section 2), so ADR 0001's convention is printed here; Example 4.5 is on `(0, pi)^3`.
+The stand-alone Gauss-Seidel solver starts from `1.01 u`.
+
+Name map: Example 4.1 is T1, 4.2 T3, 4.3 T2 (2D); 4.4 is T9, 4.5 T46, 4.6 T28, 4.7 T22 (3D).
+
+### Tables 1 and 2, FMG-FAS in 2D: max error, iterations, CPU s
+
+Table 1, red-black ordering:
+
+| N | 4.1 Error | Iter | CPU | 4.2 Error | Iter | CPU | 4.3 Error | Iter | CPU |
+|---|---|---|---|---|---|---|---|---|---|
+| 128 | 4.5e-06 | 1 | 0.1 | 3.8e-05 | 1 | 0.1 | 8.9e-03 | 2 | 0.1 |
+| 256 | 1.1e-06 | 1 | 0.1 | 1.3e-05 | 1 | 0.1 | 6.4e-03 | 2 | 0.2 |
+| 512 | 2.8e-07 | 1 | 0.3 | 4.7e-06 | 1 | 0.3 | 4.5e-03 | 1 | 0.3 |
+| 1024 | 7.0e-08 | 1 | 1.0 | 1.7e-06 | 1 | 1.1 | 3.2e-03 | 1 | 1.1 |
+| 2048 | 1.7e-08 | 1 | 3.6 | 5.9e-07 | 1 | 4.0 | 2.3e-03 | 1 | 3.8 |
+| 4096 | 4.3e-09 | 1 | 16.2 | 2.1e-07 | 1 | 16.5 | 1.6e-03 | 1 | 18.0 |
+| 8192 | 1.0e-09 | 1 | 67.1 | 7.4e-08 | 1 | 69.1 | 1.1e-03 | 1 | 70.3 |
+
+Table 2, lexicographic ordering:
+
+| N | 4.1 Error | Iter | CPU | 4.2 Error | Iter | CPU | 4.3 Error | Iter | CPU |
+|---|---|---|---|---|---|---|---|---|---|
+| 128 | 5.1e-06 | 1 | 0.1 | 4.3e-05 | 1 | 0.1 | 8.9e-03 | 3 | 0.1 |
+| 256 | 1.3e-06 | 1 | 0.2 | 1.5e-05 | 1 | 0.3 | 6.3e-03 | 2 | 0.2 |
+| 512 | 3.3e-07 | 1 | 0.8 | 5.4e-06 | 1 | 0.9 | 4.4e-03 | 1 | 0.8 |
+| 1024 | 8.2e-08 | 1 | 3.2 | 1.9e-06 | 1 | 3.27 | 3.2e-03 | 1 | 3.1 |
+| 2048 | 2.1e-08 | 1 | 12.7 | 6.8e-07 | 1 | 12.9 | 2.2e-03 | 1 | 12.6 |
+| 4096 | 5.1e-09 | 1 | 53.2 | 2.4e-07 | 1 | 54.6 | 1.6e-03 | 1 | 53.5 |
+| 8192 | 1.3e-09 | 1 | 245.6 | 8.5e-08 | 1 | 259.4 | 1.1e-03 | 1 | 250.7 |
+
+The order columns print 2.0 (4.1; 2.1 at `N = 8192` in Table 1), 1.5 (4.2) and 0.5 (4.3).
+
+### Tables 3, 5, 6 and 7, 3D: FMG-FAS and Gauss-Seidel
+
+RelRes, max error, iterations and CPU s for FMG-FAS, then for the stand-alone Gauss-Seidel solver (`N <= 32` only); Table 3 alone prints a DOFs column.
+Its DOFs are `(N - 2)^3` (`6^3 = 216` to `126^3 = 2,000,376`), not the `(N - 1)^3` interior nodes of the grid of Section 2 (`h = 1/N`, nodes `i = 0, ..., N`), which Table 4's DOFs column is (`multigrid.md`, Conventions).
+
+| Example | N | DOFs | RelRes | Error | Iter | CPU | GS RelRes | GS Error | GS Iter | GS CPU |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 4.4 (T9) | 8 | 216 | 3.1e-07 | 1.2e-03 | 1 | 0.1 | 9.3e-07 | 1.2e-03 | 72 | 0.4 |
+| | 16 | 2,744 | 9.5e-09 | 2.7e-04 | 1 | 0.2 | 9.9e-07 | 3.0e-04 | 270 | 11.5 |
+| | 32 | 27,000 | 2.1e-10 | 5.7e-05 | 1 | 2.0 | 1.0e-06 | 8.1e-05 | 867 | 324.6 |
+| | 64 | 238,328 | 4.1e-12 | 1.4e-05 | 1 | 16.9 | | | | |
+| | 128 | 2,000,376 | 5.2e-13 | 6.2e-06 | 1 | 136.9 | | | | |
+| 4.5 (T46) | 8 | | 6.8e-08 | 1.7e-02 | 2 | 0.1 | 9.2e-07 | 1.7e-02 | 82 | 0.4 |
+| | 16 | | 2.1e-08 | 3.3e-03 | 1 | 0.2 | 9.8e-07 | 4.3e-03 | 296 | 12.9 |
+| | 32 | | 2.7e-10 | 8.1e-04 | 1 | 2.0 | 1.0e-06 | 1.1e-03 | 954 | 356.2 |
+| | 64 | | 3.7e-12 | 2.1e-04 | 1 | 16.4 | | | | |
+| | 128 | | 4.8e-13 | 5.2e-05 | 1 | 134.1 | | | | |
+| 4.6 (T28) | 8 | | 2.7e-07 | 5.3e-04 | 1 | 0.1 | 9.7e-07 | 4.0e-04 | 86 | 0.4 |
+| | 16 | | 1.1e-08 | 2.1e-04 | 1 | 0.2 | 9.9e-07 | 1.4e-04 | 312 | 13.2 |
+| | 32 | | 4.8e-10 | 7.4e-05 | 1 | 2.0 | 9.9e-07 | 5.1e-05 | 925 | 345.8 |
+| | 64 | | 2.0e-11 | 2.6e-05 | 1 | 16.4 | | | | |
+| | 128 | | 1.2e-12 | 9.3e-06 | 1 | 133.9 | | | | |
+| 4.7 (T22) | 8 | | 1.7e-07 | 1.4e-03 | 1 | 0.1 | 8.9e-07 | 1.4e-03 | 75 | 0.4 |
+| | 16 | | 2.1e-08 | 1.4e-03 | 1 | 0.2 | 9.7e-07 | 1.4e-03 | 266 | 12.2 |
+| | 32 | | 2.7e-08 | 4.3e-03 | 1 | 2.0 | 9.9e-07 | 1.1e-03 | 854 | 320.2 |
+| | 64 | | 4.9e-09 | 2.2e-03 | 1 | 16.3 | | | | |
+| | 128 | | 1.7e-09 | 1.6e-03 | 1 | 133.1 | | | | |
+
+Table 4 reprints, for Example 4.4, the wide-stencil hybrid finite differences of FO 2011 JCP (`N = 8` to 32, 1.51e-2 to 1.11e-2) and the quadratic and cubic interior-penalty elements of Brenner-Neilan 2012; it is not transcribed here.
+`multigrid.md` compares the tables with ours.
+
 ## What a reproduction must match
 
 The only published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper.
