@@ -40,6 +40,7 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | T 编号 | T id | The id of a problem in the research programme's literature survey (T1, T2, ...). An id once used is never reused. The P1 to P5 ids of 0.0.x are retired. | |
 | 共用集 | shared test set | The problems every method reports on and the rows of the comparison table: T1, T2, T20, T8, T12, T9, T10. | 基准集 |
 | 目标集 | target set | The convex set onto which `grad u` maps the domain in a transport problem (`Transport(target)`), with a uniform density 1; maesolvers knows the geometry of `Box`, `Disk` and `Ellipse` targets (signed distance, support function). | 目标区域 (for the set itself) |
+| 支撑函数 | support function | `H*(n) = sup_{y in Y} y . n` of a convex target set: the transport condition on the boundary is the largest `grad u . n - H*(n)` over the directions `n` (Benamou-Froese-Oberman 2014); `support_function` computes it for `Box`, `Disk`, `Ellipse` and any target with the method of `SupportFunction`. | 支持函数 |
 | 质量平衡 | mass balance | For a transport problem: the integral of `f` over the domain equals the volume of the target set, without which no solution exists; `check_mass_balance` checks it, called from the `check` of a transport solver written as a subclass, or by the caller of a composed one. | 质量守恒 |
 | 观测量 | observable | A named number computed from a solution, reported for problems without an exact solution, such as `u(0, 0)`. | |
 
