@@ -22,8 +22,8 @@ back::
     just remote-bg comparison python benchmarks/run_comparison.py \\
         --out /jczhang02/maesolvers-data/data/comparison.csv
 
-A run with --n or --max-steps (a smoke test, say) differs from the presets
-and needs --out.
+A run with --n, --max-steps or --seeds (a smoke test, say) differs from the
+table's and needs --out.
 """
 
 from __future__ import annotations
@@ -125,7 +125,11 @@ def run_one(task: tuple[str, str, int | None, dict[str, Any], bool]) -> dict[str
 
 
 def tasks(
-    solvers: list[str], problems: list[str], options: dict[str, Any], log: bool
+    solvers: list[str],
+    problems: list[str],
+    seeds: list[int],
+    options: dict[str, Any],
+    log: bool,
 ) -> tuple[list[tuple[str, str, int | None, dict[str, Any], bool]], list[dict]]:
     """The runs, longest first, and the rows of the unsupported pairs."""
     runs, unsupported = [], []
@@ -145,7 +149,7 @@ def tasks(
                     }
                 )
                 continue
-            for seed in SEEDS if neural else (None,):
+            for seed in seeds if neural else (None,):
                 runs.append((name, problem_id, seed, own, log))
     # Neural runs take minutes, the higher dimensions most; classical ones less.
     runs.sort(key=lambda t: (not is_neural(t[0]), -CATALOGUE[t[1]].domain.dim))
@@ -185,6 +189,7 @@ def main() -> None:
     )
     parser.add_argument("--n", type=int, default=N, help="classical grid")
     parser.add_argument("--max-steps", type=int, default=None, help="neural budget")
+    parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--no-mlflow", action="store_true")
     parser.add_argument("--out", type=Path, default=CSV)
@@ -192,10 +197,12 @@ def main() -> None:
     options: dict[str, Any] = {"n": args.n}
     if args.max_steps is not None:
         options["max_steps"] = args.max_steps
-    if (args.n != N or args.max_steps is not None) and args.out == CSV:
-        parser.error("--n or --max-steps differ from the presets: give --out")
+    changed = args.n != N or args.max_steps is not None or args.seeds != list(SEEDS)
+    if changed and args.out == CSV:
+        parser.error("--n, --max-steps or --seeds differ from the table's: give --out")
     solvers = args.solvers or list(SOLVERS)
-    runs, unsupported = tasks(solvers, args.problems, options, not args.no_mlflow)
+    log = not args.no_mlflow
+    runs, unsupported = tasks(solvers, args.problems, args.seeds, options, log)
     for variable in THREAD_VARIABLES:  # inherited by the spawned workers
         os.environ[variable] = "1"
     start = time.time()
