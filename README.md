@@ -214,7 +214,7 @@ The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 00
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
 The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2; it needs the dense BFGS of SciPy, which the paper ran, and on T1 a limited-memory L-BFGS leaves it near 1e-2.
 On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1.
-The cause is likely the equation term, which the paper prints as a sum: read as a mean, it gives 5.5e-6 (2.6e-6 to 1.7e-5), the statistical level, and the preset waits for #13 to choose (`benchmarks/icnn.md`, Finding 2).
+The equation term, which the paper prints as a sum, explains part of the gap: read as a mean, it gives 3.1e-5 (1.2e-5 to 5.0e-5) and meets the paper's stopping test, but is still a mismatch; the preset waits for #13 to choose (`benchmarks/icnn.md`, Finding 2).
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
