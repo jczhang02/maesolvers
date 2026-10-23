@@ -268,7 +268,10 @@ class TransportSampler(Sampler):
     boundary (:class:`~maesolvers.neural.losses.HausdorffLoss`). The
     defaults are the 800 and 800 points of Caboussat-Peruso 2025 (Section
     4.1), and as many target points, which the paper does not give
-    separately.
+    separately. The target points are independent of the boundary points,
+    so even the exact map leaves a Hausdorff-type distance between the two
+    sets, of the order of the squared spacing of the points (about 1e-4 on
+    T12 with 800 points each; ``benchmarks/icnn.md``, Finding 3).
 
     Parameters
     ----------
