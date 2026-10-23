@@ -541,7 +541,7 @@ What each part does:
   The solver calls it once per solve, with float64 as torch's default dtype and torch's CPU generator seeded from the solver's seed, so a module made there is float64 and reproducible; the parameters that require a gradient are the ones the optimizer trains.
   A network that fits something before training, like `HardDirichlet`, does it in `build`, where the collocation points are at hand, and may set an attribute `report` on the module, a dict of plain values, which the solver records as `result.info["network"]`.
 - A loss's `__call__(u, batch)` returns a dict of scalar tensors, with the total under `"loss"`; every entry is logged after each step under its name.
-  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, and `maesolvers.neural.functional` holds the kernels: the autograd `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty` and `mean_squared_misfit`.
+  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, and `target`, the target set of a transport problem (None for another boundary condition); `maesolvers.neural.functional` holds the kernels: the autograd `gradient` and `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty`, `mean_squared_misfit` and, for transport problems, `signed_distance`.
 - A sampler's `sample(problem, rng)` returns a `Collocation` and must draw only from `rng`, so that the seed decides the points.
 - `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
   A loss supports the Dirichlet problems by default, because `batch.g` is Dirichlet data; `LaplacianPenaltyLoss` reads it and so keeps the default, and a loss for another boundary condition overrides `supports` and does not read `batch.g`.
@@ -591,3 +591,90 @@ config = {
 assert from_config(config).network == PlusQuadratic(network=MLP(), alpha=0.5)
 assert from_config(mine.hparams) == mine
 ```
+
+## Transport problems
+
+T12 and T16 carry the boundary condition `Transport(target)`: `grad u` maps the domain onto the target set, the second boundary value problem of optimal transport, with a uniform target density 1.
+Its solution is unique up to a constant, so `evaluate` subtracts each side's mean before it takes the errors of `u` (ADR 0007).
+The papers on these problems report the error of the transport map `grad u` instead (Benamou-Froese-Oberman 2014, Tables 1 and 2; Caboussat-Peruso 2025, Table 2), which `gradient_map_error` in `maesolvers.metrics` measures, outside `evaluate`.
+`maesolvers.core` holds the geometry of the target sets `Box`, `Disk` and `Ellipse` as pure functions: `signed_distance` (positive outside the target, negative inside, as `H` in Benamou-Froese-Oberman 2014), `support_function` (`H*(n)`, the largest `y . n` over the target) and `closest_boundary_point` (the nearest boundary point and the outward unit normal there).
+
+```python
+import numpy as np
+
+from maesolvers import T16
+from maesolvers.core import check_mass_balance, signed_distance, support_function
+from maesolvers.metrics import gradient_fd, shared_grid
+
+target = T16.boundary.target  # the square (-1/2, 1/2)^2
+check_mass_balance(T16)  # the integral of f over the domain is the target's area
+
+points = shared_grid(T16.domain)
+transport_map = gradient_fd(T16.exact, points)  # grad u by central differences
+inside = signed_distance(target, transport_map) <= 1e-9  # up to rounding
+assert np.all(inside)  # the map lands in the target
+print(support_function(target, np.array([[1.0, 0.0], [1.0, 1.0]])))  # [0.5 1. ]
+```
+
+`gradient_map_error(gradient, exact)` returns `gradient_max` and `gradient_rms`, the largest and the root mean square Euclidean norm of the difference over the points, under names that do not clash with those of `evaluate`.
+The RMS weighs every point by `1 / M`; the L2 norm over the domain is about `sqrt(volume(domain))` times it, which differs from it where the domain's area is not 1, as on T12's unit disk, so a benchmark states which of the two a paper's "L2 error" is.
+Pass the method's own gradient where it has one, such as the differences of a grid scheme at its nodes, and `gradient_fd` of `result.u` otherwise.
+
+### Declare Transport support
+
+A solver supports transport problems as it supports any other.
+Written from scratch, it lists `Transport` in its `boundaries`; composed of parts, it supports a problem when its parts do, so a scheme or a loss for transport problems returns True from `supports` for them.
+`Solver.check` then checks the mass balance with `check_mass_balance` before `setup`, and the solve raises `ValueError` for a problem whose source mass differs from the target's volume; `check_mass_balance` integrates over a `Box`, a `Disk` or an `Ellipse` and raises `TypeError` for another domain, so a solver on other domains overrides `check` and checks the balance itself.
+A scheme reads the target from `problem.boundary.target`: the scheme of Benamou-Froese-Oberman 2014 writes the condition at a boundary node as the largest `grad u . n - H*(n)` over a set of directions `n`, with `H*(n) = support_function(target, n)` computed once per solve.
+A loss reads it from `batch.target`; this one penalises the squared signed distance of `grad u` at the boundary points, on top of the equation's residual.
+
+```python
+from dataclasses import dataclass
+
+import numpy as np
+
+from maesolvers import ICNN, LBFGS, T1, T12, NeuralSolver, Transport, UniformSampler
+from maesolvers.core import nonnegative
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error, shared_grid
+from maesolvers.neural import Loss, functional
+
+
+@dataclass(frozen=True, kw_only=True)
+class TransportPenaltyLoss(Loss):
+    """Mean squared residual plus the mean squared signed distance of grad u at the boundary."""
+
+    transport_weight: float = 1.0
+
+    def __post_init__(self):
+        weight = nonnegative("transport_weight", self.transport_weight)
+        object.__setattr__(self, "transport_weight", weight)
+
+    def supports(self, problem):
+        return isinstance(problem.boundary, Transport)
+
+    def __call__(self, u, batch):
+        hess = functional.hessian(u, batch.interior)
+        image = functional.gradient(u, batch.boundary)  # where grad u maps the boundary
+        terms = {
+            "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).mean(),
+            "transport": functional.signed_distance(batch.target, image).pow(2).mean(),
+        }
+        total = terms["equation"] + self.transport_weight * terms["transport"]
+        return {"loss": total, **terms}
+
+
+transport = NeuralSolver(
+    network=ICNN(width=10, depth=2),
+    loss=TransportPenaltyLoss(),
+    sampler=UniformSampler(interior_points=200, boundary_points=100),
+    optimizer=LBFGS(),
+    max_steps=20,
+)
+assert transport.supports(T12) and not transport.supports(T1)
+result = transport.solve(T12)
+points = shared_grid(T12.domain)
+print(gradient_map_error(gradient_fd(result.u, points), gradient_fd(T12.exact, points)))
+print(evaluate(result)["max"])  # the error of u, after subtracting the means
+```
+
+`functional.signed_distance` takes its nearest boundary points from the numpy function, outside the autograd graph, so its gradient in `grad u` is the outward normal there: the loss trains through it, with no NaN where `grad u` lies on the target's boundary.

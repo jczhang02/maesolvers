@@ -2,6 +2,24 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `maesolvers.core.transport`, the shared helpers of the second boundary value problem (issue #26), pure numpy functions exported from `maesolvers.core`, for the target sets `Box` (any dimension), `Disk` and `Ellipse` (`TypeError` for another set; the `Domain` protocol is unchanged):
+  `signed_distance(target, y)`, the signed distance to the target's boundary, positive outside and negative inside (`H` of Benamou-Froese-Oberman 2014, eq. (3));
+  `support_function(target, n)`, `sup_{y in Y} y . n` for any direction `n` (their `H*`, eq. (5));
+  `closest_boundary_point(target, y)`, the nearest boundary point and the outward unit normal there (Eberly's bisection for the ellipse);
+  `volume(domain)`; `integrate(domain, f, points=64)`, Gauss quadrature over a box, a disk or an ellipse;
+  and `check_mass_balance(problem, rtol=1e-3, points=64)`, which raises `ValueError` unless the integral of `f` over the domain equals the target's volume.
+- `gradient_fd(u, points, step=None)` and `gradient_map_error(gradient, exact)` in `maesolvers.metrics`: the central-difference gradient of a field, and the max and RMS of `|grad u - grad u_exact|` as `gradient_max` and `gradient_rms`, for the tables that report the error of the transport map; `evaluate` and its fields are unchanged (ADR 0007).
+- `gradient(u, x, create_graph=True)`, the autograd gradient, and `signed_distance(target, y)`, the torch form of the core function with the outward normal as its gradient in `y`, in `maesolvers.neural.functional`.
+- `Batch.target`, the target set of a `Transport` problem for a loss on the transport condition, None for another boundary condition; a keyword field with default None after `f_boundary`, so existing code that builds a `Batch` keeps working, and `Batch.to` leaves it as it is.
+
+### Changed
+
+- `Solver.check` checks the mass balance of a supported `Transport` problem with `check_mass_balance`, so a solve of an unbalanced transport problem raises `ValueError` before `setup`; a solver on a domain other than `Box`, `Disk` or `Ellipse` overrides `check` to do it itself. No shipped solver supports `Transport` yet.
+
 ## 0.1.0 (2026-10-23)
 
 This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.

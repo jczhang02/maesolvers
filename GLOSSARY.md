@@ -39,6 +39,8 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | 目录 | catalogue | Every problem maesolvers defines, named by T ids. Wider than the shared test set. | benchmark suite |
 | T 编号 | T id | The id of a problem in the research programme's literature survey (T1, T2, ...). An id once used is never reused. The P1 to P5 ids of 0.0.x are retired. | |
 | 共用集 | shared test set | The problems every method reports on and the rows of the comparison table: T1, T2, T20, T8, T12, T9, T10. | 基准集 |
+| 目标集 | target set | The convex set onto which `grad u` maps the domain in a transport problem (`Transport(target)`), with a uniform density 1; maesolvers knows the geometry of `Box`, `Disk` and `Ellipse` targets (signed distance, support function). | 目标区域 (for the set itself) |
+| 质量平衡 | mass balance | For a transport problem: the integral of `f` over the domain equals the volume of the target set, without which no solution exists; `Solver.check` checks it. | 质量守恒 |
 | 观测量 | observable | A named number computed from a solution, reported for problems without an exact solution, such as `u(0, 0)`. | |
 
 ## Measurement
@@ -49,6 +51,7 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | 共用评估网格 | shared evaluation grid | The uniform grid over the bounding box of a problem's domain, points in the domain only. Never the training points of a neural method. | test grid |
 | 主误差 | primary error | The error at the method's nodes for a classical method, on the shared evaluation grid for a neural method. The only error used to rank methods. | |
 | 次要值 | secondary value | The error of a classical method on the shared evaluation grid, through its interpolant. Reported, never used for ranking. | |
+| 梯度映射误差 | gradient-map error | The max and RMS over some points of `\|grad u - grad u_exact\|`, the error of the transport map that the transport papers report; computed by `gradient_map_error`, never a field of `evaluate`. | 映射误差 (alone) |
 | 非正定比例 | non-convex fraction | The share of points where the solution's smallest Hessian eigenvalue is negative. | 凸性指标 (alone) |
 | 种子 | seed | One independent run of a neural method. Results over seeds are reported as median and 5% to 95% quantiles, with failed seeds counted. | trial |
 | 成功率 | success rate | The share of seeds whose error is below a stated threshold. | |
