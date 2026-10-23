@@ -1,15 +1,16 @@
 # Comparison table: every preset on the shared test set
 
 The comparison table (GLOSSARY: 对比表) runs every preset of `maesolvers.SOLVERS` with its defaults on the shared test set T1, T2, T20, T8, T12, T9, T10, and measures each run with `evaluate` (ADR 0007).
-It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `penalty_mlp.md`, `icnn.md`).
+It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `multigrid.md`, `penalty_mlp.md`, `icnn.md`).
 README's section "Comparison" shows the tables; this file says how they were made and what they show.
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (117 runs and 22 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (121 runs and 25 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
+  The rows of `FDMultigrid` were added later, at commit fe47d9b on the branch of issue #30, by `run_comparison.py --solvers FDMultigrid --workers 4` into a copy of this CSV (`just remote-bg comparison-multigrid ...`), which left every other row as it was.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
@@ -64,9 +65,9 @@ At `n = 361` the damped Newton iteration of `FDFiltered` stops after 14, 21 and 
 
 ### Finding 3: every classical preset and `PenaltyMLP` have non-convex points on T20; `DirichletICNN` has none
 
-On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 9.8% (`FDNewton`) of the interior nodes, as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
+On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 0.72% (`FDMultigrid`) and 3.4% (`FDPoisson`) to 9.8% (`FDNewton`) of the interior nodes, as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
-On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` has none.
+On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), `FDMultigrid` 6 (0.0046%, `multigrid.md`, Finding 4), while `FDPoisson` has none.
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
 
 ### Finding 4: no neural seed meets the threshold on T2 and T20
@@ -83,8 +84,14 @@ The time median on T10 (155 s) is short because most seeds stop early, not becau
 
 ### Finding 6: cost
 
-At `n = 361` the classical presets take 2.6 s to 240 s on one thread, with 129600 unknowns on the square and 102328 on the disk; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
+At `n = 361` the classical presets take 0.9 s (`FDMultigrid` on T20) to 240 s on one thread, with 129600 unknowns on the square and 102328 on the disk, and `FDMultigrid` 187 s on T9, with 46656000 unknowns; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.6 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 152 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 36 s).
+
+### Finding 7: `FDMultigrid` is the first classical preset on T9, and the fastest on the square
+
+`FDMultigrid` solves T9 at `n = 361` (`361^3` nodes) in one full multigrid cycle, with a max error of 9.09e-7 and no non-convex node.
+On the square it stops after one cycle on T1 and T20 and two on T2, in about 1 s; its errors are those of the standard scheme it solves, close to `FDPoisson`'s: 6.81e-7 against 5.28e-7 on T1 (one cycle stops above the discrete solution, `multigrid.md`, Finding 1), 5.40e-3 against 5.41e-3 on T2, 3.51e-5 against 1.59e-5 on T20.
+`n = 361` is not a power of 2, so its grids (361, 181, 91, 46, 23, 12, 6, 3, 2 cells) are not nested and the transfers interpolate linearly between them (`docs/methods/multigrid.md`); the paper's grids are powers of 2.
 
 ## Rerun
 
