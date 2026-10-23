@@ -5,9 +5,10 @@ the paper's N = 32, 64, ..., 512 with n = N cells per side (Finding 1 of
 chen_wan_lin2018.md): Tables 1 to 3, the mixed scheme (FDMixed) and the pure
 semi-Lagrangian scheme (PolicyIteration on MixedHJB with wide_search="only")
 on T1 over [-1, 1]^2, T2 and T20c; Table 4, the mixed scheme on the cone T21
-over (-0.5, 0.5)^2; with --table5, Table 5, u_h(0, 0) of the mixed scheme and
-of the standard 9-point scheme on f = 1, g = 0 over (-0.5, 0.5)^2, into
-chen_wan_lin2018_table5.csv. T1 over [-1, 1]^2, the
+over (-0.5, 0.5)^2; with --table5, Table 5, u_h(0, 0) of the mixed scheme
+under either search rule of the wide stencil ("mixed", the default, and
+"everywhere") and of the standard 9-point scheme on f = 1, g = 0 over
+(-0.5, 0.5)^2, into chen_wan_lin2018_table5.csv. T1 over [-1, 1]^2, the
 cone and the Table 5 problem are built here: the catalogue's T1 is on
 (0, 1)^2, and the catalogue cannot hold T21's Dirac mass.
 
@@ -268,6 +269,9 @@ TABLE5 = {
     "mixed": ("-0.18380", "-0.18444", "-0.18461", "-0.18485", "-0.18507"),
     "standard": ("0.18063", "0.18312", "0.18436", "0.18499", "0.18530"),
 }
+TABLE5_COLUMNS = {"mixed": "mixed", "everywhere": "mixed", "standard": "standard"}
+"""Our columns of Table 5 and the published column each is compared with: the
+paper does not say which search rule its mixed column used (Finding 2)."""
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -364,7 +368,7 @@ def table_row(task: tuple[str, str, int, bool]) -> dict[str, Any]:
     if name == "T7-half":
         u0 = origin_value(result)
         reported = -u0 if scheme == "standard" else u0  # the concave root is -u
-        published = TABLE5[scheme][k]
+        published = TABLE5[TABLE5_COLUMNS[scheme]][k]
         row |= {
             "table": 5,
             "u_origin": f"{reported:.6f}",
@@ -406,7 +410,7 @@ TABLE_TASKS: list[tuple[str, str, int]] = [
 """(problem, column, N) of every row of chen_wan_lin2018.csv."""
 
 TABLE5_TASKS: list[tuple[str, str, int]] = [
-    ("T7-half", scheme, N) for scheme in TABLE5 for N in NS
+    ("T7-half", scheme, N) for scheme in TABLE5_COLUMNS for N in NS
 ]
 """(problem, column, N) of every row of chen_wan_lin2018_table5.csv."""
 
