@@ -10,7 +10,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from maesolvers.classical import FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson
+from maesolvers.classical import (
+    FDFiltered,
+    FDHybrid,
+    FDMonotone,
+    FDNewton,
+    FDPoisson,
+    FDSemiLagrangian,
+)
 from maesolvers.core.solver import Solver
 from maesolvers.neural import DirichletICNN, PenaltyMLP
 
@@ -23,6 +30,7 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
             FDMonotone,
             FDHybrid,
             FDFiltered,
+            FDSemiLagrangian,
             PenaltyMLP,
             DirichletICNN,
         )

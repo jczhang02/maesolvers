@@ -9,6 +9,7 @@ import scipy.sparse as sp
 from scipy.spatial import Delaunay
 
 from maesolvers import (
+    SOLVERS,
     T1,
     T8,
     T9,
@@ -391,7 +392,8 @@ def test_the_preset_is_its_composition():
     assert a.info["history"] == b.info["history"]
 
 
-def test_the_preset_has_flat_hparams():
+def test_the_preset_is_registered_with_flat_hparams():
+    assert SOLVERS["FDSemiLagrangian"] is FDSemiLagrangian
     assert FDSemiLagrangian().hparams == {
         "class_path": "maesolvers.FDSemiLagrangian",
         "init_args": {
