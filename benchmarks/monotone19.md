@@ -69,7 +69,7 @@ In the ball where `f = 0` two factors of a triple can vanish together, and the J
 | 21 | 16 | 14 | 7 |
 | 31 | 87 | 29 | 52 |
 
-Every variant reaches the same root: the node values differ from ours by at most `2.1e-7` (column `max_diff_default`), and the max errors agree to `3e-9`.
+Every variant reaches the same root: the node values differ from ours by at most `2.2e-7` (column `max_diff_default`), and the max errors agree to `3e-9`.
 So the floor, both its size and its structure, changes how fast Newton converges here, but no variant is fastest at every `N`; why Newton is slow on this problem is not known (issue #65).
 
 ## T22, the example with blow-up (16)
