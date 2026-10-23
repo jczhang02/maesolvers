@@ -1,0 +1,107 @@
+# Semi-Lagrangian scheme
+
+The semi-Lagrangian scheme of Feng and Jensen (2017) writes `det D^2 u = f` as a Bellman equation, whose solutions are convex without a convexity constraint, and discretises it with wide stencils whose ends fall anywhere in the domain and take the value of the piecewise linear interpolant there.
+The scheme is monotone, its discrete solution is unique, and Howard's algorithm finds it from any start.
+maesolvers ships it as the scheme `SemiLagrangian`, the iteration `Howard`, and the preset `FDSemiLagrangian` for that pair (ADR 0004).
+Reproduction: [`benchmarks/feng_jensen2017.md`](../../benchmarks/feng_jensen2017.md).
+
+```python
+from maesolvers import T39, FDSemiLagrangian, Howard, SemiLagrangian
+from maesolvers.metrics import evaluate
+
+result = FDSemiLagrangian(n=80, stencil_factor=4).solve(T39)  # the preset
+same = Howard(scheme=SemiLagrangian(n=80, stencil_factor=4)).solve(T39)  # its parts
+print(evaluate(result)["max"] / 4)  # 7.6e-3, relative to max |u| = 4
+```
+
+## The equation in Bellman form
+
+For a symmetric matrix `A` and `f >= 0` (Feng-Jensen 2017, Section 3; the paper writes the right-hand side as `(f/d)^d`, so its `f` is `2 sqrt(f)` here):
+
+```text
+H(A, f) = sup over B >= 0, tr B = 1 of  -B : A + 2 sqrt(f) sqrt(det B).
+```
+
+`H(A, f) = 0` holds exactly when `A` is positive semidefinite and `det A = f` (their Lemma 3.2), and the viscosity solutions of `H(D^2 u, f) = 0` are the convex viscosity solutions of `det D^2 u = f` (Theorems 3.3 and 3.5).
+Convexity comes from the operator: `-B : D^2 u <= 0` for every `B` forces `D^2 u >= 0`.
+
+Write `B = a s1 s1^T + (1 - a) s2 s2^T` for an orthonormal frame `(s1, s2)` and `0 <= a <= 1`.
+Then `B : D^2 u = a d1 + (1 - a) d2`, with `d1`, `d2` the second derivatives along the frame, and the supremum over `a` has a closed form (Cauchy-Schwarz, with `a = (1 + s) / 2`):
+
+```text
+sup over a of  -(a d1 + (1 - a) d2) + 2 sqrt(f) sqrt(a (1 - a))  =  sqrt(((d1 - d2) / 2)^2 + f) - (d1 + d2) / 2.
+```
+
+It is at most zero exactly when `d1 d2 >= f` and `d1 + d2 >= 0`, the condition of the monotone scheme of Froese and Oberman with the convexity built in (`frame_values`).
+The maximising split is `a = (1 - (d1 - d2) / (2 r)) / 2`, `r` the square root above (`frame_weights`); where `r = 0` every split attains it and `a = 1/2`.
+
+## The scheme
+
+The frames are those of `directions` unit vectors at the angles `i pi / directions`, `0 <= i < directions` (`stencil_directions`); with an even count, direction `i` and direction `i + directions / 2` form a frame.
+The paper's 64 rotation angles with `a < 1/2`, plus `B = Id / 2`, are the 32 frames of the 64 directions with `a` in `[0, 1]`.
+
+Along each direction `s` the second derivative at a node `x` is the semi-Lagrangian difference
+
+```text
+d_s u(x) = (I u(x + k s) - 2 u(x) + I u(x - k s)) / k^2,
+```
+
+with `I u` the continuous piecewise linear interpolant of the nodal values (`semi_lagrangian_operators`, `linear_weights`).
+The interpolation weights are nonnegative, so the scheme is monotone.
+At every unknown the discrete equation is
+
+```text
+max over frames of  sqrt(((d1 - d2) / 2)^2 + f) - (d1 + d2) / 2  =  0,
+```
+
+and at a root `d1 d2 >= f`, `d1 >= 0`, `d2 >= 0` in every frame: the discrete solution is convex along every stencil direction.
+
+### Nodes and stencil size
+
+The paper works on a quasi-uniform unstructured triangulation.
+`SemiLagrangian` uses the nodes of the finite-difference family instead: a uniform grid with `n` cells per side over the domain's bounding box (`h = 1/n` on the unit square, ADR 0001), the grid nodes in the open domain carrying the unknowns, and as boundary points the grid nodes on the boundary and the points where grid lines and diagonals cross it, as `shortley_weller_operators` places them; the Dirichlet data are imposed there.
+The interpolant lives on the Delaunay triangulation of these nodes, whose union is a polygon `Omega_h` inscribed in the domain; every supported domain is convex, so `Omega_h` is their convex hull.
+
+The stencil size is `k = stencil_factor * h` (the paper's `k = m h`, with `h` the larger spacing), reduced near the boundary to the distance from the node to the boundary of `Omega_h`, so that both ends stay in the triangulation (the paper's Remark 4.1 and Section 8).
+Near the boundary `k` can fall below `h`; there the difference is no longer consistent, which the paper's analysis allows (its consistency holds on compact subsets).
+Convergence needs `k -> 0` and `h / k -> 0`: for a fixed `m` the error stops falling once the interpolation error, of order `(h / k)^2`, dominates, so the paper's best `m` grows with the refinement (from 2 to 16 on T39, 4 to 64 on T40).
+
+### Solution
+
+`solution` returns the nodal values, the piecewise linear interpolant as `u` (outside `Omega_h`, in slivers of width `O(h^2)` along a curved boundary, the value at the nearest point of `Omega_h`'s boundary, the paper's constant extension along the normal, its Figure 1), and as `node_hessian` at each unknown the least-squares fit of a symmetric matrix to its second differences along every direction (`fit_hessian`).
+`info` holds `h`, `residual_max`, `min_reach` (the smallest stencil size over `h`) and `interpolant` (`"linear"`).
+
+## Howard's algorithm
+
+`Howard` starts from `laplace u = 2 sqrt(f)`, which for this scheme is the equation of the control `B = Id / 2` (the paper's start `B_0 = Id / d`), and takes full Newton steps `v - J^{-1} r(v)`, stopping when a step changes no unknown by more than `tol` (the paper's `10^-6`).
+`SemiLagrangian.jacobian` differentiates the maximising frame with its split `a` (Danskin's theorem): it is the linear part `L^B` of the maximising control, an M-matrix (Lemma 5.1).
+Because the equation of each control is affine in `u`, a Newton step solves the equation of the control that maximises at the current iterate: this is Howard's policy iteration (Algorithm 1), which converges from any start, monotonically decreasing and superlinearly (Theorem 5.2).
+In the reproduction it takes 4 to 7 steps on T39 and 2 to 9 on T40, against 4 to 16 in the paper's Figure 8; on T40 turned off the grid, more where the stencil is narrow, up to 27 at `m = 2` (`benchmarks/feng_jensen2017.md`).
+
+The linear systems are wide-stencil M-matrices, which a sparse LU factorisation fills in (35 s at `n = 121`, `m = 32`, against 0.01 s for the Krylov solve); `Howard` solves them by BiCGSTAB preconditioned with the diagonal, then restarted GMRES, then the LU factorisation where a Krylov method stops short of a relative residual of `1e-8`.
+The Krylov methods need fewer steps the wider the stencil, since the condition number grows like `(diam / k)^2`.
+
+`Howard` takes any scheme with `residual`, `jacobian` and `solve_laplace`, so `Howard(scheme=Standard9(n))` is undamped Newton, and `Newton(scheme=SemiLagrangian(n))` solves the semi-Lagrangian scheme too, with a line search, reaching the same (unique) root.
+
+## Parameters
+
+| Part | Parameter | Default | Meaning |
+|---|---|---|---|
+| `SemiLagrangian` | `n` | 64 | cells per side of the grid over the bounding box, at least 2 |
+| | `stencil_factor` | 4.0 | `m` in `k = m h`, positive |
+| | `directions` | 64 | stencil directions over `[0, pi)`, even; the paper's 64 |
+| `Howard` | `max_iter` | 50 | most steps |
+| | `tol` | `1e-6` | largest change of an unknown in the last step; the paper's |
+
+`FDSemiLagrangian(n, stencil_factor, directions, max_iter, tol)` is `Howard(scheme=SemiLagrangian(n, stencil_factor, directions), max_iter, tol)`.
+The default `m = 4` is the paper's best `m` on T39 around 5,000 nodes; on a nonsmooth problem a wider stencil does better at fine grids.
+
+## Known limits
+
+- Structured nodes, not the paper's unstructured grid; the triangulation is a Delaunay triangulation of the grid nodes and boundary points, and the 0.3 finite-element infrastructure will bring meshes.
+  The alignment matters: T40's kink `x1 = 0` runs along the grid columns and along the stencil direction `(0, 1)`, so the interpolant of `|x1|` solves the scheme and the error at the nodes is at the rounding level for every `n` (`benchmarks/feng_jensen2017.md`, Finding 1).
+- Convex 2D domains only (`Box`, `Disk`, `Ellipse`, `CutQuarterDisk`, `DiskUnionSquare`) with a Dirichlet boundary.
+- The accuracy depends on `stencil_factor`, and the best value depends on the grid and the problem; the error at a fixed `m` levels off as `h` falls.
+- Memory and setup grow with `directions`: the scheme stores 7 entries per unknown and direction, and locates `2 directions` stencil ends per unknown in the triangulation; a solve at `n = 1280` with 64 directions holds about 10 GB.
+- Time grows with `n` at a fixed `stencil_factor`, since the Krylov methods need more steps the smaller `k / diam`: on a100server, one thread, a solve of the turned T40 at `m = 2` took 91 s at `n = 320` and 1900 s at `n = 640` (25 and 27 Howard steps).
+- `node_hessian` is a fit, and where `k < h` next to the boundary the second differences behind it are not consistent.

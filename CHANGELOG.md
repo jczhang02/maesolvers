@@ -2,6 +2,23 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Added
+
+- `SemiLagrangian(n=64, stencil_factor=4.0, directions=64)`, the semi-Lagrangian scheme of Feng-Jensen 2017 on the nodes of a uniform grid (grid nodes in the open domain, and the grid nodes on the boundary and the crossings of grid lines and diagonals with it) of a 2D `Box`, `Disk`, `Ellipse`, `CutQuarterDisk` or `DiskUnionSquare` with a Dirichlet boundary, exported at the top level and from `maesolvers.classical`.
+  It writes the equation in Bellman form, takes the supremum over the eigenvalue split in closed form, and differences along `directions` directions with stencil size `k = stencil_factor * h`, reduced near the boundary, the stencil ends interpolated piecewise linearly on the Delaunay triangulation of the nodes.
+  It provides `residual`, `jacobian` (the linear part of the maximising control, an M-matrix) and `solve_laplace` (the equation of the control `Id / 2`), so `Howard` and `Newton` solve it, and `second_differences(grid, v)`, shape `(directions, m)`.
+  `discretize` raises `ValueError` for an `f` that is negative or not finite at an unknown, and `directions` must be even.
+  Results carry the nodal values, the piecewise linear interpolant as `u`, a least-squares Hessian fit at the unknowns as `node_hessian`, and `info["min_reach"]`, the smallest stencil size over `h`, besides `h`, `residual_max` and `interpolant` (`"linear"`).
+  The pure kernels `stencil_directions`, `frame_values`, `frame_weights`, `fit_hessian`, `linear_weights` and `semi_lagrangian_operators` are in `maesolvers.classical.semilagrangian`, with `SemiLagrangianGrid`, the context `discretize` returns, whose fields may change with the scheme.
+- `Howard(scheme, max_iter=50, tol=1e-6)`, Howard's algorithm: full Newton steps with the scheme's (generalised) Jacobian from `laplace u = 2 sqrt(f)`, stopping when a step changes no unknown by more than `tol`; on `SemiLagrangian` it is policy iteration, on another scheme with `residual`, `jacobian` and `solve_laplace` undamped Newton.
+  Its linear systems are solved by BiCGSTAB with diagonal scaling, then GMRES, then a sparse LU factorisation where a Krylov method stops short.
+  Exported at the top level and from `maesolvers.classical`.
+- The preset `FDSemiLagrangian(n, stencil_factor, directions, max_iter=50, tol=1e-6)`, `Howard` on `SemiLagrangian`, registered in `SOLVERS` after the other classical presets, and in the comparison table.
+- `DiskUnionSquare()`, the union of the unit disk and the unit square `(0, 1)^2`, a convex domain that is not strictly convex, exported at the top level and from `maesolvers.core`.
+- T39 (`u = |x|^4`) and T40 (`u = |x1|`, `f = 0`) of Feng-Jensen 2017 on `DiskUnionSquare`, in `CATALOGUE` and at the top level; the shared test-set specification does not define them yet.
+
 ## 0.1.0 (2026-10-23)
 
 This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.
