@@ -13,7 +13,7 @@ Ours, with `n = N - 1` cells (Finding 1):
 All with `boundary="narrow"` unless a row says otherwise, residual tolerance `1e-10` relative to `max(1, max f)` for Newton, float64, scipy sparse LU.
 Error: max over all grid nodes of `|u_h - u|`.
 Conventions that differ from the paper's: the monotone part is `Monotone17`, continued below zero with the slope `kappa` (`monotone17.md`), where the paper's operator adds `sum min{D, delta}`; and the paper "regularized the max operator to allow the gradient to be computed, as in [FO11b]" (p. 438), with no `delta` printed, where `Monotone17` takes the bare max and min with their semi-smooth Jacobian.
-`filtered_checks.csv` runs both alternatives (rows `kappa` and `regularised`, Findings 3 and 4).
+`filtered_checks.csv` runs both alternatives (rows `kappa` and `regularised`, the T2 section and Finding 4).
 Raw data: `filtered.csv`, written on a100server by `run_filtered.py` at commit e9ddc67 (tmux session `maesolvers-filtered4`, `run_filtered.py --processes 16` with one thread per process), and `filtered_checks.csv` by `run_filtered.py --checks --processes 16` at commit dd86994 (session `maesolvers-filtered5-checks`).
 Every solve is one run in the MLflow experiment `maesolvers-filtered-<problem>` (`C2-centred`, T20, T2, T21, T1, and T3, T4, T5, T7 for the checks), tagged with that commit and a clean checkout; runs of earlier generations, with the half-gap width, carry older commits.
 

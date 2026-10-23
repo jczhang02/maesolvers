@@ -110,7 +110,7 @@ The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boun
   | T7 | converged | not converged |
   | T20 | converged | not converged |
 
-  On the paper's grids it ends that way on T2 at every `N`, on T20 from `N = 127` on, on the cone, and on T1 at all `N` but one.
+  On the paper's grids it ends that way on T2 at every `N` and stencil with `boundary="narrow"` (with `"interpolate"` one solve converges: 33 points, `N = 31`, error `1.01e-3` against the published `1.74e-3`), on T20 from `N = 127` on, on the cone, and on T1 at all `N` but one.
   Three situations stop it: a node of the filter band, where the paper's Jacobian is not the derivative, attains the largest residual, and the line search finds no decrease (T2, T1; residual `1e-2` to `2e-1`); the approximate Jacobian is nearly or exactly singular, so no step decreases the residual (T5 at `n = 16`, which returns the Laplace start; the cone at `n = 62`); or the largest residual sits at a node of the accurate piece, next to a jump of `f` (T4; also the cone at `n = 126`).
   On T2 the last iterates print as the paper's errors in 14 of 15 cells of its Table 4.1, but they are not discrete solutions, and on T1 their errors lie between the monotone and the standard scheme's.
   Tried without success: the paper's regularised max (FO 2011's `(MA)^delta`, `delta` from `1e-4` to `0.1`, which the paper says it used), other widths, `kappa = 1`, undamped steps, the exact Jacobian `2 J_M - J_A` in the band, and starts from the monotone or the standard root (on T2 neither start converges; on T20 the monotone start stalls, while the standard root is already a filtered root).
