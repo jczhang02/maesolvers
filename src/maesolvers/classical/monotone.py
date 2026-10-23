@@ -448,9 +448,11 @@ class Monotone17(Scheme):
     jacobian_floor
         Positive; :meth:`jacobian` keeps every factor of a product at least
         ``jacobian_floor / (2 h^2)``. Froese and Oberman (2011, Section 5.3)
-        take ``1e-8``; that floor makes Newton converge only linearly where
-        ``f = 0`` (hundreds of steps on T20 at ``n = 181``), and the default
-        ``1e-12`` does not. The floor changes the steps, not the solution.
+        take ``1e-8``; in 2D that floor makes Newton converge only linearly
+        where ``f = 0`` (hundreds of steps on T20 at ``n = 181``), and the
+        default ``1e-12`` does not; in 3D neither is faster at every grid
+        (``benchmarks/monotone19.md``). The floor changes the steps, not the
+        solution.
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
         nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per

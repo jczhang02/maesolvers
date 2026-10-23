@@ -85,7 +85,7 @@ Every arm has width 1 and ends at a node, so `boundary` changes nothing in 3D, a
 Below zero the value continues as in 2D, `prod_k a_k^+ + kappa sum_k min(a_k, 0)`, with `kappa = max(f, mean f, 1)^(2/3)`, the scale of the derivative of a product of three second differences.
 The Jacobian differentiates the active triple, `c_k = prod_{j != k} max(a_j, epsilon)` where `a_k >= 0` and `kappa` where `a_k < 0`, so `-J` is again an M-matrix.
 Where `f = 0` two factors can vanish at once and the coefficient is `epsilon^2`.
-Newton converges slowly on the 3D `C^1` example, 87 steps at `N = 31` against 6 to 10 on T9 and T22, and the paper's floor does not change that (`benchmarks/monotone19.md`).
+Newton converges slowly on the 3D `C^1` example, 87 steps at `N = 31` against 6 to 10 on T9 and T22; the floor changes that (29 steps with the paper's `1e-8`, 52 with the coefficient floored once), but no floor is fastest at every `N`, and the cause is open (`benchmarks/monotone19.md`, issue #65).
 
 The angular resolution of the 19-point stencil is coarse: the largest angle between a direction and the nearest stencil direction is `acos(sqrt(2/3))`, about 35 degrees, at the body diagonals (`angular_resolution(19)`), against 22.5 degrees for the 9-point stencil in 2D.
 On T9 the error therefore stays above `1.2e-2` at every grid of the paper's table, as theirs does.
@@ -102,8 +102,8 @@ c_a = max(b, epsilon) where a >= 0, kappa where a < 0,
 
 so `Newton` on this scheme is a semi-smooth Newton method, and `-J` is an M-matrix (positive diagonal, nonpositive off-diagonal, diagonally dominant), so every step is well posed.
 The floor `epsilon = jacobian_floor / (2 h^2)` follows Froese and Oberman (SIAM Section 5.3), who take `jacobian_floor = 1e-8`.
-With that floor Newton converges only linearly where `f = 0`: on T20 it takes 439 steps at `n = 181` with the 17-point stencil.
-The default `1e-12` takes 27 there and reaches the same root (`benchmarks/monotone17_checks.csv`, rows `floor`), since the floor changes the steps, not the equation.
+In 2D, with that floor Newton converges only linearly where `f = 0`: on T20 it takes 439 steps at `n = 181` with the 17-point stencil.
+The default `1e-12` takes 27 there and reaches the same root (`benchmarks/monotone17_checks.csv`, rows `floor`), since the floor changes the steps, not the equation; in 3D neither floor is faster at every grid ("In three dimensions" above).
 
 The papers start from `laplace u_0 = sqrt(2 f)` (`(d! f)^(1/d)` in `d` dimensions, SIAM eq. (8)) on a coarse grid, interpolated and convexified; Newton's start is a lower bound for the Laplacian of the convex solution and needs no convexification, because the scheme has no non-convex roots and a non-convex iterate cannot pass the stopping rule.
 The start changes the number of steps, not the solution.
@@ -157,13 +157,14 @@ At the levels of ADR 0002, as `benchmarks/monotone17.md` states them:
 | T21 (cone) | mismatch | mismatch |
 
 The published tables match the narrow stencil next to the boundary, not the interpolation the papers describe; at coarse grids the published T1 errors are larger than the converged ones; on T20 they stay above the convex discrete solution's, within 13 percent of a non-convex root of the bare scheme at `N = 31`; the papers' discrete Dirac mass does not fit the scheme.
-In 3D, against Froese-Oberman 2011, SIAM, Table 4 (19 points), whose `N` fits neither grid convention everywhere:
+In 3D, against Froese-Oberman 2011, SIAM, Table 4 (19 points), with `h = 1/N` (ADR 0001):
 
-| Problem | `h = 1/N` | `h = 1/(N - 1)` |
-|---|---|---|
-| T9 | order of magnitude; exact at `N = 21`, 31 | order of magnitude; exact at `N = 11`, 15, 21 |
-| `C^1` example (15), no T id | order of magnitude | mismatch |
-| T22 | mismatch (orders, from `N = 7` alone) | order of magnitude; exact at `N = 11` |
+| Problem | Level |
+|---|---|
+| T9 | order of magnitude; the printed digits at `N = 21` and 31 |
+| `C^1` example (15), no T id | order of magnitude |
+| T22 | mismatch (orders, from `N = 7` alone) |
 
+The paper does not say whether its `N` counts cells or nodes; with `h = 1/(N - 1)` T9 matches the printed digits at `N = 11`, 15 and 21 and T22 is order of magnitude, while no convention matches every cell (`benchmarks/monotone19.md`, Finding 1).
 On the `C^1` example our error is 1.3 to 1.9 times the published one at every `N`, and the bare scheme's non-convex roots are further off, not closer.
 `tests/test_reproduction.py` pins the exact values; the full comparison and the findings are in [`benchmarks/monotone17.md`](../../benchmarks/monotone17.md) (2D) and [`benchmarks/monotone19.md`](../../benchmarks/monotone19.md) (3D).
