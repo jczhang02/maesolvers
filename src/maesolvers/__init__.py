@@ -27,6 +27,7 @@ from maesolvers.catalogue import (
     T16,
     T20,
     T22,
+    T20c,
 )
 from maesolvers.classical import (
     FDFiltered,
@@ -133,6 +134,7 @@ __all__ = [
     "Solution",
     "Solver",
     "Standard9",
+    "T20c",
     "Trace",
     "Transport",
     "UniformSampler",

@@ -155,6 +155,7 @@ Every Dirichlet problem with an exact solution takes its boundary data from it; 
 | T12 | unit disk | 1 | transport onto the ellipse centred at `(3.5, 0)` with semi-axes `(2, 0.5)` | `x1^2 + 3.5 x1 + x2^2 / 4` | transport boundary condition, linear map |
 | T16 | `(-1/2, 1/2)^2` | from `q(z)` (Benamou-Froese-Oberman 2014) | transport onto the same square | `\|x\|^2 / 2 + 4 q(x1) q(x2)` | transport with an oscillating density |
 | T20 | `(0, 1)^2` | `(1 - 0.2 / \|x - x0\|)^+` | Dirichlet | `((\|x - x0\| - 0.2)^+)^2 / 2` | C^1 solution, `f = 0` on a disk |
+| T20c | `(-0.5, 0.5)^2` | `(1 - 0.1 / \|x\|)^+` | Dirichlet | `((\|x\| - 0.1)^+)^2 / 2` | T20 with radius 0.1 about the origin (Chen-Wan-Lin 2018, Example 3); in the survey, not yet in the shared specification |
 | T22 | `(0, 1)^3` | `3 (3 - \|x\|^2)^(-5/2)` | Dirichlet | `-sqrt(3 - \|x\|^2)` | T2 in 3D |
 
 Each problem's `note` names its source paper.
