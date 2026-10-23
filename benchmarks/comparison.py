@@ -3,12 +3,14 @@
 comparison.csv holds one row per run of a preset of ``SOLVERS`` on a problem of
 the shared test set (``run_comparison.py`` writes it on a100server): one row
 for a classical preset, one per seed for a neural one, and one row with status
-``unsupported`` for a pair the preset does not support. This script turns the
-rows into three tables, the max error, the non-convex fraction and the time,
-with the problems as rows and the presets as columns, and writes them into
-README.md between the two marker lines. It needs numpy and maesolvers only, so
-the test that README is current (tests/test_comparison.py) runs without
-extras. From the repository root::
+``unsupported`` for a pair the preset does not support. This module defines the
+receipt (its columns, the grid, the seeds, the options each preset takes, and
+how rerun rows merge into it) and turns the rows into three tables, the max
+error, the non-convex fraction and the time, with the problems as rows and the
+presets as columns in the order of ``SOLVERS``, and their notes, which it
+derives from the rows. It writes them into README.md between the two marker
+lines. It needs numpy and maesolvers only, so its tests
+(tests/test_comparison.py) run without extras. From the repository root::
 
     python benchmarks/comparison.py          # rewrite the README block
     python benchmarks/comparison.py --check  # exit 1 if README is not current
@@ -18,20 +20,27 @@ from __future__ import annotations
 
 import argparse
 import csv
+import inspect
 import math
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-from maesolvers import CATALOGUE, SOLVERS, Problem, Solver, Transport
+from maesolvers import CATALOGUE, SOLVERS, Problem, Solver
 from maesolvers.catalogue import SHARED_TEST_SET
 from maesolvers.metrics import shared_grid, summarize_errors
 
 HERE = Path(__file__).parent
 CSV = HERE / "comparison.csv"
 README = HERE.parent / "README.md"
+
+N = 361
+"""The classical grid: the largest N the papers print in 2D."""
+SEEDS = tuple(range(10))
+"""The neural seeds (ADR 0008)."""
 
 START = "<!-- comparison table: written by benchmarks/comparison.py, do not edit -->"
 END = "<!-- comparison table end -->"
@@ -57,42 +66,88 @@ FIELDS = (
     "stop",
     "device",
     "threads",
+    "cpu",
     "commit",
+    "hparams",
 )
 """The columns of comparison.csv."""
 
 STATUSES = ("ok", "failed", "unsupported")
-"""``ok``: a finite error; ``failed``: an exception, a non-finite error, or a
-neural run that stopped as ``"diverged"`` (ADR 0007); ``unsupported``: the
-preset does not support the problem, and ``reason`` says why."""
+"""``ok``: a finite error; ``failed``: an exception, or a failed seed by the rule
+of :func:`~maesolvers.metrics.seed_error` (a non-finite error, or a neural run
+that stopped as ``"diverged"``; ADR 0007); ``unsupported``: the preset does not
+support the problem, and ``reason`` says why."""
 
 RELATIVE_THRESHOLD = 1e-2
-"""A neural seed succeeds when its max error is below this share of the exact
-solution's largest absolute value on the shared evaluation grid."""
+"""A neural seed succeeds when its max error is below this share of the
+oscillation ``max u - min u`` of the exact solution on the shared evaluation
+grid, which a constant added to ``u`` does not change."""
+
+
+def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
+    """Those of ``options`` that the constructor of the preset ``name`` takes.
+
+    The runner's options (the grid ``n``, the neural ``max_steps``, the
+    ``seed``) go to every preset whose signature has them (ADR 0005), and
+    only there; an option of value None is left out.
+    """
+    parameters = inspect.signature(SOLVERS[name]).parameters
+    return {k: v for k, v in options.items() if k in parameters and v is not None}
 
 
 def unsupported_reason(solver: Solver, problem: Problem) -> str:
-    """Why ``solver`` does not support ``problem``, in a few words for a table cell."""
-    if isinstance(problem.boundary, Transport):
-        return "unsupported until 0.2"
-    dims = type(solver).dims
-    if dims is not None and problem.domain.dim not in dims:
-        return "/".join(f"{d}D" for d in dims) + " only"
-    return f"not on a {type(problem.domain).__name__}"
+    """Why ``solver`` does not support ``problem``, in a few words for a table cell.
+
+    The first of the boundary condition, the dimension and the domain that
+    the solver does not declare; ``unsupported`` if it declares all three and
+    rejects the problem for another reason (unequal sides of a box, say).
+    """
+    if not isinstance(problem.boundary, solver.boundaries):
+        return "/".join(kind.__name__ for kind in solver.boundaries) + " only"
+    if solver.dims is not None and problem.dim not in solver.dims:
+        return "/".join(f"{d}D" for d in solver.dims) + " only"
+    if not isinstance(problem.domain, solver.domains):
+        return f"not on a {type(problem.domain).__name__}"
+    return "unsupported"
 
 
 def threshold(problem: Problem) -> float:
-    """The success threshold of a problem: :data:`RELATIVE_THRESHOLD` of max ``|u|``."""
+    """The success threshold of a problem: :data:`RELATIVE_THRESHOLD` of the oscillation."""
     if problem.exact is None:
         raise ValueError(f"{problem.name} has no exact solution")
     u = problem.exact(shared_grid(problem.domain))
-    return RELATIVE_THRESHOLD * float(np.max(np.abs(u)))
+    return RELATIVE_THRESHOLD * float(np.max(u) - np.min(u))
 
 
 def read(path: Path = CSV) -> list[dict[str, str]]:
     """The rows of comparison.csv, as strings."""
     with path.open(newline="") as file:
         return list(csv.DictReader(file))
+
+
+def order(row: Mapping[str, Any]) -> tuple[int, int, int]:
+    """Sort key of a row: problem, preset, seed, in the order of the table."""
+    seed = row["seed"]
+    return (
+        SHARED_TEST_SET.index(row["problem"]),
+        list(SOLVERS).index(row["solver"]),
+        -1 if seed in ("", None) else int(seed),
+    )
+
+
+def merge(
+    old: Iterable[Mapping[str, Any]], new: Iterable[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """The rows of ``old`` whose pairs ``new`` does not cover, with ``new``, sorted.
+
+    A rerun of some pairs replaces every row of those pairs, whatever their
+    seeds; a missing field is empty.
+    """
+    new = list(new)
+    pairs = {(r["solver"], r["problem"]) for r in new}
+    kept = [r for r in old if (r["solver"], r["problem"]) not in pairs]
+    full = [{key: row.get(key, "") for key in FIELDS} for row in [*kept, *new]]
+    return sorted(full, key=order)
 
 
 def number(text: str) -> float:
@@ -201,23 +256,59 @@ def render(rows: Iterable[Mapping[str, str]]) -> str:
             cells = [cell(groups[problem, solver], key) for solver in SOLVERS]
             lines.append(f"| {problem} | " + " | ".join(cells) + " |")
         lines.append("")
-    seeds = max(len(g) for g in groups.values())
-    lines += [
+    return "\n".join(lines + notes(groups))
+
+
+def _listing(items: Iterable[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c``."""
+    words = list(items)
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _one(rows: Iterable[Mapping[str, str]], key: str) -> str:
+    """The value of ``key`` shared by ``rows``; ValueError if they differ."""
+    values = {row[key] for row in rows}
+    if len(values) != 1:
+        raise ValueError(f"comparison.csv mixes {key}: {', '.join(sorted(values))}")
+    return values.pop()
+
+
+def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list[str]:
+    """The notes under the tables, each derived from the rows it describes."""
+    runs = [r for rows in groups.values() for r in rows if r["status"] != "unsupported"]
+    threads, device, cpu = (_one(runs, key) for key in ("threads", "device", "cpu"))
+    classical = [r for r in runs if not r["seed"]]
+    seeds = sorted({int(r["seed"]) for r in runs if r["seed"]})
+    steps: dict[str, list[str]] = {}
+    for problem in SHARED_TEST_SET:
+        if any(r["problem"] == problem for r in classical):
+            box = CATALOGUE[problem].domain.bbox
+            steps.setdefault(f"{box.hi[0] - box.lo[0]:g}/n", []).append(problem)
+    reasons: dict[str, list[str]] = {}
+    for (problem, _), rows in sorted(groups.items(), key=lambda g: order(g[1][0])):
+        if rows[0]["status"] == "unsupported":
+            problems = reasons.setdefault(rows[0]["reason"], [])
+            if problem not in problems:
+                problems.append(problem)
+    return [
         "A classical cell is one run on the grid `n` in parentheses, the largest "
-        "`N` of the papers (`h = 1/n`, ADR 0001), at its own nodes; "
+        "`N` of the papers, with "
+        + ", ".join(f"`h = {h}` on {_listing(p)}" for h, p in steps.items())
+        + " (ADR 0001), and its error at its own nodes; "
         "`\\*` marks a run whose iteration stopped before its tolerance.",
-        f"A neural cell is over seeds 0 to {seeds - 1}: the median, the 5% to 95% "
-        "band and the number of seeds whose max error on the shared evaluation grid "
-        f"is below {RELATIVE_THRESHOLD:.0%} of the exact solution's largest "
-        "absolute value there; the non-convex fraction and the time are medians, "
-        "and a failed seed counts as an infinite error (ADR 0007).",
-        "Every run used one CPU thread on a100server; the neural presets train on "
-        "the CPU, their default.",
+        f"A neural cell is over seeds {seeds[0]} to {seeds[-1]}: the median, the 5% "
+        "to 95% band and the number of seeds whose max error on the shared "
+        f"evaluation grid is below {RELATIVE_THRESHOLD:.0%} of the exact solution's "
+        "oscillation `max u - min u` there; a failed seed counts as an infinite "
+        "error (ADR 0007).",
+        "The non-convex fraction and the time of a neural cell are medians over the "
+        "seeds that did not fail.",
+        f"Every run took {threads} CPU thread{'' if threads == '1' else 's'} and "
+        f"ran on the device `{device}`; CPU: {cpu}.",
         "A cell with a reason marks a preset that does not support the problem: "
-        "`unsupported until 0.2` for the transport boundary condition of T12, `2D only` for a "
-        "2D method on T9 (3D) and T10 (4D), `not on a Disk` for a box-only scheme.",
+        + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
+        + ".",
     ]
-    return "\n".join(lines)
 
 
 def replace_block(text: str, block: str) -> str:

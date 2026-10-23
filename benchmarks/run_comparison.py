@@ -5,9 +5,10 @@ Runs each preset of ``maesolvers.SOLVERS`` with its defaults on each problem of
 ``n = 361``, the largest N of the papers (test-set specification, Section 2);
 a neural preset once per seed, seeds 0 to 9 (ADR 0008). A pair the preset does
 not support gets one row with status ``unsupported`` and the reason. Each row
-holds :func:`~maesolvers.metrics.evaluate` and the run's convergence; the
-columns and statuses are those of comparison.py, which turns the CSV into the
-README table.
+holds :func:`~maesolvers.metrics.evaluate`, the run's convergence, the machine
+and the preset's ``hparams``; the columns, statuses, grid, seeds and the
+options each preset takes are those of comparison.py, which turns the CSV into
+the README table.
 
 Every run is one MLflow run in maesolvers-<preset>-<problem> (the preset's name
 in lower case), named ``comparison`` and its grid or seed, tagged
@@ -30,7 +31,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
+import platform
 import time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
@@ -38,15 +41,21 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from comparison import CSV, FIELDS, unsupported_reason
+from comparison import (
+    CSV,
+    FIELDS,
+    SEEDS,
+    N,
+    merge,
+    preset_options,
+    read,
+    unsupported_reason,
+)
 
 from maesolvers import CATALOGUE, SOLVERS, NeuralSolver, tracking
 from maesolvers.catalogue import SHARED_TEST_SET
-from maesolvers.metrics import evaluate
+from maesolvers.metrics import evaluate, seed_error
 
-N = 361
-"""The classical grid: the largest N the papers print in 2D."""
-SEEDS = tuple(range(10))
 THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 
 
@@ -62,7 +71,17 @@ def commit() -> str:
     return tags["mlflow.source.git.commit"] + dirty
 
 
-def cell(value: Any) -> Any:
+def cpu() -> str:
+    """The CPU's model name, from /proc/cpuinfo on Linux."""
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text().splitlines():
+            if line.startswith("model name"):
+                return " ".join(line.split(":", 1)[1].split())
+    return platform.processor() or platform.machine()
+
+
+def csv_field(value: Any) -> Any:
     """A CSV field: floats in scientific notation with seven digits."""
     return f"{value:.6e}" if isinstance(value, float) else value
 
@@ -71,11 +90,12 @@ def run_one(task: tuple[str, str, int | None, dict[str, Any], bool]) -> dict[str
     """Run one preset on one problem (one seed), return its row of comparison.csv.
 
     The task is the preset's name, the problem's T id, the seed (None for a
-    classical preset), the preset's options and whether to log to MLflow.
+    classical preset), the runner's options and whether to log to MLflow; the
+    preset takes those of the options and the seed its constructor has.
     """
     name, problem_id, seed, options, log = task
     problem = CATALOGUE[problem_id]
-    kwargs = dict(options) if seed is None else {**options, "seed": seed}
+    kwargs = preset_options(name, {**options, "seed": seed})
     solver = SOLVERS[name](**kwargs)
     row: dict[str, Any] = {
         "solver": name,
@@ -83,7 +103,9 @@ def run_one(task: tuple[str, str, int | None, dict[str, Any], bool]) -> dict[str
         "seed": "" if seed is None else seed,
         "n": kwargs.get("n", ""),
         "threads": 1,
+        "cpu": cpu(),
         "commit": commit(),
+        "hparams": json.dumps(solver.hparams, sort_keys=True),
     }
     if seed is not None:
         import torch
@@ -111,11 +133,15 @@ def run_one(task: tuple[str, str, int | None, dict[str, Any], bool]) -> dict[str
         return {**row, "status": "failed", "reason": message[:200]}
     info = result.info
     stop = info.get("stop", "")
-    failed = not np.isfinite(metrics.get("max", np.nan)) or stop == "diverged"
+    if seed_error(result) is None:  # ADR 0007, as summarize counts it
+        finite = np.isfinite(metrics.get("max", np.nan))
+        status, reason = "failed", f"stopped as {stop}" if finite else "non-finite"
+    else:
+        status, reason = "ok", ""
     row.update(
         {key: metrics[key] for key in FIELDS if key in metrics},
-        status="failed" if failed else "ok",
-        reason="diverged" if stop == "diverged" else "",
+        status=status,
+        reason=reason,
         converged=bool(info.get("converged", False)),
         stop=stop,
         device=info.get("device", "cpu"),
@@ -136,9 +162,7 @@ def tasks(
     for problem_id in problems:
         problem = CATALOGUE[problem_id]
         for name in solvers:
-            neural = is_neural(name)
-            own = {k: v for k, v in options.items() if (k == "max_steps") == neural}
-            solver = SOLVERS[name](**own)
+            solver = SOLVERS[name](**preset_options(name, options))
             if not solver.supports(problem):
                 unsupported.append(
                     {
@@ -149,36 +173,11 @@ def tasks(
                     }
                 )
                 continue
-            for seed in seeds if neural else (None,):
-                runs.append((name, problem_id, seed, own, log))
+            for seed in seeds if is_neural(name) else (None,):
+                runs.append((name, problem_id, seed, options, log))
     # Neural runs take minutes, the higher dimensions most; classical ones less.
     runs.sort(key=lambda t: (not is_neural(t[0]), -CATALOGUE[t[1]].domain.dim))
     return runs, unsupported
-
-
-def order(row: dict[str, Any]) -> tuple[int, int, int]:
-    """Sort key of a row: problem, preset, seed, in the order of the table."""
-    seed = row["seed"]
-    return (
-        SHARED_TEST_SET.index(row["problem"]),
-        list(SOLVERS).index(row["solver"]),
-        int(seed) if seed != "" else -1,
-    )
-
-
-def merge(path: Path, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The rows of ``path`` whose pairs ``rows`` do not cover, with ``rows``, sorted."""
-    pairs = {(r["solver"], r["problem"]) for r in rows}
-    kept = []
-    if path.exists():
-        with path.open(newline="") as file:
-            kept = [
-                r
-                for r in csv.DictReader(file)
-                if (r["solver"], r["problem"]) not in pairs
-            ]
-    full = [{key: row.get(key, "") for key in FIELDS} for row in [*kept, *rows]]
-    return sorted(full, key=order)
 
 
 def main() -> None:
@@ -194,9 +193,7 @@ def main() -> None:
     parser.add_argument("--no-mlflow", action="store_true")
     parser.add_argument("--out", type=Path, default=CSV)
     args = parser.parse_args()
-    options: dict[str, Any] = {"n": args.n}
-    if args.max_steps is not None:
-        options["max_steps"] = args.max_steps
+    options: dict[str, Any] = {"n": args.n, "max_steps": args.max_steps}
     changed = args.n != N or args.max_steps is not None or args.seeds != list(SEEDS)
     if changed and args.out == CSV:
         parser.error("--n, --max-steps or --seeds differ from the table's: give --out")
@@ -209,12 +206,13 @@ def main() -> None:
     context = get_context("spawn")  # CUDA cannot be forked
     with ProcessPoolExecutor(args.workers, mp_context=context) as pool:
         rows = list(pool.map(run_one, runs))
-    rows = merge(args.out, [*unsupported, *rows])
+    old = read(args.out) if args.out.exists() else []
+    rows = merge(old, [*unsupported, *rows])
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS, lineterminator="\n")
         writer.writeheader()
-        writer.writerows({k: cell(v) for k, v in row.items()} for row in rows)
+        writer.writerows({k: csv_field(v) for k, v in row.items()} for row in rows)
     failed = sum(r["status"] == "failed" for r in rows)
     print(f"{len(runs)} runs, {failed} failed rows in the CSV")
     print(f"wrote {args.out} in {time.time() - start:.0f} s")

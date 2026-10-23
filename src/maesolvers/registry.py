@@ -28,5 +28,5 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
         )
     }
 )
-"""Every preset by class name, read-only, in the order of the comparison table:
-the classical presets, then the neural ones, each in the order they came."""
+"""Every preset by class name, read-only: the classical presets, then the
+neural ones, each in the order they were added."""
