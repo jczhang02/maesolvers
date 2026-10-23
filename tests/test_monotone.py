@@ -23,17 +23,20 @@ from maesolvers import (
     FDFiltered,
     FDHybrid,
     FDMonotone,
+    Filtered,
     Hybrid,
     Monotone17,
     Newton,
     PoissonIteration,
     Problem,
+    Standard9,
     UnsupportedProblemError,
     from_config,
 )
 from maesolvers.classical.monotone import (
     angular_resolution,
     directional_difference,
+    frame_jacobian,
     frame_jacobian_coefficients,
     frame_values,
     stencil_dimension,
@@ -162,6 +165,23 @@ def test_frame_jacobian_coefficients_are_the_derivatives_away_from_kinks():
         )
     floored = frame_jacobian_coefficients(np.zeros((1, 2, 1)), np.ones(1), floor=0.25)
     np.testing.assert_array_equal(floored, 0.25)
+
+
+@pytest.mark.parametrize("dim", [2, 3])
+def test_frame_jacobian_weights_each_directional_difference(dim):
+    rng = np.random.default_rng(2)
+    frames, m = 4, 6
+    blocks = [sp.random(m, m, density=0.5, random_state=k) for k in range(frames * dim)]
+    weights = rng.uniform(-1.0, 1.0, (frames, dim, m))
+    jacobian = frame_jacobian(sp.csr_matrix(sp.vstack(blocks)), weights)
+    v = rng.uniform(size=m)
+    expected = sum(
+        weights[p, k] * (blocks[p * dim + k] @ v)
+        for p in range(frames)
+        for k in range(dim)
+    )
+    assert jacobian.shape == (m, m)
+    np.testing.assert_allclose(jacobian @ v, expected, rtol=1e-12)
 
 
 QUADRATIC = Problem(
@@ -762,10 +782,12 @@ def test_hybrid_and_filtered_refuse_the_3d_stencil():
     """Their standard scheme, Standard9, is 2D."""
     with pytest.raises(ValueError, match="Hybrid's stencil must be 9, 17 or 33"):
         Hybrid(stencil=19)
-    with pytest.raises(ValueError, match="Hybrid's stencil must be 9, 17 or 33"):
+    with pytest.raises(ValueError, match="FDHybrid's stencil must be 9, 17 or 33"):
         FDHybrid(stencil=19)
     with pytest.raises(ValueError, match="FDFiltered's stencil must be 9, 17 or 33"):
         FDFiltered(stencil=19)
+    with pytest.raises(ValueError, match="got Standard9 in 2D and Monotone17 in 3D"):
+        Filtered(accurate=Standard9(n=8), monotone=Monotone17(n=8, stencil=19))
     assert Hybrid.dims == FDHybrid.dims == FDFiltered.dims == (2,)
 
 

@@ -16,17 +16,15 @@ stencil; in 3D they are the four orthogonal triples of the 19-point stencil
 (Section 7).
 
 The numerical kernels are module-level pure functions: :func:`stencil_frames`,
-:func:`angular_resolution`, :func:`directional_difference`, :func:`frame_values`
-and :func:`frame_jacobian_coefficients`. :class:`Monotone17` composes them into
-a :class:`~maesolvers.classical.schemes.Scheme` that
+:func:`angular_resolution`, :func:`directional_difference`, :func:`frame_values`,
+:func:`frame_jacobian_coefficients` and :func:`frame_jacobian`. :class:`Monotone17`
+composes them into a :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.Newton` solves.
 """
 
 from __future__ import annotations
 
-import functools
 import itertools
-import operator
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Literal, cast
@@ -317,6 +315,36 @@ def frame_jacobian_coefficients(
     return np.where(d < 0.0, kappa, others)
 
 
+def frame_jacobian(operators: sp.spmatrix, weights: np.ndarray) -> sp.csc_matrix:
+    """Return ``sum over frames p and directions k of diag(weights[p, k]) D_pk``.
+
+    The Jacobian of a function of the directional second differences ``D_pk v``
+    whose derivative in ``D_pk v`` is ``weights[p, k]``: with
+    :func:`frame_jacobian_coefficients` masked to the active frame it is
+    :meth:`Monotone17.jacobian`.
+
+    Parameters
+    ----------
+    operators
+        ``MonotoneGrid.operators``: the matrices ``D_pk`` stacked frame by
+        frame, shape ``(frames d m, m)``.
+    weights
+        Shape ``(frames, d, m)``.
+
+    Returns
+    -------
+    scipy.sparse.csc_matrix
+        Shape ``(m, m)``.
+    """
+    m = weights.shape[-1]
+    weights = weights.ravel()
+    rows = np.tile(np.arange(m), weights.size // m)
+    collapse = sp.csr_matrix(
+        (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
+    )
+    return sp.csc_matrix(collapse @ operators)
+
+
 @dataclass(frozen=True, eq=False)
 class MonotoneGrid:
     """One problem discretised by :class:`Monotone17`, its working context.
@@ -554,7 +582,7 @@ class Monotone17(Scheme):
         h = box_grid.h[0]
         floor = self.jacobian_floor / (2.0 * h * h)
         scale = np.maximum(np.maximum(f, np.mean(f)), 1.0)
-        laplacian = functools.reduce(operator.add, operators[:dim])
+        laplacian = sum(operators[1:dim], operators[0])
         return MonotoneGrid(
             box_grid=box_grid,
             f=f,
@@ -641,12 +669,7 @@ class Monotone17(Scheme):
         active = _available_values(grid, d).argmin(axis=0)
         chosen = np.arange(grid.frames)[:, None] == active
         weights = frame_jacobian_coefficients(d, grid.kappa, grid.floor)
-        weights = (weights * chosen[:, None, :]).ravel()
-        rows = np.tile(np.arange(v.size), d.shape[0] * d.shape[1])
-        collapse = sp.csr_matrix(
-            (weights, (rows, np.arange(weights.size))), shape=(v.size, weights.size)
-        )
-        return sp.csc_matrix(collapse @ grid.operators)
+        return frame_jacobian(grid.operators, weights * chosen[:, None, :])
 
     def solve_laplace(self, grid: MonotoneGrid, rhs: np.ndarray) -> np.ndarray:
         """Solve ``laplace u = rhs`` with the Dirichlet data for the unknowns.

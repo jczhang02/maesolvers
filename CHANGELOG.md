@@ -16,6 +16,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   So `FDMonotone(n=31, stencil=19).solve(T9)` solves the 3D catalogue problems T9 and T22 by semi-smooth Newton; `FDMonotone.dims` is `(2, 3)`, and its `UnsupportedProblemError` names the stencil's dimension when that is what is missing.
   The 19-point arms never leave the box, so `boundary` does not change a 3D solve.
 - `Monotone17.dim`, the dimension of its stencil, and the pure function `stencil_dimension(points)` in `maesolvers.classical.monotone`.
+- The pure function `frame_jacobian(operators, weights)` in `maesolvers.classical.monotone`: `sum over frames p and directions k of diag(weights[p, k]) D_pk`, the sparse assembly of `Monotone17.jacobian`, so a subclass that changes only the coefficients does not repeat it.
 - `angular_resolution(19)`: the covering angle of the 19-point directions on the sphere, `acos(sqrt(2/3))` (about 35.3 degrees, at the body diagonals).
 - `maesolvers.core.transport`, the shared helpers of the second boundary value problem (issue #26), pure numpy functions exported from `maesolvers.core`, for the target sets `Box` (any dimension), `Disk` and `Ellipse` (`TypeError` for another set; the `Domain` protocol is unchanged):
   `signed_distance(target, y)`, the signed distance to the target's boundary, positive outside and negative inside (`H` of Benamou-Froese-Oberman 2014, eq. (3));
@@ -37,8 +38,9 @@ Every change to the public interface is listed here; 0.x may break the interface
   `directional_difference(x, y, direction, g)` is `directional_difference(grid, direction, g)`, with `grid` a `BoxGrid` of any dimension.
   Every 2D result is bit for bit what it was (`benchmarks/check_2d_bit_for_bit.py`, `benchmarks/monotone19.md`).
 - `Newton` starts from `laplace u = d f^(1/d)` in dimension `d`, the bound of the arithmetic and geometric means of the Hessian's eigenvalues; in 2D that is the `2 sqrt(f)` of 0.1, bit for bit.
-- `Hybrid`, `FDHybrid` and `FDFiltered` keep `dims = (2,)` and raise `ValueError` for `stencil=19`: their standard scheme, `Standard9`, is 2D.
-- The comparison table gives `FDMonotone` on T9 the reason `2D stencil` (its default 17-point stencil) and on T10 `2D/3D only`; `benchmarks/comparison.py`'s `unsupported_reason` asks a preset's scheme for the dimension of its stencil.
+- `Hybrid`, `FDHybrid` and `FDFiltered` keep `dims = (2,)` and raise `ValueError` for `stencil=19`, naming themselves: their standard scheme, `Standard9`, is 2D.
+  `Filtered` raises `ValueError` on construction when its parts share no dimension, such as `Standard9` with `Monotone17(stencil=19)`.
+- The comparison table gives `FDMonotone` on T9 the reason `3D: stencil=19` (the runner builds its default 17-point stencil) and on T10 `2D/3D only`; `benchmarks/comparison.py`'s `unsupported_reason` names the stencils of the problem's dimension for a preset on `Monotone17`.
 
 ## 0.1.0 (2026-10-23)
 

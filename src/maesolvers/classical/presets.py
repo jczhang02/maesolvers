@@ -15,8 +15,9 @@ from typing import ClassVar, Generic, Literal, TypeVar
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
-from maesolvers.classical.monotone import Monotone17
+from maesolvers.classical.monotone import Monotone17, stencil_dimension
 from maesolvers.classical.schemes import Standard9
+from maesolvers.core._params import integer
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
 
@@ -131,26 +132,23 @@ class _SquareBoxCheck(Generic[_SquareSchemeT]):
         ------
         UnsupportedProblemError
             If the scheme does not support the problem; the message names the
-            stencil's dimension or the equal sides when one of them is what
-            is missing.
+            equal sides when the preset declares the problem's domain,
+            boundary and dimension.
         """
-        if (
+        if self._declares(problem) and not self.scheme.supports(problem):
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: "
+                f"{type(self.scheme).__name__} needs a Box with equal sides"
+            )
+        super().check(problem)  # type: ignore[misc]
+
+    def _declares(self, problem: Problem) -> bool:
+        """Whether the preset's class declares the problem's domain, boundary and dimension."""
+        return (
             isinstance(problem.domain, self.domains)
             and isinstance(problem.boundary, self.boundaries)
             and problem.dim in (self.dims or ())
-            and not self.scheme.supports(problem)
-        ):
-            stencil = getattr(self.scheme, "stencil", None)
-            dim = getattr(self.scheme, "dim", problem.dim)
-            reason = (
-                f"the {stencil}-point stencil is {dim}D"
-                if dim != problem.dim
-                else f"{type(self.scheme).__name__} needs a Box with equal sides"
-            )
-            raise UnsupportedProblemError(
-                f"{type(self).__name__} does not support {problem.name}: {reason}"
-            )
-        super().check(problem)  # type: ignore[misc]
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -186,6 +184,28 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
         object.__setattr__(self, "jacobian_floor", scheme.jacobian_floor)
         object.__setattr__(self, "spline_degree", scheme.spline_degree)
         super().__post_init__()  # type: ignore[misc]
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the scheme does not support the problem.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            stencil's dimension when that is what is missing, as for a 3D
+            problem with the default 17-point stencil.
+        """
+        if self._declares(problem) and problem.dim != self.scheme.dim:
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: the "
+                f"{self.scheme.stencil}-point stencil is {self.scheme.dim}D"
+            )
+        super().check(problem)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -251,6 +271,11 @@ class _HybridPreset(_SquareBoxCheck[Hybrid]):
     band: float = Hybrid.band
 
     def __post_init__(self) -> None:
+        if stencil_dimension(integer("stencil", self.stencil, 1)) != 2:
+            raise ValueError(
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
+                f"{self.stencil}: its standard scheme, Standard9, is 2D"
+            )
         scheme = Hybrid(
             n=self.n,
             stencil=self.stencil,
@@ -361,7 +386,7 @@ class _FilteredPreset(_SquareBoxCheck[Filtered]):
         )
         if monotone.dim != 2:
             raise ValueError(
-                f"FDFiltered's stencil must be 9, 17 or 33 points, got "
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
                 f"{monotone.stencil}: its accurate scheme, Standard9, is 2D"
             )
         accurate = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
