@@ -277,18 +277,25 @@ class ExactStart(PolicyIteration):
         return problem.exact(context.nodes[context.interior])
 
 
-def solver_for(scheme: str, n: int, **options: Any) -> Solver:
+WIDE_PROBLEMS = ("T21", "T7-half")
+"""Problems on which the mixed scheme takes the wide stencil at many nodes."""
+
+
+def solver_for(scheme: str, n: int, problem: str, **options: Any) -> Solver:
     """The solver of a column: "mixed", "wide only", "everywhere", "exact start"
     or "standard".
 
-    Policy iteration solves each policy's system by sparse LU up to n = 128
-    and by BiCGSTAB with an incomplete LU to a relative residual of 1e-12
-    from n = 256 on, where the LU of the wide stencil fills in: tens of GB,
-    and hours per policy at n = 512.
+    Policy iteration solves each policy's system by sparse LU, except where
+    the wide stencil enters at many nodes ("wide only", "everywhere", T21 and
+    T7-half) from n = 256 on: there the LU fills in (tens of GB and hours per
+    policy at n = 512), and BiCGSTAB with an incomplete LU solves it to a
+    relative residual of 1e-12. Where the LU is cheap it stays, since that
+    tolerance moves the fourth digit of the 7-point errors at n = 512.
     """
     if scheme == "standard":
         return FDPoisson(n=n)
-    iteration = {"krylov_tol": KRYLOV_TOL} if n >= 256 else {}
+    wide = scheme in ("wide only", "everywhere") or problem in WIDE_PROBLEMS
+    iteration = {"krylov_tol": KRYLOV_TOL} if wide and n >= 256 else {}
     if scheme == "mixed":
         return FDMixed(n=n, **options, **iteration)
     if scheme == "exact start":
@@ -345,7 +352,7 @@ def table_row(task: tuple[str, str, int, bool]) -> dict[str, Any]:
     """One row of chen_wan_lin2018.csv or of the Table 5 CSV: a problem, a column, an N."""
     name, scheme, N, log = task
     problem = _problem(name, N)
-    solver = solver_for(scheme, N)
+    solver = solver_for(scheme, N, name)
     result, _ = solve(solver, problem, f"N={N} {scheme}", log)
     info = result.info
     row: dict[str, Any] = {"problem": name, "scheme": scheme, "N": N, "n_cells": N}
@@ -441,7 +448,7 @@ def check_row(task: tuple[str, str, int, dict[str, Any], bool]) -> dict[str, Any
     problem = _problem(name, n, variant.get("mass", SEVEN_POINT_CONE_MASS))
     scheme = variant.get("scheme", "mixed")
     options = {"angles": variant["angles"]} if "angles" in variant else {}
-    solver = solver_for(scheme, n, **options)
+    solver = solver_for(scheme, n, name, **options)
     label = " ".join(f"{k}={v}" for k, v in variant.items())
     result, _ = solve(solver, problem, f"check={check} N={N} {label}", log)
     l2, linf = paper_norms(result)
