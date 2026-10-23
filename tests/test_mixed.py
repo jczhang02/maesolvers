@@ -22,6 +22,7 @@ from maesolvers import (
 from maesolvers.classical.mixed import (
     _directions,
     _wide_differences,
+    _wide_differences_at_angle,
     control_coefficients,
     seven_point_band,
     seven_point_case,
@@ -191,6 +192,21 @@ def test_the_wide_stencil_is_exact_on_a_bilinear_function_up_to_the_boundary():
         e_z, e_w = _directions(np.asarray(theta))
         assert np.allclose(dzz, 2 * e_z[0] * e_z[1], atol=1e-10)
         assert np.allclose(dww, 2 * e_w[0] * e_w[1], atol=1e-10)
+
+
+@pytest.mark.parametrize("n", [9, 40])
+def test_the_shifted_wide_differences_match_the_arm_by_arm_ones(n):
+    """The fast path for one angle against the general one, at every node."""
+    problem = _quadratic_problem([[1.0, 0.3], [0.3, 2.0]])
+    grid = MixedHJB(n=n).discretize(problem)
+    rng = np.random.default_rng(4)
+    u = rng.normal(size=len(grid.nodes))
+    v = u[grid.interior]
+    for theta in (-np.pi / 4, -0.3, 0.0, 0.1, 0.7):
+        fast = _wide_differences_at_angle(grid, grid.index, theta, u, v)
+        reference = _wide_differences(grid, grid.index, np.asarray(theta), u, v)
+        for a, b in zip(fast, reference, strict=True):
+            assert np.allclose(a, b, rtol=1e-12, atol=1e-9)
 
 
 @pytest.mark.parametrize("wide_search", ["outside", "everywhere", "only"])

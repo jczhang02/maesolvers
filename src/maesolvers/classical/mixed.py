@@ -510,6 +510,46 @@ def _wide_differences(
     return out[0], out[1]
 
 
+_CELL = ((0, 0), (1, 0), (0, 1), (1, 1))
+"""Index offsets of the four nodes of an interpolation cell, in the order of ``_Arm``."""
+
+
+def _wide_differences_at_angle(
+    grid: MixedGrid, index: np.ndarray, theta: float, u: np.ndarray, u0: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """:func:`_wide_differences` for one angle at every node of ``index``, by shifts.
+
+    An arm that stays in the box ends at the same offset from every node, so
+    its bilinear weights are four numbers and its values a weighted sum of
+    four shifted copies of the grid values. The nodes whose arms may leave
+    the box, within ``sqrt(h) + h`` of it, go through :func:`_wide_differences`.
+    """
+    n, reach = grid.n, grid.arm / grid.h
+    pad = int(np.ceil(reach)) + 1
+    values = np.pad(u.reshape(n + 1, n + 1), pad)
+    flat = (index[:, 0] - 1) * (n - 1) + index[:, 1] - 1
+    out = []
+    for direction in _directions(np.asarray(theta)):
+        total = -2.0 * u0
+        for sign in (1.0, -1.0):
+            step = sign * reach * direction
+            k = np.floor(step).astype(int)
+            fx, fy = step - k
+            weights = ((1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy)
+            end = sum(
+                w * values[pad + 1 + k[0] + a :, pad + 1 + k[1] + b :][: n - 1, : n - 1]
+                for w, (a, b) in zip(weights, _CELL, strict=True)
+            )
+            total = total + np.ravel(end)[flat]
+        out.append(total / grid.arm**2)
+    near = np.any((index < reach + 1) | (index > n - reach - 1), axis=1)
+    if np.any(near):
+        exact = _wide_differences(grid, index[near], np.asarray(theta), u, u0[near])
+        for d, e in zip(out, exact, strict=True):
+            d[near] = e
+    return out[0], out[1]
+
+
 class _Policy(NamedTuple):
     """The optimal control at every unknown: ``case`` 0 for the wide stencil."""
 
@@ -730,7 +770,7 @@ class MixedHJB(Scheme):
                 rows = rows[~stationary]
         index, f = grid.index[rows], grid.f[rows]
         for angle in grid.angles:
-            dzz, dww = _wide_differences(grid, index, np.asarray(angle), u, v[rows])
+            dzz, dww = _wide_differences_at_angle(grid, index, angle, u, v[rows])
             weight = wide_stencil_weight(
                 dzz, dww, f, angle, restricted=grid.wide_search != "only"
             )
