@@ -14,6 +14,7 @@ from maesolvers import (
     T1,
     T2,
     T8,
+    T9,
     T12,
     DirichletICNN,
     FDFiltered,
@@ -22,6 +23,7 @@ from maesolvers import (
     FDNewton,
     FDPoisson,
     Filtered,
+    Monotone17,
     Newton,
     PenaltyMLP,
     PoissonIteration,
@@ -206,6 +208,22 @@ def test_iterations_validate_tol_and_max_iter(iteration):
         iteration()
 
 
+@pytest.mark.parametrize(
+    ("scheme", "problem"), [(Standard9(n=12), T1), (Monotone17(n=6, stencil=19), T9)]
+)
+def test_newtons_start_is_the_mean_bound_d_f_to_the_one_over_d(scheme, problem):
+    """``laplace u = d f^(1/d)``: ``2 sqrt(f)`` in 2D to the bit, ``3 f^(1/3)`` in 3D."""
+    grid = scheme.discretize(problem)
+    start = Newton(scheme=scheme).initial_guess(problem, grid)
+    f, d = scheme.rhs(grid), problem.dim
+    root = np.sqrt(f) if d == 2 else np.cbrt(f)
+    expected = scheme.solve_laplace(grid, d * root)
+    if d == 2:
+        np.testing.assert_array_equal(start, expected)
+    else:
+        np.testing.assert_allclose(start, expected, rtol=1e-14)
+
+
 def test_newton_and_poisson_reach_different_roots_on_t2():
     """Finding 2: same scheme, two iterations, two discrete solutions."""
     scheme = Standard9(n=32)
@@ -234,15 +252,16 @@ def test_the_registry_lists_the_presets_read_only():
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
-    # The filtered scheme answers through its parts (#23); its narrower part
-    # is the monotone one.
+    # The filtered scheme answers through its parts (#23): the monotone one is
+    # the narrower in domain, the accurate one (2D) in dimension.
     declared = scheme.monotone if isinstance(scheme, Filtered) else scheme
+    dims = scheme.accurate.dims if isinstance(scheme, Filtered) else scheme.dims
     assert (solver.domains, solver.boundaries, solver.dims) == (
         declared.domains,
         declared.boundaries,
-        declared.dims,
+        dims,
     )
-    for problem in (T8, T12, T1):
+    for problem in (T8, T12, T1, T9):
         assert solver().supports(problem) == scheme.supports(problem)
 
 

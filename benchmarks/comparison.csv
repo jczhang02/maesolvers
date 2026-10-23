@@ -122,7 +122,7 @@ TransportICNN,T12,8,,ok,,2.671618e-03,1.217718e-03,,,0.000000e+00,4.985555e-01,4
 TransportICNN,T12,9,,ok,,3.932156e-03,2.205525e-03,,,0.000000e+00,4.988094e-01,4.999999e-01,2.986954e+02,2000,433,False,max_steps,cpu,1,Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz,21970e58627d0e5be6edc40c9f12adbb146c3e0e,"{""class_path"": ""maesolvers.TransportICNN"", ""init_args"": {""accelerator"": ""cpu"", ""adam_lr"": 0.001, ""adam_steps"": 200, ""boundary_points"": 800, ""boundary_weight"": 1.0, ""depth"": 4, ""fit_steps"": 1000, ""fit_tol"": 1e-06, ""init_std"": 1.0, ""interior_points"": 800, ""max_steps"": 2000, ""seed"": 9, ""target_points"": 800, ""tol"": 1e-07, ""width"": 10}}"
 FDNewton,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDPoisson,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
-FDMonotone,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
+FDMonotone,T9,,,unsupported,3D: stencil=19,,,,,,,,,,,,,,,,,
 FDHybrid,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDFiltered,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 PenaltyMLP,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
@@ -139,7 +139,7 @@ DirichletICNN,T9,9,,ok,,1.892198e+03,1.550510e+03,,,0.000000e+00,7.179468e+01,1.
 TransportICNN,T9,,,unsupported,Transport only,,,,,,,,,,,,,,,,,
 FDNewton,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDPoisson,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
-FDMonotone,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
+FDMonotone,T10,,,unsupported,2D/3D only,,,,,,,,,,,,,,,,,
 FDHybrid,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDFiltered,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 PenaltyMLP,T10,,,unsupported,2D only,,,,,,,,,,,,,,,,,
