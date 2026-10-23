@@ -9,6 +9,7 @@ from maesolvers.metrics import (
     _hessian_fd,
     _quantile,
     evaluate,
+    seed_error,
     shared_grid,
     summarize,
     summarize_errors,
@@ -302,11 +303,26 @@ def test_summarize_rejects_bad_input(seeds, threshold):
         summarize([_seed(1.0)] * seeds, threshold)
 
 
+def _diverged(error: float) -> Result:
+    """A neural seed that stopped on a non-finite loss, its network's error finite."""
+    return Result(
+        T1, _shifted(T1, error), info={"converged": False, "stop": "diverged"}
+    )
+
+
 def test_summarize_counts_a_diverged_seed_as_failed():
     """A run that stopped on a non-finite loss fails, its finite error aside (#14)."""
-    diverged = Result(
-        T1, _shifted(T1, 1e-3), info={"converged": False, "stop": "diverged"}
-    )
-    s = summarize([diverged, _seed(1e-3), _seed(1e-3)], threshold=1e-2)
+    results = [_diverged(1e-3), _seed(1e-3), _seed(1e-3)]
+    s = summarize(results, threshold=1e-2)
     assert s.failed == 1 and s.success_rate == pytest.approx(2 / 3)
     assert s.q95 == np.inf and s.median == pytest.approx(1e-3)
+    assert s == summarize_errors([seed_error(r) for r in results], threshold=1e-2)
+
+
+def test_seed_error_is_none_for_a_failed_seed_only():
+    assert seed_error(_seed(1e-3)) == pytest.approx(1e-3)
+    assert seed_error(_seed(1e-3), key="rms") == evaluate(_seed(1e-3))["rms"]
+    for failed in (None, _diverged(1e-3), _seed(np.nan), _seed(np.inf)):
+        assert seed_error(failed) is None
+    budget = Result(T1, _shifted(T1, 1e-3), info={"stop": "max_steps"})
+    assert seed_error(budget) == pytest.approx(1e-3)
