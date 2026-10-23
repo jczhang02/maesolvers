@@ -11,10 +11,11 @@ no matrix, and it builds the sparse Jacobian and the Laplacian factorisation
 only when an iteration asks for them; this keeps grids of ``8192^2`` nodes,
 which the multigrid iteration reaches, within memory.
 
-The kernels are module-level pure functions: :func:`centred_differences`
-(the discrete Hessian's entries at the interior nodes),
-:func:`determinant` and :func:`cofactors` (of a symmetric matrix given by
-its entries) and :func:`smallest_root`, the pointwise solve of the nonlinear
+The grid kernels it evaluates them with, :func:`~maesolvers.classical.grid.centred_differences`,
+:func:`~maesolvers.classical.grid.determinant` and
+:func:`~maesolvers.classical.grid.cofactors`, are in
+:mod:`maesolvers.classical.grid`; its own kernel is the module-level pure
+function :func:`smallest_root`, the pointwise solve of the nonlinear
 Gauss-Seidel iteration, which picks the root with a positive definite
 discrete Hessian (Benamou-Froese-Oberman 2010 in 2D; Liu et al. 2017,
 Theorems 2.1 and 2.2, in 3D).
@@ -22,7 +23,7 @@ Theorems 2.1 and 2.2, in 3D).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, ClassVar
@@ -31,7 +32,14 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical.grid import BoxGrid, second_differences
+from maesolvers.classical.grid import (
+    BoxGrid,
+    Entries,
+    centred_differences,
+    cofactors,
+    determinant,
+    second_differences,
+)
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
@@ -39,121 +47,8 @@ from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, UnsupportedProblemError
 
-Entries = Mapping[tuple[int, int], np.ndarray]
-"""The entries ``(k, l)``, ``k <= l``, of symmetric ``d x d`` matrices, one array each."""
-
 _NEWTON_STEPS = 100
 """Most Newton steps of :func:`smallest_root` in 3D; a simple root takes a handful."""
-
-
-def centred_differences(
-    u: np.ndarray, h: Sequence[float]
-) -> dict[tuple[int, int], np.ndarray]:
-    """Return the centred second differences of node values at the interior nodes.
-
-    The differences of :func:`~maesolvers.classical.grid.second_differences`,
-    computed by slicing the array of node values: ``D_kk`` the 3-point
-    difference along axis ``k``, ``D_kl``, ``k < l``, the 4-point cross
-    difference.
-
-    Parameters
-    ----------
-    u
-        Shape ``(n + 1,) * d``, ``n >= 2``: the values at the nodes.
-    h
-        The spacing along each axis, ``d`` numbers.
-
-    Returns
-    -------
-    dict
-        ``D_kl`` for ``k <= l`` under the key ``(k, l)``, each of shape
-        ``(n - 1,) * d``: at the interior nodes, in the grid's C order.
-    """
-    u = np.asarray(u, dtype=float)
-    d = u.ndim
-    if len(h) != d:
-        raise ValueError(f"h must hold {d} spacings, got {len(h)}")
-
-    def shifted(step: dict[int, int]) -> np.ndarray:
-        index = tuple(
-            slice(1 + step.get(k, 0), u.shape[k] - 1 + step.get(k, 0)) for k in range(d)
-        )
-        return u[index]
-
-    centre = shifted({})
-    out = {}
-    for k in range(d):
-        out[k, k] = (shifted({k: 1}) - 2.0 * centre + shifted({k: -1})) / h[k] ** 2
-        for m in range(k + 1, d):
-            out[k, m] = (
-                shifted({k: 1, m: 1})
-                - shifted({k: 1, m: -1})
-                - shifted({k: -1, m: 1})
-                + shifted({k: -1, m: -1})
-            ) / (4.0 * h[k] * h[m])
-    return out
-
-
-def determinant(a: Entries, d: int) -> np.ndarray:
-    """Return the determinant of symmetric ``d x d`` matrices given by their entries.
-
-    Parameters
-    ----------
-    a
-        The entries ``(k, l)``, ``k <= l``, arrays of one shape.
-    d
-        2 or 3.
-
-    Returns
-    -------
-    numpy.ndarray
-        The determinants, of the entries' shape.
-    """
-    if d == 2:
-        return a[0, 0] * a[1, 1] - a[0, 1] ** 2
-    if d == 3:
-        return (
-            a[0, 0] * a[1, 1] * a[2, 2]
-            + 2.0 * a[0, 1] * a[0, 2] * a[1, 2]
-            - a[0, 0] * a[1, 2] ** 2
-            - a[1, 1] * a[0, 2] ** 2
-            - a[2, 2] * a[0, 1] ** 2
-        )
-    raise ValueError(f"d must be 2 or 3, got {d}")
-
-
-def cofactors(a: Entries, d: int) -> dict[tuple[int, int], np.ndarray]:
-    """Return the cofactors of symmetric ``d x d`` matrices given by their entries.
-
-    The cofactor ``C_kl`` is the derivative of :func:`determinant` with
-    respect to the entry ``a_kl`` of a general matrix, so the derivative of
-    the determinant of a symmetric matrix along a symmetric perturbation
-    ``E`` is ``sum_k C_kk E_kk + 2 sum_{k<l} C_kl E_kl``.
-
-    Parameters
-    ----------
-    a
-        The entries ``(k, l)``, ``k <= l``, arrays of one shape.
-    d
-        2 or 3.
-
-    Returns
-    -------
-    dict
-        ``C_kl`` for ``k <= l`` under the key ``(k, l)``.
-    """
-    if d == 2:
-        return {(0, 0): a[1, 1], (1, 1): a[0, 0], (0, 1): -a[0, 1]}
-    if d == 3:
-        return {
-            (0, 0): a[1, 1] * a[2, 2] - a[1, 2] ** 2,
-            (1, 1): a[0, 0] * a[2, 2] - a[0, 2] ** 2,
-            (2, 2): a[0, 0] * a[1, 1] - a[0, 1] ** 2,
-            (0, 1): a[0, 2] * a[1, 2] - a[0, 1] * a[2, 2],
-            (0, 2): a[0, 1] * a[1, 2] - a[0, 2] * a[1, 1],
-            (1, 2): a[0, 1] * a[0, 2] - a[0, 0] * a[1, 2],
-        }
-    raise ValueError(f"d must be 2 or 3, got {d}")
 
 
 def smallest_root(
@@ -386,7 +281,8 @@ class StandardBox(Scheme):
 
     It provides ``residual``, ``jacobian`` and ``solve_laplace``, so
     :class:`~maesolvers.classical.iterations.Newton` solves it, and
-    :meth:`relax`, the pointwise solve that
+    :meth:`values` and :meth:`relax`, the node values with the boundary data
+    and the pointwise solve, which
     :class:`~maesolvers.classical.multigrid.Multigrid` sweeps with.
 
     Parameters
@@ -489,6 +385,25 @@ class StandardBox(Scheme):
         numpy.ndarray
         """
         return grid.f
+
+    def values(self, grid: BoxContext, v: np.ndarray) -> np.ndarray:
+        """Return the values at every node: the unknowns and the Dirichlet data.
+
+        Parameters
+        ----------
+        grid
+            From :meth:`discretize`.
+        v
+            The unknowns.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``((n + 1)^d,)``, in the flat order of
+            :class:`~maesolvers.classical.grid.BoxGrid`: ``v`` at the
+            interior nodes, the Dirichlet data on the boundary ring.
+        """
+        return grid.values(v)
 
     def residual(self, grid: BoxContext, v: np.ndarray) -> np.ndarray:
         """``det D^2 u - f`` at the unknowns.

@@ -8,10 +8,16 @@ red-black and lexicographic Gauss-Seidel), Table 3 (Example 4.4, T9 on
 and Table 7 (Example 4.7, T22), N = 8 to 128, lexicographic. The published
 values below were checked against the page images.
 
-One row per table, ordering and N. The FMG-FAS columns are
-``FDMultigrid(n=N, ordering=...)`` with its defaults (the paper's: 2 + 2
-sweeps, 1 on the coarsest grid, relative residual 1e-6); ``error`` is the
-max error at the nodes, as ``evaluate`` reports it. ``error_converged`` is
+One row per table, ordering and N. The FMG-FAS columns ``relres``,
+``error``, ``iterations`` and ``time_s`` stop as the paper does, at the
+first cycle whose relative residual is at most 1e-6: :class:`PaperStop`,
+``Multigrid(scheme=StandardBox(n=N), ordering=...)`` with that stopping rule
+and the paper's settings, which are the defaults (2 + 2 sweeps, 1 on the
+coarsest grid); ``error`` is the max error at the nodes, as ``evaluate``
+reports it. The ``default_*`` columns are the preset
+``FDMultigrid(n=N, ordering=...)`` with its own stopping rule, the residual's
+RMS at most ``1e-6 max(1, max |f|)``: its cycles, whether it converged
+within 50, its error and its max residual. ``error_converged`` is
 the error of the discrete solution itself: the FMG cycle and 9 more
 V-cycles, red-black, whatever the relative residual (its reference grows
 like ``N^5`` in 3D, so no fixed tolerance means the same at every N). In
@@ -31,11 +37,17 @@ repository root, writing outside the checkout so the runs see it clean::
         python benchmarks/run_multigrid.py \\
         --out /jczhang02/maesolvers-data/data/multigrid.csv
 
-``--checks`` writes multigrid_checks.csv instead (Findings 3 and 4 of
-``benchmarks/multigrid.md``): T2 at N = 128 to 1024 with the paper's root
-selection and with a smoother that takes a right-hand side ``b <= 0`` as 0,
-both orderings, up to 50 cycles each; and T22 at N = 64 and 128 after 5,
-10, 15, 20 and 30 cycles.
+``--checks`` writes multigrid_checks.csv instead (Findings 1, 3 and 4 and
+the Conventions of ``benchmarks/multigrid.md``), one row per variant of the
+method: T2 at N = 128 to 1024 with the paper's root selection and with a
+smoother that takes a right-hand side ``b <= 0`` as 0 (:class:`ClampedBox`),
+both orderings, up to 50 cycles each at the paper's stopping rule; T22 at
+N = 64 and 128 after 5, 10, 15, 20 and 30 cycles; one FMG cycle,
+lexicographic, with our FMG interpolation and with the 4-point cubic one
+(:class:`KeysFMG`) on T9, T46 and T28 (N = 8 to 128) and T1 and T3
+(N = 128 to 1024); and one FMG cycle, and ten cycles at N = 256, on T1 and
+at N = 64 on T9, from the half-weighted coarse start that Algorithm 1
+step (4) prints (:class:`HalfWeightedStart`).
 
 ``--table4`` writes multigrid_table4.csv instead: T9 on the grids of
 Table 4 (N = 8, 12, 16, 22, 32 cells, so that the unknowns are the printed
@@ -72,7 +84,15 @@ from maesolvers import (
     StandardBox,
     tracking,
 )
-from maesolvers.classical.multigrid import sweep_groups
+from maesolvers.classical.multigrid import (
+    MultigridContext,
+    _operator,
+    _sweep,
+    _with_ring,
+    half_weighting,
+    resample,
+    sweep_groups,
+)
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -80,8 +100,8 @@ CSV = HERE / "multigrid.csv"
 CHECKS_CSV = HERE / "multigrid_checks.csv"
 TABLE4_CSV = HERE / "multigrid_table4.csv"
 
-GS_TOL = 1e-6
-"""The stand-alone Gauss-Seidel solver's relative residual (the paper's 1e-6)."""
+PAPER_TOL = 1e-6
+"""The paper's relative residual, for FMG-FAS and the Gauss-Seidel solver."""
 GS_MAX_SWEEPS = 5000
 GS_LARGEST_N = 32
 """The paper runs its stand-alone Gauss-Seidel solver up to N = 32."""
@@ -179,6 +199,11 @@ FIELDS = (
     "published_iterations",
     "published_time_s",
     "error_after_fmg",
+    "default_iterations",
+    "default_converged",
+    "default_error",
+    "default_residual_max",
+    "default_time_s",
     "error_converged",
     "relres_converged",
     "gs_relres",
@@ -213,13 +238,39 @@ def cases() -> list[tuple[int, str, str, int]]:
     return sorted(out, key=lambda c: -(c[3] ** CATALOGUE[c[1]].dim))
 
 
-def gauss_seidel(problem: Problem, n: int) -> dict[str, float]:
-    """The paper's stand-alone solver: lexicographic sweeps from 1.01 u."""
+@dataclass(frozen=True, kw_only=True)
+class PaperStop(Multigrid):
+    """Multigrid that stops as the paper does: the relative residual at most ``tol``.
+
+    The relative residual is the measure :class:`Multigrid` reports, the
+    residual's RMS over that of the node values that are 0 inside, whose
+    reference grows like ``N^(2d)`` (Finding 2); ``tol`` is the paper's
+    ``1e-6`` by default.
+    """
+
+    def converged(
+        self, problem: Problem, context: MultigridContext, measure: float
+    ) -> bool:
+        """Whether the relative residual is at most ``tol``."""
+        return measure <= self.tol
+
+
+def gauss_seidel(
+    problem: Problem, n: int, max_sweeps: int = GS_MAX_SWEEPS
+) -> dict[str, float]:
+    """The paper's stand-alone solver: lexicographic sweeps from 1.01 u.
+
+    Sweeps of ``StandardBox.relax`` in the lexicographic order until the
+    residual's L2 norm over the unknowns is at most ``PAPER_TOL`` times that
+    of the start, or ``max_sweeps`` sweeps; ``gs_relres`` above ``PAPER_TOL``
+    means it stopped at ``max_sweeps``. ``tests/test_reproduction.py`` pins
+    it.
+    """
     assert problem.exact is not None
     scheme = StandardBox(n=n)
     grid = scheme.discretize(problem)
     box = grid.grid
-    u = grid.values(1.01 * problem.exact(box.nodes[box.interior]))
+    u = scheme.values(grid, 1.01 * problem.exact(box.nodes[box.interior]))
     f = np.zeros(len(u))
     f[box.interior] = grid.f
     groups = sweep_groups(n, box.dim, "lexicographic")
@@ -229,7 +280,7 @@ def gauss_seidel(problem: Problem, n: int) -> dict[str, float]:
 
     start, reference, sweeps = time.perf_counter(), residual(), 0
     relres = 1.0
-    while relres > GS_TOL and sweeps < GS_MAX_SWEEPS:
+    while relres > PAPER_TOL and sweeps < max_sweeps:
         for nodes in groups:
             u[nodes] = scheme.relax(grid, u, f[nodes], nodes)
         sweeps += 1
@@ -246,7 +297,7 @@ def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
     """Run one row of multigrid.csv."""
     table, name, ordering, n = case
     problem = CATALOGUE[name]
-    solver = FDMultigrid(n=n, ordering=ordering)
+    solver = PaperStop(scheme=StandardBox(n=n), ordering=ordering)
     published = PUBLISHED[table, name][n] if ordering == _paper_ordering(table) else ()
     row: dict[str, Any] = {
         "table": table,
@@ -289,6 +340,16 @@ def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
             assert fmg.values is not None and fmg.nodes is not None
             row["error_after_fmg"] = _error(problem, fmg.values, fmg.nodes)
             del fmg
+        default = FDMultigrid(n=n, ordering=ordering).solve(problem)
+        assert default.values is not None and default.nodes is not None
+        row.update(
+            default_iterations=default.info["iterations"],
+            default_converged=default.info["converged"],
+            default_error=_error(problem, default.values, default.nodes),
+            default_residual_max=default.info["residual_max"],
+            default_time_s=default.info["time"],
+        )
+        del default
         tight = FDMultigrid(
             n=n, ordering="red-black", tol=CONVERGED_TOL, max_iter=CONVERGED_CYCLES
         ).solve(problem)
@@ -317,7 +378,8 @@ def run_case(case: tuple[int, str, str, int], log: bool) -> dict[str, Any]:
                 {
                     k: float(v)
                     for k, v in row.items()
-                    if k.startswith(("error_", "gs_", "relres_")) and v != ""
+                    if k.startswith(("error_", "gs_", "relres_", "default_"))
+                    and v != ""
                 }
             )
     else:
@@ -351,11 +413,95 @@ class ClampedBox(StandardBox):
         return super().relax(grid, u, np.maximum(b, 0.0), nodes)
 
 
+def keys_resample(u: np.ndarray, n_to: int) -> np.ndarray:
+    """Interpolate node values onto the grid of twice the cells, 4 points at a time.
+
+    Along each axis the new node at ``x`` (in coarse cells) takes the cubic
+    through the 4 coarse nodes nearest to it, the first of them clamped to
+    ``[0, n - 3]``: the coarse nodes keep their values, an inner midpoint
+    takes ``(-1, 9, 9, -1) / 16`` (Keys' cubic convolution, ``a = -1/2``),
+    the midpoint next to an end ``(5, 15, -5, 1) / 16``. A grid of fewer than
+    3 cells takes the polynomial through all its nodes.
+    """
+    out = np.asarray(u, dtype=float)
+    for k in range(out.ndim):
+        n = out.shape[k] - 1
+        if n_to != 2 * n:
+            raise ValueError(f"keys_resample doubles the cells, {n} to {n_to}")
+        m = min(3, n) + 1  # nodes per stencil
+        x = np.arange(n_to + 1) / 2.0
+        first = np.clip(np.floor(x).astype(int) - 1, 0, n + 1 - m)
+        nodes = first[:, None] + np.arange(m)
+        weights = np.ones((len(x), m))
+        for a in range(m):
+            for b in range(m):
+                if a != b:
+                    weights[:, a] *= (x - nodes[:, b]) / (nodes[:, a] - nodes[:, b])
+        moved = np.moveaxis(out, k, 0)
+        out = np.moveaxis(np.einsum("tm,tm...->t...", weights, moved[nodes]), 0, k)
+    return np.ascontiguousarray(out)
+
+
+@dataclass(frozen=True, kw_only=True)
+class KeysFMG(PaperStop):
+    """PaperStop with :func:`keys_resample` as the FMG interpolation."""
+
+    def interpolate_fmg(self, u: np.ndarray, n_to: int) -> np.ndarray:
+        """:func:`keys_resample` of the coarse solution."""
+        return keys_resample(u, n_to)
+
+
+@dataclass(frozen=True, kw_only=True)
+class HalfWeightedStart(PaperStop):
+    """PaperStop whose coarse problem starts from the half-weighted iterate.
+
+    Algorithm 1, step (4), as printed: ``u_H := I w_h`` (half-weighting) is
+    the start of the coarse cycle, ``w_H := I~ w_h`` (injection) the shift of
+    the FAS right-hand side and of the correction. :class:`Multigrid` starts
+    from ``w_H``. The cycle below is :meth:`Multigrid._cycle` with that one
+    line changed; it uses the module's private helpers.
+    """
+
+    def _cycle(
+        self, levels: Any, index: int, u: np.ndarray, b: np.ndarray
+    ) -> np.ndarray:
+        level = levels[index]
+        if index == len(levels) - 1:
+            _sweep(level, u, b, self.coarsest_sweeps)
+            return u
+        _sweep(level, u, b, self.pre_sweeps)
+        coarse = levels[index + 1]
+        shape, n_coarse = level.grid.shape, coarse.grid.n
+        residual = resample(
+            half_weighting((b - _operator(level, u)).reshape(shape)), n_coarse
+        ).ravel()
+        residual[~coarse.grid.interior] = 0.0
+        w = _with_ring(coarse, resample(u.reshape(shape), n_coarse).ravel())
+        start = resample(half_weighting(u.reshape(shape)), n_coarse).ravel()
+        corrected = self._cycle(
+            levels,
+            index + 1,
+            _with_ring(coarse, start),
+            _operator(coarse, w) + residual,
+        )
+        u += resample((corrected - w).reshape(coarse.grid.shape), level.grid.n).ravel()
+        _sweep(level, u, b, self.post_sweeps)
+        return u
+
+
+VARIANTS: dict[str, Any] = {
+    "paper": PaperStop,
+    "clamped": PaperStop,
+    "keys": KeysFMG,
+    "half-weighted-start": HalfWeightedStart,
+}
+"""The solver class of each variant of multigrid_checks.csv; "clamped" runs on ClampedBox."""
+
 CHECK_FIELDS = (
     "problem",
     "ordering",
     "n",
-    "root",
+    "variant",
     "cycles",
     "error",
     "iterations",
@@ -366,44 +512,64 @@ CHECK_FIELDS = (
 )
 
 CheckCase = tuple[str, str, int, str, int | None]
-"""(problem, ordering, N, root selection, cycles or None for the paper's tolerance)."""
+"""(problem, ordering, N, variant, cycles or None for the paper's stopping rule)."""
 
 
 def checks() -> list[CheckCase]:
     """Every row of multigrid_checks.csv.
 
-    T2 at N = 128 to 1024 with the paper's root selection and with a
-    smoother that clamps b at 0, at the paper's tolerance (Finding 3); T22
-    at N = 64 and 128 after a fixed number of cycles (Finding 4).
+    T2 at N = 128 to 1024, the paper's method and the smoother that clamps
+    b at 0, at the paper's stopping rule (Finding 3); T22 at N = 64 and 128
+    after a fixed number of cycles (Finding 4); one FMG cycle with the
+    paper's and the 4-point cubic FMG interpolation (Finding 1); the
+    half-weighted coarse start (Conventions).
     """
     roots: list[CheckCase] = [
-        ("T2", o, n, r, None)
+        ("T2", o, n, v, None)
         for o in ("red-black", "lexicographic")
         for n in (128, 256, 512, 1024)
-        for r in ("smallest", "clamped")
+        for v in ("paper", "clamped")
     ]
     cycles: list[CheckCase] = [
-        ("T22", o, n, "smallest", k)
+        ("T22", o, n, "paper", k)
         for o in ("red-black", "lexicographic")
         for n in (64, 128)
         for k in (5, 10, 15, 20, 30)
     ]
-    return roots + cycles
+    sizes = {"T9": THREE_D, "T46": THREE_D, "T28": THREE_D}
+    sizes |= {"T1": TWO_D[:4], "T3": TWO_D[:4]}
+    interpolation: list[CheckCase] = [
+        (name, "lexicographic", n, v, 1)
+        for name, ns in sizes.items()
+        for n in ns
+        for v in ("paper", "keys")
+    ]
+    start: list[CheckCase] = [
+        (name, "lexicographic", n, "half-weighted-start", k)
+        for name, ns in (("T1", (128, 256, 512)), ("T9", (64,)))
+        for n in ns
+        for k in (1, 10)
+        if k == 1 or n in (256, 64)
+    ]
+    return roots + cycles + interpolation + start
 
 
 def run_check(case: CheckCase, log: bool) -> dict[str, Any]:
     """Run one row of multigrid_checks.csv."""
-    name, ordering, n, root, cycles = case
+    name, ordering, n, variant, cycles = case
     problem = CATALOGUE[name]
-    scheme = StandardBox(n=n) if root == "smallest" else ClampedBox(n=n)
-    budget = {} if cycles is None else {"tol": CONVERGED_TOL, "max_iter": cycles}
-    result = Multigrid(scheme=scheme, ordering=ordering, **budget).solve(problem)
+    scheme = ClampedBox(n=n) if variant == "clamped" else StandardBox(n=n)
+    budget = {"max_iter": 50} if cycles is None else {"max_iter": cycles}
+    if cycles is not None:
+        budget["tol"] = CONVERGED_TOL
+    solver = VARIANTS[variant](scheme=scheme, ordering=ordering, **budget)
+    result = solver.solve(problem)
     assert result.values is not None and result.nodes is not None
     row = {
         "problem": name,
         "ordering": ordering,
         "n": n,
-        "root": root,
+        "variant": variant,
         "cycles": "" if cycles is None else cycles,
         "error": _error(problem, result.values, result.nodes),
         "iterations": result.info["iterations"],
@@ -415,11 +581,11 @@ def run_check(case: CheckCase, log: bool) -> dict[str, Any]:
     if log:
         import mlflow
 
-        run_name = f"check-{root}-{ordering}-n{n}" + (
+        run_name = f"check-{variant}-{ordering}-n{n}" + (
             "" if cycles is None else f"-cycles{cycles}"
         )
         with tracking.run(
-            f"maesolvers-multigrid-{name}", {"root": root}, run_name=run_name
+            f"maesolvers-multigrid-{name}", {"variant": variant}, run_name=run_name
         ):
             mlflow.log_metrics(
                 {k: float(row[k]) for k in ("error", "iterations", "relres")}
@@ -563,9 +729,10 @@ def report(path: Path) -> None:
             print(f"\nTable {table}, {name} (Example {EXAMPLE[name]}), {ordering}\n")
             print(
                 "| N | Published | Ours | Ratio | Iter (pub., ours) | RelRes (pub., ours)"
-                " | Converged | CPU s (pub., ours) |"
+                " | Converged | CPU s (pub., ours) | FDMultigrid (cycles, converged,"
+                " error) |"
             )
-            print("|---|---|---|---|---|---|---|---|")
+            print("|---|---|---|---|---|---|---|---|---|")
             ns, ours, pub = [], [], []
             for r in sel:
                 ratio = (
@@ -578,7 +745,9 @@ def report(path: Path) -> None:
                     f" | {r['published_iterations']}, {r['iterations']}"
                     f" | {r['published_relres']}, {float(r['relres']):.1e}"
                     f" | {float(r['error_converged']):.3e}"
-                    f" | {r['published_time_s']}, {float(r['time_s']):.1f} |"
+                    f" | {r['published_time_s']}, {float(r['time_s']):.1f}"
+                    f" | {r['default_iterations']}, {r['default_converged']},"
+                    f" {float(r['default_error']):.3e} |"
                 )
                 ns.append(int(r["n"]))
                 ours.append(float(r["error"]))

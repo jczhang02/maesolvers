@@ -6,8 +6,8 @@ that picks the convex root at each node (J. Liu, B. D. Froese, A. M.
 Oberman, M. Xiao, Int. J. Comput. Math. 94 (2017) 1850-1866, Algorithms 1
 and 2). :class:`Multigrid` is an iteration (ADR 0004) for any scheme on a box
 whose unknowns are the interior nodes of a
-:class:`~maesolvers.classical.grid.BoxGrid` and that provides the pointwise
-solve ``relax``, such as
+:class:`~maesolvers.classical.grid.BoxGrid` and that provides the node
+values ``values`` and the pointwise solve ``relax``, such as
 :class:`~maesolvers.classical.standard_box.StandardBox`.
 
 The grid transfers and the sweep orders are module-level pure functions:
@@ -22,6 +22,7 @@ onto a nested coarse grid and the (bi/tri)linear prolongation from it),
 # types of the iteration and its preset (see the note in iterations.py).
 
 import dataclasses
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Protocol, cast
@@ -33,7 +34,6 @@ from scipy.interpolate import make_interp_spline
 from maesolvers.classical.grid import BoxGrid
 from maesolvers.classical.iterations import SchemeIteration
 from maesolvers.core._params import integer
-from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution
@@ -217,6 +217,7 @@ class _MultigridScheme(Protocol):
     """The scheme methods :class:`Multigrid` calls: ``rhs`` and its ``requires``."""
 
     def rhs(self, grid: Any) -> np.ndarray: ...
+    def values(self, grid: Any, v: np.ndarray) -> np.ndarray: ...
     def residual(self, grid: Any, v: np.ndarray) -> np.ndarray: ...
     def relax(
         self, grid: Any, u: np.ndarray, b: np.ndarray, nodes: np.ndarray
@@ -234,9 +235,8 @@ class Level:
     context
         ``scheme.discretize(problem)``.
     grid
-        The box grid of ``n`` cells per side, the layout of the node values.
-    boundary_values
-        The Dirichlet data on the boundary ring.
+        The box grid of ``n`` cells per side, the layout of the node values
+        (its ``shape`` and ``interior`` only).
     f
         The right-hand side at every node, 0 on the ring.
     groups
@@ -246,7 +246,6 @@ class Level:
     scheme: Any
     context: Any
     grid: BoxGrid
-    boundary_values: np.ndarray
     f: np.ndarray
     groups: tuple[np.ndarray, ...]
 
@@ -260,12 +259,17 @@ class MultigridContext:
     levels
         The grids from ``n`` cells per side down to 2.
     reference
-        The discrete L2 norm of the residual of the start of the measure:
-        the node values that are 0 inside and the Dirichlet data on the ring.
+        The RMS over the unknowns of the residual of the node values that
+        are 0 inside, with the boundary data on the ring: the reference of
+        the relative residual.
+    scale
+        ``max(1, max |f|)`` over the unknowns of the finest grid, the scale
+        of the stopping bound.
     """
 
     levels: tuple[Level, ...]
     reference: float
+    scale: float
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -275,31 +279,38 @@ class Multigrid(SchemeIteration):
     The method of Liu, Froese, Oberman and Xiao (2017). The grids have
     ``n``, ``ceil(n/2)``, ... cells per side down to 2, the scheme
     rediscretised on each; for ``n`` a power of 2 they are nested, as in
-    the paper, and the transfers are its own: half-weighting and injection
-    down, multilinear interpolation up. Other ``n`` take the same operators
-    through :func:`resample`, the linear interpolation between the grids.
+    the paper, and the residual goes down by its half-weighting, the
+    iterate by injection and the correction comes up by multilinear
+    interpolation. Other ``n`` take the same operators through
+    :func:`resample`, the linear interpolation between the grids.
 
     The first step is one FMG cycle (Algorithm 2): the coarsest grid's one
     unknown per axis from ``coarsest_sweeps`` sweeps from 0, then on each
-    finer grid the :func:`cubic_resample` of the coarser solution followed
-    by one V-cycle. :meth:`initial_guess` does all of it below the finest
-    grid, so that step 1 is the finest V-cycle, and later steps are further
-    V-cycles (Algorithm 1): ``pre_sweeps`` sweeps, the FAS coarse problem
-    ``S_H(w_H) = S_H(I w) + I r`` solved by the same cycle, its correction
-    interpolated back, and ``post_sweeps`` sweeps. A sweep visits the nodes
-    in the ``ordering`` (:func:`sweep_groups`) and solves each node's
-    equation for its own value with ``scheme.relax``, which picks the root
-    with a positive definite discrete Hessian; this selects the convex
-    solution where Newton's method may reach a non-convex one.
+    finer grid the coarser solution interpolated by :meth:`interpolate_fmg`
+    followed by one V-cycle. :meth:`initial_guess` does all of it below the
+    finest grid, so that step 1 is the finest V-cycle, and later steps are
+    further V-cycles (Algorithm 1): ``pre_sweeps`` sweeps, the FAS coarse
+    problem ``S_H(w_H) = S_H(I w) + I r`` solved by the same cycle from the
+    injected iterate ``w_H = I w``, its correction interpolated back, and
+    ``post_sweeps`` sweeps. (Algorithm 1, step (4), also prints a
+    half-weighted ``I w`` as the coarse start; from it the discrete solution
+    is not a fixed point of the cycle, so ours starts from the injected one,
+    ``benchmarks/multigrid.md``, Conventions.) A sweep visits the nodes in
+    the ``ordering`` (:func:`sweep_groups`) and solves each node's equation
+    for its own value with ``scheme.relax``, which picks the root with a
+    positive definite discrete Hessian; this selects the convex solution
+    where Newton's method may reach a non-convex one.
 
     Parameters
     ----------
     scheme
         A scheme on a box with a field ``n``, whose unknowns are the
         interior nodes of ``BoxGrid(problem.domain, n)`` in flat order and
-        which provides ``residual(grid, v)`` and ``relax(grid, u, b,
-        nodes)``, such as :class:`~maesolvers.classical.standard_box.StandardBox`.
-        The coarse grids take ``dataclasses.replace(scheme, n=...)``.
+        which provides ``values(grid, v)`` (the values at every node, the
+        boundary data on the ring), ``residual(grid, v)`` and
+        ``relax(grid, u, b, nodes)``, such as
+        :class:`~maesolvers.classical.standard_box.StandardBox`. The coarse
+        grids take ``dataclasses.replace(scheme, n=...)``.
     ordering
         ``"lexicographic"`` (the paper's 3D sweep, and its Table 2) or
         ``"red-black"`` (its Table 1).
@@ -311,11 +322,13 @@ class Multigrid(SchemeIteration):
     max_iter
         Most cycles, the FMG cycle included.
     tol
-        Stop when the discrete L2 norm of the residual ``f - S(u)`` is at
-        most ``tol`` times that of the node values that are 0 inside and
-        the Dirichlet data on the ring (the paper's relative residual
-        ``1e-6``, Section 4; it does not name the reference, see
-        ``benchmarks/multigrid.md``).
+        Stop when the RMS over the unknowns of the residual ``S(u) - f`` is
+        at most ``tol * max(1, max |f|)``, a bound that does not depend on
+        the grid (Newton's bound, with the RMS for its max). The history and
+        the callbacks report the paper's relative residual instead, the RMS
+        divided by that of the node values that are 0 inside; the paper
+        stops when it is ``1e-6`` (Section 4), a rule that loosens as ``n``
+        grows (``benchmarks/multigrid.md``, Finding 2).
 
     Raises
     ------
@@ -324,7 +337,7 @@ class Multigrid(SchemeIteration):
     """
 
     measure: ClassVar[str] = "relative_residual"
-    requires: ClassVar[tuple[str, ...]] = ("residual", "relax")
+    requires: ClassVar[tuple[str, ...]] = ("values", "residual", "relax")
 
     ordering: Ordering = "lexicographic"
     pre_sweeps: int = 2
@@ -360,7 +373,12 @@ class Multigrid(SchemeIteration):
         return cast(_MultigridScheme, self.scheme)
 
     def supports(self, problem: Problem) -> bool:
-        """Whether the scheme supports the problem and it is a box with Dirichlet data.
+        """Whether the scheme supports the problem and it is a box with equal sides.
+
+        The pointwise smoother and the isotropic transfers need the same
+        spacing along every axis: on ``Box((0, 0, 0), (1, 2, 0.5))`` a V-cycle
+        cuts the residual by a factor of about 0.75 only, against 0.06 to
+        0.16 on a cube (``docs/methods/multigrid.md``, Known limits).
 
         Parameters
         ----------
@@ -371,10 +389,12 @@ class Multigrid(SchemeIteration):
         -------
         bool
         """
-        return (
-            isinstance(problem.domain, Box)
-            and isinstance(problem.boundary, Dirichlet)
-            and super().supports(problem)
+        domain = problem.domain
+        if not isinstance(domain, Box):
+            return False
+        sides = np.subtract(domain.hi, domain.lo)
+        return bool(np.ptp(sides) <= 1e-12 * np.max(sides)) and super().supports(
+            problem
         )
 
     def setup(self, problem: Problem) -> MultigridContext:
@@ -394,9 +414,7 @@ class Multigrid(SchemeIteration):
         ValueError
             If the scheme's unknowns are not the interior nodes of the box grid.
         """
-        assert isinstance(problem.domain, Box) and isinstance(
-            problem.boundary, Dirichlet
-        )
+        assert isinstance(problem.domain, Box)  # supports guarantees it
         sizes = [int(cast(Any, self.scheme).n)]  # the field __post_init__ checks
         while sizes[-1] > 2:
             sizes.append((sizes[-1] + 1) // 2)
@@ -412,22 +430,21 @@ class Multigrid(SchemeIteration):
                     f"interior nodes of the box grid; {type(scheme).__name__} has "
                     f"{rhs.size} at n = {n}"
                 )
-            f = np.zeros(len(grid.nodes))
+            f = np.zeros(math.prod(grid.shape))
             f[grid.interior] = rhs
             levels.append(
                 Level(
                     scheme=scheme,
                     context=context,
                     grid=grid,
-                    boundary_values=problem.boundary.g(grid.nodes[~grid.interior]),
                     f=f,
                     groups=sweep_groups(n, grid.dim, self.ordering),
                 )
             )
         finest = levels[0]
-        start = _start(finest)
-        reference = _norm(finest.f - _operator(finest, start))
-        return MultigridContext(levels=tuple(levels), reference=reference)
+        reference = _norm(finest, finest.f - _operator(finest, _start(finest)))
+        scale = max(1.0, float(np.max(np.abs(finest.f))))
+        return MultigridContext(levels=tuple(levels), reference=reference, scale=scale)
 
     def initial_guess(self, problem: Problem, context: MultigridContext) -> np.ndarray:
         """FMG below the finest grid, interpolated onto it (Algorithm 2 but its last V-cycle).
@@ -450,7 +467,7 @@ class Multigrid(SchemeIteration):
         levels = context.levels
         if len(levels) == 1:
             return _start(levels[0])[levels[0].grid.interior]
-        u = _interpolate(levels[0], levels[1], self._full_multigrid(levels, 1))
+        u = self._interpolate(levels[0], levels[1], self._full_multigrid(levels, 1))
         return u[levels[0].grid.interior]
 
     def step(
@@ -474,9 +491,9 @@ class Multigrid(SchemeIteration):
             residual is not finite.
         """
         finest = context.levels[0]
-        u = _full(finest, iterate)
+        u = self._scheme.values(finest.context, iterate)
         u = self._cycle(context.levels, 0, u, finest.f)
-        measure = _norm(finest.f - _operator(finest, u)) / context.reference
+        measure = _norm(finest, finest.f - _operator(finest, u)) / context.reference
         if not np.isfinite(measure):
             return None
         return u[finest.grid.interior], measure
@@ -484,7 +501,7 @@ class Multigrid(SchemeIteration):
     def converged(
         self, problem: Problem, context: MultigridContext, measure: float
     ) -> bool:
-        """Whether the relative residual is at most ``tol``.
+        """Whether the residual's RMS is at most ``tol * max(1, max |f|)``.
 
         Parameters
         ----------
@@ -493,13 +510,14 @@ class Multigrid(SchemeIteration):
         context
             From :meth:`setup`.
         measure
-            The relative residual.
+            The relative residual: the residual's RMS over the context's
+            ``reference``.
 
         Returns
         -------
         bool
         """
-        return measure <= self.tol
+        return measure * context.reference <= self.tol * context.scale
 
     def finalize(
         self, problem: Problem, context: MultigridContext, state: np.ndarray
@@ -522,6 +540,28 @@ class Multigrid(SchemeIteration):
         finest = context.levels[0]
         return self.scheme.solution(finest.context, state)
 
+    def interpolate_fmg(self, u: np.ndarray, n_to: int) -> np.ndarray:
+        """Interpolate a coarse grid's solution onto the next finer grid in FMG.
+
+        The paper's "cubic interpolation" (Algorithm 2), which it does not
+        specify further: :func:`cubic_resample`, the tensor-product
+        not-a-knot spline. A subclass may override it; the boundary ring of
+        the result is replaced by the boundary data.
+
+        Parameters
+        ----------
+        u
+            Shape ``(n + 1,) * d``: the node values of the coarse grid.
+        n_to
+            Cells per side of the finer grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n_to + 1,) * d``.
+        """
+        return cubic_resample(u, n_to)
+
     def _full_multigrid(self, levels: Sequence[Level], index: int) -> np.ndarray:
         """Algorithm 2 on ``levels[index]``: the FMG solution there."""
         level = levels[index]
@@ -530,8 +570,15 @@ class Multigrid(SchemeIteration):
             _sweep(level, u, level.f, self.coarsest_sweeps)
             return u
         coarse = levels[index + 1]
-        u = _interpolate(level, coarse, self._full_multigrid(levels, index + 1))
+        u = self._interpolate(level, coarse, self._full_multigrid(levels, index + 1))
         return self._cycle(levels, index, u, level.f)
+
+    def _interpolate(
+        self, fine: Level, coarse: Level, u_coarse: np.ndarray
+    ) -> np.ndarray:
+        """:meth:`interpolate_fmg` onto ``fine``, with the boundary data on its ring."""
+        u = self.interpolate_fmg(u_coarse.reshape(coarse.grid.shape), fine.grid.n)
+        return _with_ring(fine, u.ravel())
 
     def _cycle(
         self, levels: Sequence[Level], index: int, u: np.ndarray, b: np.ndarray
@@ -544,14 +591,12 @@ class Multigrid(SchemeIteration):
         _sweep(level, u, b, self.pre_sweeps)
         coarse = levels[index + 1]
         shape, n_coarse = level.grid.shape, coarse.grid.n
-        ring = ~coarse.grid.interior
         residual = resample(
             half_weighting((b - _operator(level, u)).reshape(shape)), n_coarse
         )
         residual = residual.ravel()
-        residual[ring] = 0.0
-        w = resample(u.reshape(shape), n_coarse).ravel()
-        w[ring] = coarse.boundary_values
+        residual[~coarse.grid.interior] = 0.0
+        w = _with_ring(coarse, resample(u.reshape(shape), n_coarse).ravel())
         corrected = self._cycle(
             levels, index + 1, w.copy(), _operator(coarse, w) + residual
         )
@@ -567,17 +612,16 @@ class Multigrid(SchemeIteration):
 # a right-hand side b is 0 on the ring.
 
 
-def _full(level: Level, v: np.ndarray) -> np.ndarray:
-    """Return the values at every node: the unknowns ``v`` and the Dirichlet data."""
-    u = np.empty(len(level.grid.nodes))
-    u[level.grid.interior] = v
-    u[~level.grid.interior] = level.boundary_values
-    return u
+def _with_ring(level: Level, u: np.ndarray) -> np.ndarray:
+    """Return node values with the scheme's boundary data on the ring."""
+    scheme = cast(_MultigridScheme, level.scheme)
+    return scheme.values(level.context, u[level.grid.interior])
 
 
 def _start(level: Level) -> np.ndarray:
-    """Return the node values 0 inside, with the Dirichlet data on the ring."""
-    return _full(level, np.zeros(np.count_nonzero(level.grid.interior)))
+    """Return the node values 0 inside, with the boundary data on the ring."""
+    scheme = cast(_MultigridScheme, level.scheme)
+    return scheme.values(level.context, np.zeros(np.count_nonzero(level.grid.interior)))
 
 
 def _operator(level: Level, u: np.ndarray) -> np.ndarray:
@@ -599,13 +643,6 @@ def _sweep(level: Level, u: np.ndarray, b: np.ndarray, sweeps: int) -> None:
             u[nodes] = scheme.relax(level.context, u, b[nodes], nodes)
 
 
-def _interpolate(fine: Level, coarse: Level, u_coarse: np.ndarray) -> np.ndarray:
-    """Interpolate coarse node values for FMG, with the Dirichlet data on the ring."""
-    u = cubic_resample(u_coarse.reshape(coarse.grid.shape), fine.grid.n).ravel()
-    u[~fine.grid.interior] = fine.boundary_values
-    return u
-
-
-def _norm(r: np.ndarray) -> float:
-    """Return the RMS of ``r``, the discrete L2 norm up to a factor of the grid."""
-    return float(np.sqrt(np.mean(np.square(r))))
+def _norm(level: Level, r: np.ndarray) -> float:
+    """Return the RMS of node values ``r`` over the unknowns (the discrete L2 norm, scaled)."""
+    return float(np.sqrt(np.mean(np.square(r[level.grid.interior]))))

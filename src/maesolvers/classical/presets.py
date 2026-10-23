@@ -16,7 +16,7 @@ from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
 from maesolvers.classical.monotone import Monotone17, stencil_dimension
-from maesolvers.classical.multigrid import Multigrid, Ordering
+from maesolvers.classical.multigrid import Multigrid
 from maesolvers.classical.schemes import Standard9
 from maesolvers.classical.standard_box import StandardBox
 from maesolvers.core._params import integer
@@ -472,9 +472,10 @@ class FDMultigrid(_StandardBoxPreset, Multigrid):
     ``FDMultigrid(n=n, spline_degree=k, ...)`` is
     ``Multigrid(scheme=StandardBox(n=n, spline_degree=k), ...)``, the
     FMG-FAS method of Liu, Froese, Oberman and Xiao (2017): one full
-    multigrid cycle, then FAS V-cycles until the relative residual is at
-    most ``tol``, with the nonlinear Gauss-Seidel smoother that picks the
-    convex root at each node (``docs/methods/multigrid.md``).
+    multigrid cycle, then FAS V-cycles until the residual meets ``tol``, with
+    the nonlinear Gauss-Seidel smoother that picks the convex root at each
+    node (``docs/methods/multigrid.md``). It supports 2D and 3D boxes with
+    equal sides and Dirichlet data.
 
     Parameters
     ----------
@@ -491,12 +492,11 @@ class FDMultigrid(_StandardBoxPreset, Multigrid):
     max_iter
         Most cycles, the full multigrid cycle included.
     tol
-        Stop when the residual's discrete L2 norm is at most ``tol`` times
-        that of the start (0 inside, the Dirichlet data on the ring).
+        Stop when the RMS of the residual over the unknowns is at most
+        ``tol * max(1, max |f|)``; the history reports the paper's relative
+        residual (:class:`~maesolvers.classical.multigrid.Multigrid`).
     spline_degree
         Degree of the tensor spline that evaluates the solution off the
         nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
         side takes degree ``n``.
     """
-
-    ordering: Ordering = "lexicographic"

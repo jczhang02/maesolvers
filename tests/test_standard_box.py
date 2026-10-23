@@ -21,13 +21,13 @@ from maesolvers import (
     StandardBox,
     UnsupportedProblemError,
 )
-from maesolvers.classical.grid import centred_hessian
-from maesolvers.classical.standard_box import (
+from maesolvers.classical.grid import (
     centred_differences,
+    centred_hessian,
     cofactors,
     determinant,
-    smallest_root,
 )
+from maesolvers.classical.standard_box import smallest_root
 from maesolvers.metrics import evaluate
 
 

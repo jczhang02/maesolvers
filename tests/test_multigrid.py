@@ -163,10 +163,30 @@ def test_cubic_resample_from_two_cells_is_quadratic():
 def test_one_full_multigrid_cycle_reaches_the_discretisation_error(
     problem, bound, ordering
 ):
-    result = Multigrid(scheme=StandardBox(n=16), ordering=ordering).solve(problem)
-    assert result.info["iterations"] == 1 and result.info["converged"]
+    """The paper's "Iter = 1": the relative residual after the FMG cycle is 1e-6 or less."""
+    solver = Multigrid(scheme=StandardBox(n=16), ordering=ordering, max_iter=1)
+    result = solver.solve(problem)
     assert result.info["history"][0] <= 1e-6
     assert evaluate(result)["max"] < bound
+
+
+@pytest.mark.parametrize(("problem", "n", "tol"), [(T1, 256, 1e-10), (T9, 16, 1e-12)])
+def test_the_tolerance_bounds_the_residual_on_any_grid(problem, n, tol):
+    """The stopping bound is on the residual, not on the relative residual,
+    whose reference grows like n^(2d) and which the FMG cycle alone meets for
+    tol = 1e-6 (benchmarks/multigrid.md, Finding 2)."""
+    result = Multigrid(scheme=StandardBox(n=n), tol=tol).solve(problem)
+    assert result.info["history"][0] < 1e-6
+    assert result.info["converged"] and result.info["iterations"] > 1
+    scale = max(1.0, float(np.max(np.abs(StandardBox(n=n).discretize(problem).f))))
+    assert result.info["residual_max"] < tol * scale * n ** (problem.dim / 2)
+
+
+def test_a_bound_below_rounding_is_reported_unconverged():
+    """At n = 256 the residual of T1 stalls near 1e-10 (rounding over h^2)."""
+    result = Multigrid(scheme=StandardBox(n=256), tol=1e-13, max_iter=12).solve(T1)
+    assert result.info["iterations"] == 12 and not result.info["converged"]
+    assert result.info["history"][-1] < 1e-17
 
 
 def test_the_cycles_converge_to_the_root_newton_reaches_from_there():
@@ -262,12 +282,70 @@ def test_it_needs_a_scheme_with_a_field_n():
         Multigrid(scheme=_Cells())
 
 
-def test_it_supports_boxes_with_dirichlet_data_only():
+def test_it_supports_what_its_scheme_supports_on_boxes_with_equal_sides():
     solver = Multigrid(scheme=StandardBox(n=4))
-    assert solver.supports(T1) and solver.supports(T22)
+    assert solver.supports(T1) and solver.supports(T22) and solver.supports(T46)
     assert not solver.supports(T8)
     with pytest.raises(UnsupportedProblemError):
         solver.solve(T8)
+
+
+@pytest.mark.parametrize("hi", [(1.0, 2.0), (1.0, 2.0, 0.5)])
+def test_it_refuses_boxes_with_unequal_sides(hi):
+    """The pointwise smoother converges slowly with unequal spacings."""
+    lo = (0.0,) * len(hi)
+    problem = dataclasses.replace(T1 if len(hi) == 2 else T9, domain=Box(lo, hi))
+    assert StandardBox(n=4).supports(problem)
+    assert not Multigrid(scheme=StandardBox(n=4)).supports(problem)
+    with pytest.raises(UnsupportedProblemError):
+        FDMultigrid(n=4).solve(problem)
+
+
+_RELAXED: list[int] = []
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _CountingBox(StandardBox):
+    """StandardBox that counts the nodes its relax updates."""
+
+    def relax(self, grid, u, b, nodes):
+        _RELAXED.append(len(nodes))
+        return super().relax(grid, u, b, nodes)
+
+
+def test_a_scheme_of_your_own_runs_under_it():
+    _RELAXED.clear()
+    ours = Multigrid(scheme=_CountingBox(n=8), max_iter=2).solve(T1)
+    plain = Multigrid(scheme=StandardBox(n=8), max_iter=2).solve(T1)
+    assert sum(_RELAXED) > 0
+    np.testing.assert_array_equal(ours.values, plain.values)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _MissingNode(StandardBox):
+    """StandardBox whose unknowns are one fewer than the interior nodes."""
+
+    def rhs(self, grid):
+        return grid.f[:-1]
+
+
+def test_it_needs_a_scheme_whose_unknowns_are_the_interior_nodes():
+    with pytest.raises(ValueError, match="interior nodes"):
+        Multigrid(scheme=_MissingNode(n=4)).solve(T1)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _LinearFMG(Multigrid):
+    """Multigrid with the multilinear FMG interpolation."""
+
+    def interpolate_fmg(self, u, n_to):
+        return resample(u, n_to)
+
+
+def test_a_subclass_chooses_the_fmg_interpolation():
+    cubic = Multigrid(scheme=StandardBox(n=16), max_iter=1).solve(T1)
+    linear = _LinearFMG(scheme=StandardBox(n=16), max_iter=1).solve(T1)
+    assert linear.info["history"][0] > cubic.info["history"][0]
 
 
 def test_parameters_are_checked():
