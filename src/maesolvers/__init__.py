@@ -27,6 +27,8 @@ from maesolvers.catalogue import (
     T16,
     T20,
     T22,
+    T28,
+    T46,
 )
 from maesolvers.classical import (
     BoxGrid,
@@ -98,6 +100,8 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "T28",
+    "T46",
     "Adam",
     "Box",
     "BoxGrid",

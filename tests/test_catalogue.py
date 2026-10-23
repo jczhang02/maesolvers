@@ -54,6 +54,8 @@ def test_catalogue_is_keyed_by_t_id():
         "T16",
         "T20",
         "T22",
+        "T28",
+        "T46",
     ]
     assert all(problem.name == key for key, problem in CATALOGUE.items())
 
@@ -100,7 +102,8 @@ def test_every_problem_has_an_exact_solution_or_observables(name):
 
 
 @pytest.mark.parametrize(
-    ("name", "dim"), [("T1", 2), ("T9", 3), ("T10", 4), ("T2", 2), ("T22", 3)]
+    ("name", "dim"),
+    [("T1", 2), ("T9", 3), ("T10", 4), ("T2", 2), ("T22", 3), ("T28", 3)],
 )
 def test_unit_box_problems_have_their_dimension(name, dim):
     assert CATALOGUE[name].domain == Box((0,) * dim, (1,) * dim)
@@ -193,6 +196,18 @@ HAND_VALUES = [
     ("T16", (0.0, 0.0), 4.0 * _Q0**2, (1.0 - 8.0 * np.pi * _Q0) ** 2),
     # At the origin u = -sqrt 3, f = 3 * 3^(-5/2).
     ("T22", (0.0, 0.0, 0.0), -np.sqrt(3.0), 3.0**-1.5),
+    # |x| = 1: u = 1/3, f = 1/16; at (1, 1, 1), |x|^2 = 3: u = 3^(3/4) / 3,
+    # f = 3^(-3/4) / 16.
+    ("T28", (0.48, 0.6, 0.64), 1.0 / 3.0, 1.0 / 16.0),
+    ("T28", (1.0, 1.0, 1.0), 3.0**0.75 / 3.0, 3.0**-0.75 / 16.0),
+    # sin(pi/2) = 1, sin(pi/6) = 1/2, sin 0 = 0.
+    (
+        "T46",
+        (np.pi / 2, np.pi / 6, 0.0),
+        0.5 * (np.pi**2 / 4 + np.pi**2 / 36) - 1.5,
+        2.0 * 1.5 * 1.0,
+    ),
+    ("T46", (np.pi,) * 3, 1.5 * np.pi**2, 1.0),
 ]
 
 
@@ -205,7 +220,8 @@ def test_hand_computed_values(name, point, u, f):
 
 
 @pytest.mark.parametrize(
-    ("name", "point"), [("T2", (1.0, 1.0)), ("T3", (0.0, 0.0)), ("T22", (1.0,) * 3)]
+    ("name", "point"),
+    [("T2", (1.0, 1.0)), ("T3", (0.0, 0.0)), ("T22", (1.0,) * 3), ("T28", (0.0,) * 3)],
 )
 def test_f_is_infinite_at_its_singular_point(name, point):
     problem = CATALOGUE[name]
@@ -218,7 +234,9 @@ def test_f_is_infinite_at_its_singular_point(name, point):
 def test_f_and_exact_are_finite_on_the_shared_grid_away_from_singular_points(name):
     problem = CATALOGUE[name]
     grid = shared_grid(problem.domain)
-    singular = {"T2": (1, 1), "T3": (0, 0), "T22": (1, 1, 1)}.get(name)
+    singular = {"T2": (1, 1), "T3": (0, 0), "T22": (1, 1, 1), "T28": (0, 0, 0)}.get(
+        name
+    )
     if singular is not None:
         grid = grid[np.any(grid != singular, axis=-1)]
     with np.errstate(all="raise"):
