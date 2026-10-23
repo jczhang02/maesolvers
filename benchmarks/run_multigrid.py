@@ -31,10 +31,11 @@ repository root, writing outside the checkout so the runs see it clean::
         python benchmarks/run_multigrid.py \\
         --out /jczhang02/maesolvers-data/data/multigrid.csv
 
-``--checks`` writes multigrid_checks.csv instead (Finding 3 of
+``--checks`` writes multigrid_checks.csv instead (Findings 3 and 4 of
 ``benchmarks/multigrid.md``): T2 at N = 128 to 1024 with the paper's root
 selection and with a smoother that takes a right-hand side ``b <= 0`` as 0,
-both orderings, up to 50 cycles each.
+both orderings, up to 50 cycles each; and T22 at N = 64 and 128 after 5,
+10, 15, 20 and 30 cycles.
 
 ``--report`` prints the markdown tables of ``benchmarks/multigrid.md`` from
 the CSV instead: ours next to the published values, the ratios and the
@@ -340,36 +341,71 @@ CHECK_FIELDS = (
     "ordering",
     "n",
     "root",
+    "cycles",
     "error",
     "iterations",
     "converged",
     "relres",
+    "residual_max",
     "commit",
 )
 
+CheckCase = tuple[str, str, int, str, int | None]
+"""(problem, ordering, N, root selection, cycles or None for the paper's tolerance)."""
 
-def run_check(case: tuple[str, int, str], log: bool) -> dict[str, Any]:
-    """One row of multigrid_checks.csv: T2 with one root selection."""
-    ordering, n, root = case
+
+def checks() -> list[CheckCase]:
+    """Every row of multigrid_checks.csv.
+
+    T2 at N = 128 to 1024 with the paper's root selection and with a
+    smoother that clamps b at 0, at the paper's tolerance (Finding 3); T22
+    at N = 64 and 128 after a fixed number of cycles (Finding 4).
+    """
+    roots: list[CheckCase] = [
+        ("T2", o, n, r, None)
+        for o in ("red-black", "lexicographic")
+        for n in (128, 256, 512, 1024)
+        for r in ("smallest", "clamped")
+    ]
+    cycles: list[CheckCase] = [
+        ("T22", o, n, "smallest", k)
+        for o in ("red-black", "lexicographic")
+        for n in (64, 128)
+        for k in (5, 10, 15, 20, 30)
+    ]
+    return roots + cycles
+
+
+def run_check(case: CheckCase, log: bool) -> dict[str, Any]:
+    """Run one row of multigrid_checks.csv."""
+    name, ordering, n, root, cycles = case
+    problem = CATALOGUE[name]
     scheme = StandardBox(n=n) if root == "smallest" else ClampedBox(n=n)
-    result = Multigrid(scheme=scheme, ordering=ordering).solve(CATALOGUE["T2"])
+    budget = {} if cycles is None else {"tol": CONVERGED_TOL, "max_iter": cycles}
+    result = Multigrid(scheme=scheme, ordering=ordering, **budget).solve(problem)
     assert result.values is not None and result.nodes is not None
     row = {
-        "problem": "T2",
+        "problem": name,
         "ordering": ordering,
         "n": n,
         "root": root,
-        "error": _error(CATALOGUE["T2"], result.values, result.nodes),
+        "cycles": "" if cycles is None else cycles,
+        "error": _error(problem, result.values, result.nodes),
         "iterations": result.info["iterations"],
         "converged": result.info["converged"],
         "relres": result.info["history"][-1],
+        "residual_max": result.info["residual_max"],
         "commit": tracking.git_tags()["mlflow.source.git.commit"],
     }
     if log:
         import mlflow
 
-        name = f"check-{root}-{ordering}-n{n}"
-        with tracking.run("maesolvers-multigrid-T2", {"root": root}, run_name=name):
+        run_name = f"check-{root}-{ordering}-n{n}" + (
+            "" if cycles is None else f"-cycles{cycles}"
+        )
+        with tracking.run(
+            f"maesolvers-multigrid-{name}", {"root": root}, run_name=run_name
+        ):
             mlflow.log_metrics(
                 {k: float(row[k]) for k in ("error", "iterations", "relres")}
             )
@@ -377,7 +413,7 @@ def run_check(case: tuple[str, int, str], log: bool) -> dict[str, Any]:
     return row
 
 
-def _check_work(args: tuple[tuple[str, int, str], bool]) -> dict[str, Any]:
+def _check_work(args: tuple[CheckCase, bool]) -> dict[str, Any]:
     return run_check(*args)
 
 
@@ -389,21 +425,15 @@ def main(argv: Iterable[str] | None = None) -> None:
     parser.add_argument("--largest", type=int, default=None, help="skip larger N")
     parser.add_argument("--out", type=Path, default=CSV)
     parser.add_argument("--report", action="store_true", help="print the md tables")
-    parser.add_argument("--checks", action="store_true", help="the root selection")
+    parser.add_argument("--checks", action="store_true", help="Findings 3 and 4")
     args = parser.parse_args(None if argv is None else list(argv))
     if args.report:
         report(args.out)
         return
     if args.checks:
-        checks = [
-            (o, n, r)
-            for o in ("red-black", "lexicographic")
-            for n in (128, 256, 512, 1024)
-            for r in ("smallest", "clamped")
-        ]
         with ProcessPoolExecutor(args.workers) as pool:
             rows = list(
-                pool.map(_check_work, [(c, not args.no_mlflow) for c in checks])
+                pool.map(_check_work, [(c, not args.no_mlflow) for c in checks()])
             )
         with (CHECKS_CSV if args.out == CSV else args.out).open("w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=CHECK_FIELDS)
