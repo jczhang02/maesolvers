@@ -12,6 +12,7 @@ from maesolvers import (
     SOLVERS,
     T1,
     T2,
+    T4,
     T8,
     Box,
     Dirichlet,
@@ -274,6 +275,17 @@ def test_the_wide_search_mode_decides_where_the_wide_stencil_competes():
     )
     assert outside.info["wide_fraction"] == 0.0 < everywhere.info["wide_fraction"]
     assert evaluate(outside)["max"] < evaluate(everywhere)["max"]
+
+
+def test_policy_iteration_cycles_on_t4_under_the_default_rule_only():
+    """On the discontinuous f of T4 the default rule makes policy iteration
+    cycle at n = 64 (benchmarks/chen_wan_lin2018.md, Finding 7); the
+    monotone maximum converges."""
+    default = FDMixed(n=64).solve(T4)
+    assert not default.info["converged"]
+    assert default.info["iterations"] == 100 and default.info["residual_max"] > 1.0
+    everywhere = FDMixed(n=64, wide_search="everywhere").solve(T4)
+    assert everywhere.info["converged"] and everywhere.info["iterations"] < 20
 
 
 def test_newton_on_the_scheme_reaches_the_policy_iteration_root():

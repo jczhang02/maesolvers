@@ -18,7 +18,11 @@ sqrt(h^2 sum e^2) over the nodes, which matches its tables (Finding 1).
 With --checks it writes chen_wan_lin2018_checks.csv instead, the evidence for
 the findings: the grid convention (n = N against n = N + 1), the search of
 the wide-stencil controls at every node, the discrete Dirac mass of the cone,
-the number of angles, and policy iteration from the exact solution.
+the number of angles, and policy iteration from the exact solution. With
+--cycling it writes chen_wan_lin2018_cycling.csv, the evidence on the default
+rule's cycling (Findings 6 and 7): the default rule from the root of
+wide_search="everywhere" on Table 5's problem at N = 256, and both rules on
+the catalogue's T4 at n = 16 to 128.
 
 Every solve is one MLflow run in maesolvers-mixed-<problem> unless
 --no-mlflow is given. The solves run in --processes worker processes
@@ -31,6 +35,8 @@ a100server from the repository root::
         python benchmarks/run_chen_wan_lin2018.py --checks
     just remote-bg cwl-table5 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
         python benchmarks/run_chen_wan_lin2018.py --table5
+    just remote-bg cwl-cycling env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+        python benchmarks/run_chen_wan_lin2018.py --cycling
 """
 
 from __future__ import annotations
@@ -48,6 +54,7 @@ from run_monotone17 import printed, published_value, write
 from maesolvers import (
     T1,
     T2,
+    T4,
     Box,
     Dirichlet,
     FDMixed,
@@ -60,6 +67,7 @@ from maesolvers import (
     T20c,
     tracking,
 )
+from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
 NS = (32, 64, 128, 256, 512)
@@ -125,7 +133,13 @@ T7_HALF = Problem(
     "under x -> 2x, u -> (u - 1)/4.",
 )
 
-PROBLEMS = {"T1-square": T1_SQUARE, "T2": T2, "T20c": T20c, "T7-half": T7_HALF}
+PROBLEMS = {
+    "T1-square": T1_SQUARE,
+    "T2": T2,
+    "T4": T4,
+    "T20c": T20c,
+    "T7-half": T7_HALF,
+}
 
 
 def _sci(*values: str, power: int) -> tuple[tuple[str, int], ...]:
@@ -284,13 +298,31 @@ class ExactStart(PolicyIteration):
         return problem.exact(context.nodes[context.interior])
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class RootStart(PolicyIteration):
+    """Policy iteration from the root that ``start`` reaches (Finding 6).
+
+    Its first residual, ``Result.info["history"][0]``, is the residual of
+    this scheme at that root.
+    """
+
+    start: PolicyIteration
+
+    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
+        """The unknowns at which ``start`` converges."""
+        begun = self.start.run(problem, self.start.setup(problem), ())
+        assert begun.converged, "the start did not converge"
+        return begun.state
+
+
 WIDE_PROBLEMS = ("T21", "T7-half")
 """Problems on which the mixed scheme takes the wide stencil at many nodes."""
 
 
 def solver_for(scheme: str, n: int, problem: str, **options: Any) -> Solver:
-    """The solver of a column: "mixed", "wide only", "everywhere", "exact start"
-    or "standard".
+    """The solver of a column: "mixed", "wide only", "everywhere", "exact start",
+    "everywhere start" (the default rule from the root of "everywhere") or
+    "standard".
 
     Policy iteration solves each policy's system by sparse LU, except where
     the wide stencil enters at many nodes ("wide only", "everywhere", T21 and
@@ -302,12 +334,17 @@ def solver_for(scheme: str, n: int, problem: str, **options: Any) -> Solver:
     """
     if scheme == "standard":
         return FDPoisson(n=n, max_iter=POISSON_MAX_ITER)
-    wide = scheme in ("wide only", "everywhere") or problem in WIDE_PROBLEMS
+    wide = scheme in ("wide only", "everywhere", "everywhere start")
+    wide = wide or problem in WIDE_PROBLEMS
     iteration = {"krylov_tol": KRYLOV_TOL} if wide and n >= 256 else {}
     if scheme == "mixed":
         return FDMixed(n=n, **options, **iteration)
     if scheme == "exact start":
         return ExactStart(scheme=MixedHJB(n=n, **options), **iteration)
+    if scheme == "everywhere start":
+        start = solver_for("everywhere", n, problem, **options)
+        assert isinstance(start, PolicyIteration)
+        return RootStart(scheme=MixedHJB(n=n, **options), start=start, **iteration)
     wide_search = "only" if scheme == "wide only" else scheme
     return PolicyIteration(
         scheme=MixedHJB(n=n, wide_search=wide_search, **options), **iteration
@@ -517,9 +554,53 @@ CHECK_TASKS: list[tuple[str, str, int, dict[str, Any]]] = [
 """(check, problem, N, variant) of every row of chen_wan_lin2018_checks.csv."""
 
 
+def cycling_row(task: tuple[str, str, int, bool]) -> dict[str, Any]:
+    """One row of chen_wan_lin2018_cycling.csv: a problem, a column, n cells per side.
+
+    The errors are those of ``evaluate``; ``first_residual`` is the residual
+    at the start, the residual of the default rule at the root of
+    "everywhere" in the "everywhere start" column.
+    """
+    name, scheme, n, log = task
+    result, _ = solve(
+        solver_for(scheme, n, name), PROBLEMS[name], f"N={n} {scheme}", log
+    )
+    info = result.info
+    measured = evaluate(result)
+    row = {
+        "problem": name,
+        "scheme": scheme,
+        "n_cells": n,
+        "max": f"{measured['max']:.6e}" if "max" in measured else "",
+        "eigmin": f"{measured['eigmin']:.4g}",
+        "u_origin": f"{origin_value(result):.6f}" if name == "T7-half" else "",
+        "iterations": info["iterations"],
+        "converged": info["converged"],
+        "first_residual": f"{info['history'][0]:.3e}",
+        "residual_max": f"{info['residual_max']:.3e}",
+        "wide_fraction": info["wide_fraction"],
+        "history": " ".join(f"{r:.3e}" for r in info["history"]),
+        "time_s": f"{info['time']:.2f}",
+    }
+    print(f"cycling {name} {scheme} n={n}: converged {info['converged']}", flush=True)
+    return row
+
+
+CYCLING_TASKS: list[tuple[str, str, int]] = [
+    ("T7-half", "everywhere start", 256),
+    *(
+        ("T4", scheme, n)
+        for scheme in ("mixed", "everywhere")
+        for n in (16, 32, 48, 64, 96, 128)
+    ),
+]
+"""(problem, column, n) of every row of chen_wan_lin2018_cycling.csv."""
+
+
 def _cost(name: str, scheme: str, N: int) -> int:
     """Rough cost of a solve, to start the longest first: a wide search costs N more."""
-    wide = scheme in ("wide only", "everywhere") or name in ("T21", "T20c", "T7-half")
+    wide = scheme in ("wide only", "everywhere", "everywhere start")
+    wide = wide or name in ("T21", "T20c", "T7-half")
     return N * N * (N if wide else 1)
 
 
@@ -540,12 +621,19 @@ def main() -> None:
     which.add_argument(
         "--table5", action="store_true", help="write chen_wan_lin2018_table5.csv only"
     )
+    which.add_argument(
+        "--cycling", action="store_true", help="write chen_wan_lin2018_cycling.csv only"
+    )
     args = parser.parse_args()
     log = not args.no_mlflow
     if args.checks:
         tasks: list[tuple[Any, ...]] = list(CHECK_TASKS)
         costs = [_cost(t[1], t[3].get("scheme", "mixed"), t[2]) for t in tasks]
         worker, path = check_row, HERE / "chen_wan_lin2018_checks.csv"
+    elif args.cycling:
+        tasks = list(CYCLING_TASKS)
+        costs = [_cost(*t) for t in tasks]
+        worker, path = cycling_row, HERE / "chen_wan_lin2018_cycling.csv"
     else:
         tasks = list(TABLE5_TASKS if args.table5 else TABLE_TASKS)
         costs = [_cost(*t) for t in tasks]
