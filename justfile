@@ -38,6 +38,10 @@ check:
     uv run --exact pytest -q -m "not neural"
     uv run --exact --extra cli --group experiments --group neural-cpu pytest -q
 
+# Rewrite the README comparison table from benchmarks/comparison.csv (a test checks it)
+comparison-table:
+    uv run python benchmarks/comparison.py
+
 # One-time a100server setup: bare repo, clone, data dirs, local remote
 server-init:
     ssh {{ server }} 'set -e; test -d {{ bare }} || git init -q --bare -b main {{ bare }}; mkdir -p {{ data }}/logs {{ data }}/data'

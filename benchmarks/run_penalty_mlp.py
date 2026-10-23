@@ -45,7 +45,7 @@ from pathlib import Path
 import numpy as np
 
 from maesolvers import CATALOGUE, PenaltyMLP, tracking
-from maesolvers.metrics import evaluate, summarize_errors
+from maesolvers.metrics import evaluate, seed_error, summarize_errors
 from maesolvers.neural import sample_interior
 
 HERE = Path(__file__).parent
@@ -116,7 +116,11 @@ def boundary_split(solver, result, n: int = POINTS // 10) -> dict[str, float]:
 
 
 def run_seed(problem_id: str, seed: int, options: dict, label: str) -> dict:
-    """Train one seed, log it to MLflow, and return its CSV row."""
+    """Train one seed, log it to MLflow, and return its CSV row.
+
+    The row also holds ``failed``, not a CSV column: whether the seed failed
+    by the rule of :func:`~maesolvers.metrics.seed_error`.
+    """
     import mlflow
     import torch
 
@@ -162,10 +166,11 @@ def run_seed(problem_id: str, seed: int, options: dict, label: str) -> dict:
         "time": info["time"],
         "device": info["device"],
         "threads": info["threads"],
+        "failed": seed_error(result) is None,
     }
 
 
-def band(values: list[float]) -> str:
+def band(values: list[float | None]) -> str:
     """Median and 5% to 95% quantiles over the seeds, a failed seed as inf (ADR 0007)."""
     s = summarize_errors(values, threshold=np.inf)
     return f"{s.median:.3e} [{s.q05:.3e}, {s.q95:.3e}], {s.failed} failed"
@@ -200,10 +205,15 @@ def main() -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(
-                {k: f"{v:.6e}" if isinstance(v, float) else v for k, v in row.items()}
+                {
+                    k: f"{v:.6e}" if isinstance(v, float) else v
+                    for k, v in row.items()
+                    if k in FIELDS
+                }
             )
     for key in FIELDS[2:10]:
-        print(f"{args.problem} {key}: {band([r[key] for r in rows])}")
+        values = [None if r["failed"] else r[key] for r in rows]
+        print(f"{args.problem} {key}: {band(values)}")
     stops = [r["stop"] for r in rows]
     print(f"stops: {dict((s, stops.count(s)) for s in sorted(set(stops)))}")
     print(f"fits converged: {sum(r['fits_converged'] for r in rows)} of {len(rows)}")

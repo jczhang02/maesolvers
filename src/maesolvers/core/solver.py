@@ -82,7 +82,9 @@ class Solution:
     info
         Method-specific entries for ``Result.info``; must not use the keys
         the base class sets (``time``, ``iterations``, ``converged``,
-        ``history``, ``unknowns``).
+        ``history``, ``unknowns``). ``stop`` has the meaning
+        :class:`~maesolvers.core.result.Result` gives it: set
+        ``"stop": "diverged"`` for a run that failed.
     """
 
     u: Field

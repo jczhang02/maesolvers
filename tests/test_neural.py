@@ -30,7 +30,7 @@ from maesolvers import (  # noqa: E402
     UniformSampler,
     tracking,
 )
-from maesolvers.metrics import evaluate  # noqa: E402
+from maesolvers.metrics import evaluate, seed_error  # noqa: E402
 from maesolvers.neural import (  # noqa: E402
     Batch,
     Collocation,
@@ -219,6 +219,7 @@ def test_a_non_finite_loss_stops_the_training_as_diverged():
     result = _composed(loss=NotANumber()).solve(T1)
     assert result.info["stop"] == "diverged" and not result.info["converged"]
     assert result.info["iterations"] == 0
+    assert seed_error(result) is None  # a failed seed for summarize (ADR 0007)
 
 
 def test_a_step_that_changes_nothing_stops_the_training_as_stalled():

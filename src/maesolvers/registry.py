@@ -18,14 +18,15 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
     {
         cls.__name__: cls
         for cls in (
-            FDFiltered,
-            FDHybrid,
-            FDMonotone,
             FDNewton,
             FDPoisson,
+            FDMonotone,
+            FDHybrid,
+            FDFiltered,
             PenaltyMLP,
             DirichletICNN,
         )
     }
 )
-"""Every preset by class name, read-only."""
+"""Every preset by class name, read-only: the classical presets, then the
+neural ones, each in the order they were added."""

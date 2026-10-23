@@ -3,7 +3,7 @@
 :func:`evaluate` measures one :class:`~maesolvers.core.result.Result` the same
 way for every method; :func:`summarize` aggregates the seeds of one method on
 one problem, and :func:`summarize_errors` does the same for errors measured
-elsewhere.
+elsewhere, one per seed by :func:`seed_error`.
 """
 
 from __future__ import annotations
@@ -288,11 +288,50 @@ def _quantile(sorted_values: np.ndarray, q: float) -> float:
     return a + frac * (b - a)
 
 
+def seed_error(result: Result | None, key: str = "max") -> float | None:
+    """Return the error of one seed as :func:`summarize` counts it, None if it failed.
+
+    A seed fails when it has no result (it timed out or crashed), when its
+    run stopped as ``"diverged"`` (``info["stop"]``, which
+    :class:`~maesolvers.core.result.Result` defines for every solver; ADR
+    0007 names divergence a failure, so the run fails even with a finite
+    error, such as a neural run that returns the network from before a
+    non-finite loss), or when its error is NaN or infinite. A run that stops
+    unconverged with a finite error, at its step budget or because a step
+    changed nothing, does not fail.
+
+    Parameters
+    ----------
+    result
+        The seed's result, ``None`` for a seed that gave no result.
+    key
+        The :func:`evaluate` field to return.
+
+    Returns
+    -------
+    float or None
+        ``evaluate(result)[key]``, or ``None`` for a failed seed.
+
+    Raises
+    ------
+    KeyError
+        If :func:`evaluate` does not report ``key`` for the result, as for a
+        problem without an exact solution.
+    """
+    if result is None or result.info.get("stop") == "diverged":
+        return None
+    error = float(evaluate(result)[key])
+    return error if np.isfinite(error) else None
+
+
 def summarize_errors(errors: Sequence[float | None], threshold: float) -> Summary:
-    """Aggregate one error per seed, with the failed-seed rule of :func:`summarize`.
+    """Aggregate one error per seed, measured elsewhere, as :func:`summarize` does.
 
     For errors measured elsewhere, such as in the worker processes of a
     benchmark script, where the results themselves cannot be sent back.
+    Measure each seed with :func:`seed_error`, so that a failed seed, a run
+    that stopped as ``"diverged"`` included, comes as ``None``; this function
+    cannot see how a run stopped.
 
     Parameters
     ----------
@@ -334,12 +373,12 @@ def summarize(
 ) -> Summary:
     """Aggregate the seeds of one method on one problem (ADR 0007).
 
-    Each result is measured with :func:`evaluate`. A failed seed (``None``,
-    for a seed that timed out or crashed and so has no result, or a NaN or
-    infinite error) counts with error ``+inf`` and is never dropped, so when
-    more than half the seeds fail the median is ``inf``. With an even number
-    of seeds the median is the mean of the middle two, so exactly half failed
-    also gives ``inf``.
+    Each result is measured with :func:`seed_error`. A failed seed (``None``,
+    for a seed that timed out or crashed and so has no result, a run that
+    stopped as ``"diverged"``, or a NaN or infinite error) counts with error
+    ``+inf`` and is never dropped, so when more than half the seeds fail the
+    median is ``inf``. With an even number of seeds the median is the mean of
+    the middle two, so exactly half failed also gives ``inf``.
 
     A run that stops unconverged with a finite error, at its step budget
     (``info["stop"] == "max_steps"`` for a neural solver) or because a step
@@ -347,9 +386,7 @@ def summarize(
     enters the quantiles at its error, and ``threshold`` decides whether it
     counts in ``success_rate``. Neural training budgets are often spent
     before the gradient tolerance is met, so counting these runs as failed
-    would leave no band to report. Whether a neural run that stopped as
-    ``"diverged"`` (a non-finite loss, with the finite network of the step
-    before) should count as failed is open in issue #14.
+    would leave no band to report.
 
     Parameters
     ----------
@@ -374,6 +411,4 @@ def summarize(
     """
     if len(results) == 0:
         raise ValueError("summarize needs at least one seed")
-    return summarize_errors(
-        [None if r is None else float(evaluate(r)[key]) for r in results], threshold
-    )
+    return summarize_errors([seed_error(r, key) for r in results], threshold)

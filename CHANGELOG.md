@@ -60,13 +60,19 @@ Every change to the public interface is listed here; 0.x may break the interface
 - `maesolvers.core.nonnegative(name, value)`, the parameter check for a weight that 0 turns off.
 - `maesolvers.core.boolean(name, value)`, the parameter check for a flag: a Python or numpy bool, returned as a plain `bool`; an int such as 1 raises `TypeError`.
 - `maesolvers.core.check_part(owner, part, base)`, the check that a part passed to a solver or to another part is an instance of a well-defined subclass of its base (it was private to the classical iterations), for parts of your own that take parts.
-- `maesolvers.metrics.summarize_errors(errors, threshold)`: `summarize` for errors measured elsewhere, such as in worker processes, with the same failed-seed rule.
+- `maesolvers.metrics.summarize_errors(errors, threshold)`: `summarize` for errors measured elsewhere, such as in worker processes; it cannot see how a run stopped, so measure each seed with `seed_error`, which gives None for a run that stopped as `"diverged"`, and the two agree.
   `summarize` now states the rule for a run that stops at its step budget: a normal seed, not a failed one.
+- `maesolvers.metrics.seed_error(result, key="max")`: one seed's error as `summarize` counts it, None for a failed seed (no result, a run that stopped as `"diverged"`, or a NaN or infinite error); `summarize` uses it, and the benchmark scripts pass its values to `summarize_errors`.
 - The `neural-cpu` dependency group: the neural extra with torch from the PyTorch CPU index, used by CI and `just check`.
+- The comparison table (issue #14): `benchmarks/run_comparison.py` runs every preset of `SOLVERS` with its defaults on the shared test set on a100server, the classical ones on the grid `n = 361`, the neural ones over seeds 0 to 9, and writes `benchmarks/comparison.csv`, each row with the preset's `hparams` and the machine; `benchmarks/comparison.py` (`just comparison-table`) writes README's tables of the max error, the non-convex fraction and the time from it, with notes derived from the rows, and a test checks that README is current and that the CSV covers every preset and problem with the presets' current `hparams`.
+  A neural seed counts as a success when its max error is below 1% of the exact solution's oscillation `max u - min u` on the shared evaluation grid, which a constant added to `u` does not change.
 
 ### Changed
 
 - `Newton` has the new field `start` (see Added), so the configuration and `hparams` of a bare `Newton` carry `"start": None`, and `tracking.flatten` logs it; the presets' `hparams` are unchanged.
+- `summarize` counts a seed whose `Result.info["stop"]` is `"diverged"` (a neural run that stopped on a non-finite loss) as failed, through `seed_error`, with error `+inf`, though the network it returns, that of the step before, has a finite error (ADR 0007; it was left open to #14).
+- `Result.info["stop"]` is part of the core contract (ADR 0007): when present it says why the run ended, and its value `"diverged"` marks a failed run for every solver, which `summarize` and `seed_error` count as failed; it was documented only for `NeuralSolver`, which sets it as before.
+- `SOLVERS` lists the classical presets, then the neural ones, each in the order they were added: `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid`, `FDFiltered`, `PenaltyMLP`, `DirichletICNN`; the comparison table's columns follow it.
 - `Standard9.residual` (and so `Standard9.jacobian` and `Result.info["residual_max"]`) multiplies each equation next to a curved boundary by the smallest step fraction of its stencil; on a box and at every node with a full stencil the factor is 1, so nothing changes there.
 - `Standard9`'s `UnsupportedProblemError` message lists the four domains.
 - `Standard9(spline_degree=k)` (and the presets) accept any `k` from 1 to 5 whatever `n`; on a box with fewer than `k` cells per side the spline takes degree `n`, so `FDNewton(n=2)` no longer raises.
