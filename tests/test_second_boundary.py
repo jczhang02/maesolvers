@@ -15,6 +15,7 @@ from maesolvers import (
     T12,
     T16,
     Box,
+    CutQuarterDisk,
     Disk,
     Ellipse,
     FDTransport,
@@ -198,6 +199,8 @@ def test_the_scheme_supports_transport_problems_in_a_square():
     assert not small.supports(ellipse)  # the square does not hold the domain
     unknown = Problem("t", SQUARE, _constant(1.0), Transport(Ellipse((0, 0), (1, 1))))
     assert scheme.supports(unknown)
+    nowhere = Problem("t", SQUARE, _constant(1.0), Transport(CutQuarterDisk()))
+    assert not scheme.supports(nowhere)  # no support function for this target
     with pytest.raises(UnsupportedProblemError, match="SecondBoundary"):
         scheme.discretize(T1)
 
