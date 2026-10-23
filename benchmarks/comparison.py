@@ -89,14 +89,15 @@ grid, which a constant added to ``u`` does not change."""
 
 
 PLANNED = {
-    "Dirichlet only": "transport boundary conditions",
     "2D only": "n-dimensional boxes",
 }
-"""The unsupported reasons that the roadmap's 0.2 removes for the
+"""The unsupported reasons that the roadmap's 0.2 still removes for the
 finite-difference presets, by the feature that removes them (README, Roadmap;
-the scope of issue #14). The neural presets keep them: 0.2 plans no neural
-transport preset, and ``PenaltyMLP`` stays 2D only, as its penalty makes the
-network convex only in 2D."""
+the scope of issue #14). Transport boundary conditions came to them as one
+preset of its own, ``FDTransport``, so the other presets keep ``Dirichlet
+only``. The neural presets keep their reasons: 0.2 plans no neural transport
+preset, and ``PenaltyMLP`` stays 2D only, as its penalty makes the network
+convex only in 2D."""
 
 
 def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
