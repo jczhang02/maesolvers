@@ -624,7 +624,8 @@ Pass the method's own gradient where it has one, such as the differences of a gr
 
 A solver supports transport problems as it supports any other.
 Written from scratch, it lists `Transport` in its `boundaries`; composed of parts, it supports a problem when its parts do, so a scheme or a loss for transport problems returns True from `supports` for them.
-`Solver.check` then checks the mass balance with `check_mass_balance` before `setup`, and the solve raises `ValueError` for a problem whose source mass differs from the target's volume; `check_mass_balance` integrates over a `Box`, a `Disk` or an `Ellipse` and raises `TypeError` for another domain, so a solver on other domains overrides `check` and checks the balance itself.
+`Solver.check` then checks the mass balance with `check_mass_balance` before `setup`, and the solve raises `ValueError` for a problem whose source mass differs from the target's volume.
+`check_mass_balance` integrates over a `Box`, a `Disk` or an `Ellipse` (`INTEGRABLE` in `maesolvers.core.transport`) and raises `TypeError` for another domain, where `Solver.check` skips it; a solver for transport problems on another domain checks the balance in its own `check`, after `super().check(problem)`.
 A scheme reads the target from `problem.boundary.target`: the scheme of Benamou-Froese-Oberman 2014 writes the condition at a boundary node as the largest `grad u . n - H*(n)` over a set of directions `n`, with `H*(n) = support_function(target, n)` computed once per solve.
 A loss reads it from `batch.target`; this one penalises the squared signed distance of `grad u` at the boundary points, on top of the equation's residual.
 

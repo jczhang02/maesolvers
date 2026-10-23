@@ -276,6 +276,19 @@ def test_a_transport_solver_checks_the_mass_balance_before_it_solves():
         )
 
 
+def test_the_base_check_skips_the_balance_on_a_domain_it_cannot_integrate():
+    """``super().check`` stays safe for a transport solver on another domain."""
+
+    @dataclass(frozen=True)
+    class OnCutDisk(_Transporter):
+        domains: ClassVar = (CutQuarterDisk,)
+
+    cut = Problem("cut", CutQuarterDisk(), T12.f, Transport(Disk((0.0, 0.0), 1.0)))
+    with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
+        check_mass_balance(cut)
+    assert OnCutDisk().solve(cut).info["converged"]
+
+
 # the gradient-map error
 
 

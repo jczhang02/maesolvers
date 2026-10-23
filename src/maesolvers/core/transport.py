@@ -26,6 +26,9 @@ from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field, _points
 from maesolvers.core.problem import Problem
 
+INTEGRABLE: tuple[type, ...] = (Box, Disk, Ellipse)
+"""The domains :func:`integrate` and so :func:`check_mass_balance` handle."""
+
 _BISECTION_STEPS = 160
 """Bisection steps of the ellipse foot point: enough to reach adjacent floats."""
 
