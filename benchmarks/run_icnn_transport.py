@@ -259,19 +259,23 @@ def summary(path: Path) -> None:
             )
 
 
-def exact_map_floor(seed: int, parametric: bool = False) -> tuple[float, float]:
+def exact_map_floor(
+    seed: int, parametric: bool = False, target_points: int = 800
+) -> tuple[float, float]:
     """The two halves of eq. (3.4) that T12's exact map leaves at a seed's points.
 
     The boundary and target points are the preset's collocation points of
-    the seed; with ``parametric`` the target points are instead 800 points
-    uniform in the parameter angle of the ellipse, from numpy's generator
-    seed ``100 + seed``.
+    the seed, with ``target_points`` target points (drawn last, so the
+    other points do not depend on their number); with ``parametric`` the
+    target points are instead uniform in the parameter angle of the
+    ellipse, from numpy's generator seed ``100 + seed``.
     """
     import torch
 
     from maesolvers.neural.functional import nearest_squared_distances
 
-    collocation = TransportSampler().sample(T12, np.random.default_rng(seed))
+    sampler = TransportSampler(target_points=target_points)
+    collocation = sampler.sample(T12, np.random.default_rng(seed))
     x = collocation.boundary
     image = np.stack([2.0 * x[:, 0] + 3.5, 0.5 * x[:, 1]], axis=-1)
     target = collocation.target_boundary
@@ -283,13 +287,15 @@ def exact_map_floor(seed: int, parametric: bool = False) -> tuple[float, float]:
 
 
 def floor(seeds: list[int]) -> None:
-    """Print :func:`exact_map_floor` of each seed, both ways of drawing the target."""
+    """Print :func:`exact_map_floor` of each seed: as drawn, parametric, 8000 targets."""
     for seed in seeds:
         into, onto = exact_map_floor(seed)
         par = sum(exact_map_floor(seed, parametric=True))
+        many = exact_map_floor(seed, target_points=8000)
         print(
             f"seed {seed}: into {into:.3e} + onto {onto:.3e} = {into + onto:.3e}; "
-            f"parametric target {par:.3e}"
+            f"parametric target {par:.3e}; "
+            f"8000 targets: into {many[0]:.3e}, onto {many[1]:.3e}"
         )
 
 
