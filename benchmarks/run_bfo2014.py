@@ -31,15 +31,18 @@ With --checks it writes bfo2014_checks.csv (or --out) instead,
 the evidence for Findings 2 and 3 of bfo2014.md, at N = 32, 64 and 128 with
 N_Y = 512: the preset on the ellipse and T12 (``preset``); filter widths 3
 and 1e6, the latter the standard 9-point scheme alone, on the ellipse
-(``width``); the paper's full Newton step (``undamped``, run_filtered's
-UndampedNewton, 300 steps) on the filtered scheme from the Poisson start
-and from the monotone root, on T12 and the ellipse; and ``u(x_0)`` added to
+(``width``); an undamped full Newton step (``undamped``, run_filtered's
+UndampedNewton, 300 steps; not the paper's iteration, which damps) on the
+filtered scheme from the Poisson start and from the monotone root, on T12
+and the ellipse; and ``u(x_0)`` added to
 ``f`` inside the ellipse only (``anchor_inside``, filter width 1e6). Besides
 the errors (max and median) and the iteration counts, each row holds the
 gauge of the domain (1 on its boundary) at the node of the largest gradient
 error, and statistics of the last iterate on the whole square: the smallest
 eigenvalue of the centred Hessian at the interior nodes outside the domain
-and the share of those nodes where it is negative, the same share inside,
+and the share of those nodes where it is below ``-NONCONVEX_TOL`` (1e-8,
+far above rounding: where ``f = 0`` a converged root has one eigenvalue
+zero to about 1e-13, whose sign is noise), the same share inside,
 the gauge at the node of the largest residual and the filter's argument
 there, and how far the one-sided gradient on the square's boundary ring
 lies off the target's boundary.
@@ -383,6 +386,8 @@ CHECK_GRIDS = (32, 64, 128)
 """N_X of the checks."""
 UNDAMPED_STEPS = 300
 """Full Newton steps of the ``undamped`` check."""
+NONCONVEX_TOL = 1e-8
+"""A node is not convex where the smallest Hessian eigenvalue is below ``-tol``."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -476,8 +481,8 @@ def iterate_statistics(
     ring = gauge(problem.boundary.target, gradient[~interior])
     return {
         "min_eigenvalue_outside": float(np.min(smallest[outside])),
-        "nonconvex_outside": float(np.mean(smallest[outside] < 0.0)),
-        "nonconvex_inside": float(np.mean(smallest[~outside] < 0.0)),
+        "nonconvex_outside": float(np.mean(smallest[outside] < -NONCONVEX_TOL)),
+        "nonconvex_inside": float(np.mean(smallest[~outside] < -NONCONVEX_TOL)),
         "worst_residual_gauge": float(gauge(problem.domain, box_grid.nodes[worst])),
         "worst_residual_on_ring": float(not interior[worst]),
         "worst_filter_argument": argument,
