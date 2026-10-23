@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from maesolvers.core._params import boolean, nonnegative
 from maesolvers.core.boundary import Dirichlet
+from maesolvers.core.domains import Domain
 from maesolvers.core.problem import Problem
 
 if TYPE_CHECKING:
@@ -47,6 +48,13 @@ class Batch:
     f_boundary
         Shape ``(K,)``: the right-hand side at ``boundary``, for a loss that
         also evaluates the equation there.
+    target
+        The target set of a
+        :class:`~maesolvers.core.boundary.Transport` problem, for a loss on
+        the transport condition (with
+        :func:`maesolvers.neural.functional.signed_distance`); None for
+        another boundary condition. Not a tensor: :meth:`to` leaves it as it
+        is.
     """
 
     interior: "torch.Tensor"
@@ -54,9 +62,10 @@ class Batch:
     boundary: "torch.Tensor"
     g: "torch.Tensor | None"
     f_boundary: "torch.Tensor"
+    target: "Domain | None" = None
 
     def to(self, device: "torch.device | str") -> "Batch":
-        """Return the batch with every tensor on ``device``; a None field stays None.
+        """Return the batch with every tensor on ``device``; the other fields stay.
 
         Parameters
         ----------
@@ -68,10 +77,13 @@ class Batch:
         -------
         Batch
         """
+        import torch
+
         moved = {}
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
-            moved[field.name] = None if value is None else value.to(device)
+            if isinstance(value, torch.Tensor):
+                moved[field.name] = value.to(device)
         return dataclasses.replace(self, **moved)
 
 
@@ -93,7 +105,8 @@ class Loss(ABC):
         supports exactly the problems with a
         :class:`~maesolvers.core.boundary.Dirichlet` boundary condition. A
         loss for another condition overrides this, and must not read
-        ``batch.g``, which is None there.
+        ``batch.g``, which is None there; a loss for
+        :class:`~maesolvers.core.boundary.Transport` reads ``batch.target``.
 
         Parameters
         ----------
