@@ -21,7 +21,9 @@ from maesolvers import (
     FDMonotone,
     FDNewton,
     FDPoisson,
+    FDSemiLagrangian,
     Filtered,
+    Howard,
     Newton,
     PenaltyMLP,
     PoissonIteration,
@@ -195,7 +197,7 @@ def test_a_new_iteration_writes_three_hooks():
     np.testing.assert_allclose(ours.values, reference.values, rtol=1e-8)
 
 
-@pytest.mark.parametrize("iteration", [Newton, PoissonIteration])
+@pytest.mark.parametrize("iteration", [Newton, PoissonIteration, Howard])
 def test_iterations_validate_tol_and_max_iter(iteration):
     with pytest.raises(ValueError, match="tol"):
         iteration(scheme=Standard9(), tol=-1.0)
@@ -228,7 +230,7 @@ def test_the_registry_lists_the_presets_read_only():
 
 
 @pytest.mark.parametrize(
-    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson]
+    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson, FDSemiLagrangian]
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
@@ -277,7 +279,11 @@ def test_a_scheme_is_set_from_the_command_line():
 
 @pytest.mark.parametrize(
     ("iteration", "protocol"),
-    [(Newton, iterations._NewtonScheme), (PoissonIteration, iterations._PoissonScheme)],
+    [
+        (Newton, iterations._NewtonScheme),
+        (PoissonIteration, iterations._PoissonScheme),
+        (Howard, iterations._NewtonScheme),
+    ],
 )
 def test_requires_names_the_scheme_methods_the_iteration_is_typed_against(
     iteration, protocol

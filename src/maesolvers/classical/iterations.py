@@ -28,6 +28,7 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
 
+from maesolvers.classical._linear import solve_m_matrix
 from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import positive
 from maesolvers.core.callbacks import Callback
@@ -515,6 +516,110 @@ class PoissonIteration(SchemeIteration):
             The scheme's grid.
         measure
             The max change at the nodes.
+
+        Returns
+        -------
+        bool
+        """
+        return measure <= self.tol
+
+
+@dataclass(frozen=True, kw_only=True)
+class Howard(SchemeIteration):
+    """Howard's algorithm: full Newton steps, stopped when a step is small.
+
+    Starts from ``laplace u = 2 sqrt(f)``, as :class:`Newton` does, and takes
+    full steps ``v - J^{-1} r(v)`` with the scheme's (generalised) Jacobian
+    ``J``, without a line search. For a scheme whose equation is a maximum
+    of affine maps with M-matrix linear parts and whose ``jacobian`` is the
+    linear part of the maximising map, such as
+    :class:`~maesolvers.classical.semilagrangian.SemiLagrangian`, a step
+    solves the equation of the maximising control, so this is Howard's
+    policy iteration: it converges from any start, monotonically and
+    superlinearly (Bokanowski-Maroso-Zidani 2009; Feng-Jensen 2017,
+    Algorithm 1 and Theorem 5.2), and the start is the control
+    ``B = Id / 2`` of Feng and Jensen. On another scheme it is undamped
+    Newton. Each step's linear system is solved by BiCGSTAB preconditioned
+    with its diagonal, which converges in fewer steps the wider a monotone
+    scheme's stencil, where a sparse LU factorisation fills in; where
+    BiCGSTAB does not converge, by the LU factorisation.
+
+    Parameters
+    ----------
+    scheme
+        A scheme with ``residual(grid, v)``, its sparse ``jacobian(grid, v)``
+        and ``solve_laplace(grid, rhs)``.
+    max_iter
+        Most steps.
+    tol
+        Stop when a step changes no unknown by more than ``tol``; Feng and
+        Jensen's ``1e-6``.
+    """
+
+    measure: ClassVar[str] = "update"
+    requires: ClassVar[tuple[str, ...]] = ("residual", "jacobian", "solve_laplace")
+
+    max_iter: int = 50
+    tol: float = 1e-6
+
+    @property
+    def _scheme(self) -> _NewtonScheme:
+        """The scheme, typed by the methods :meth:`check` makes sure it has."""
+        return cast(_NewtonScheme, self.scheme)
+
+    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
+        """Solve ``laplace u = 2 sqrt(f)``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            The unknowns.
+        """
+        return self._scheme.solve_laplace(
+            context, 2.0 * np.sqrt(self._scheme.rhs(context))
+        )
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """One full Newton step.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        iterate
+            The current unknowns.
+
+        Returns
+        -------
+        tuple
+            The next unknowns and the max change at the unknowns.
+        """
+        r = self._scheme.residual(context, iterate)
+        new = iterate - solve_m_matrix(self._scheme.jacobian(context, iterate), r)
+        return new, float(np.max(np.abs(new - iterate)))
+
+    def converged(self, problem: Problem, context: Any, measure: float) -> bool:
+        """Whether the last step changed no unknown by more than ``tol``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        measure
+            The max change at the unknowns.
 
         Returns
         -------
