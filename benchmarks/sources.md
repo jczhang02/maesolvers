@@ -9,7 +9,7 @@ Each value was checked against a rendered image of the printed page.
 The arXiv and Numdam links are public equivalents; their tables were not checked against the journal tables.
 Values keep the printed scaling (for example "24.45 x 10^-5", not 2.445e-4).
 A "--" means the paper printed a dash: the run was not done, or it was too slow to report.
-The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md`.
+The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network).
 
 ## Grid convention (unresolved)
 

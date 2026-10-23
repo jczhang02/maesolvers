@@ -24,7 +24,7 @@ Every later example uses the ICNN:
 - Section 4.7 (Tables 2 and 3, T9 and T10): "we use input convex networks to solve higher-dimensional equivalents"; Section 3.1 says the penalty "essentially only works in the two-dimensional case".
 
 The research survey's plan (reproduce the penalty MLP against Table 1 and the 3D tables) is therefore wrong, and issue #12 inherited it.
-The finding is on #12 and #13: the ICNN of #13 can reach the statistical level against Table 1 on T6, and against Tables 2 and 3 once it runs in 3D and 4D.
+The finding is on #12 and #13: the ICNN of #13 is compared against Table 1 on T6 in `icnn.md` (a mismatch), and can be against Tables 2 and 3 once it runs in 3D and 4D.
 `papers.md` is corrected.
 
 ## T1 (Example 4.1): figure only

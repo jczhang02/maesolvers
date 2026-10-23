@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from maesolvers.core import integer, nonnegative, positive
+from maesolvers.core import boolean, integer, nonnegative, positive
 
 
 @pytest.mark.parametrize("value", [3, np.int64(3), np.int32(3)])
@@ -61,3 +61,16 @@ def test_nonnegative_rejects_a_non_real_naming_the_parameter(value):
 def test_nonnegative_rejects_negative_and_non_finite_values(value):
     with pytest.raises(ValueError, match="weight must be nonnegative and finite"):
         nonnegative("weight", value)
+
+
+@pytest.mark.parametrize("value", [True, False, np.bool_(True)])
+def test_boolean_returns_a_plain_bool(value):
+    out = boolean("flag", value)
+    assert out == bool(value)
+    assert type(out) is bool
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", None, np.int64(1)])
+def test_boolean_rejects_a_non_bool_naming_the_parameter(value):
+    with pytest.raises(TypeError, match="flag must be a bool"):
+        boolean("flag", value)

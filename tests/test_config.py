@@ -210,6 +210,8 @@ def test_the_guards_see_every_exported_solver_and_scheme():
         "UniformSampler",
         "LBFGS",
         "Adam",
+        "ICNN",
+        "BFGS",
     }
 
 
@@ -265,8 +267,10 @@ def test_every_numeric_scheme_parameter_is_checked_against_its_type(
 
 @pytest.mark.parametrize(("slot", "part"), NEURAL_PART_CLASSES)
 def test_every_numeric_neural_part_parameter_is_checked_against_its_type(slot, part):
-    names = _numeric_parameters(getattr(maesolvers, part))
-    assert names
+    cls = getattr(maesolvers, part)
+    names = _numeric_parameters(cls)
+    # A part with fields has numeric ones here; BFGS has no fields at all.
+    assert names or not [f for f in dataclasses.fields(cls) if f.init]
     for name in names:
         config = _solver(getattr(maesolvers, part), part, **{name: "many"})
         with pytest.raises(ValueError, match=f'key "{name}"'):
@@ -335,3 +339,22 @@ def test_a_bad_value_raises_what_the_constructor_raises(init_args, error, messag
 def test_a_missing_file_is_a_file_not_found_error(tmp_path):
     with pytest.raises(FileNotFoundError, match=re.escape("nothing.yaml")):
         from_config(tmp_path / "nothing.yaml")
+
+
+def test_a_composed_icnn_with_a_part_without_fields_round_trips():
+    from maesolvers import BFGS, ICNN, PenaltyLoss, UniformSampler
+
+    composed = NeuralSolver(
+        network=ICNN(),
+        loss=PenaltyLoss(
+            convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
+        ),
+        sampler=UniformSampler(),
+        optimizer=BFGS(),
+        max_steps=3,
+    )
+    assert composed.hparams["init_args"]["optimizer"] == {
+        "class_path": "maesolvers.BFGS",
+        "init_args": {},
+    }
+    assert from_config(composed.hparams) == composed

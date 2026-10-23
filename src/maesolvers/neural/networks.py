@@ -140,6 +140,79 @@ class MLP(Network):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ICNN(Network):
+    """An input convex neural network: convex in its input by construction.
+
+    The construction of Amos, Xu and Kolter (2017), in the form of
+    Nystrom-Vestberg 2023, eq. (3.7)::
+
+        z_1     = s(L_0 x + b_0)
+        z_{j+1} = s(W_j z_j + L_j x + b_j),   j = 1, ..., depth - 1
+        u(x)    = W_depth z_depth + L_depth x + b_depth
+
+    with ``s`` the softplus, ``log(1 + e^t)``. Each ``z_j`` is convex in
+    ``x``: an affine map of ``x`` is convex, a non-negative combination of
+    convex functions is convex, and a convex non-decreasing function of a
+    convex function is convex. So every ``W_j`` must be non-negative and the
+    activation convex and non-decreasing; the ``L_j`` and ``b_j`` are free.
+    As in the paper (Section 4), ``W_j`` is the elementwise square
+    ``V_j^2`` of the trained parameter ``V_j``, and every parameter starts
+    from a normal distribution with mean 0. The output layer is linear, so
+    ``u`` can take any value. ``width = 10, depth = 5`` in 2D has 563
+    parameters (Example 4.2).
+
+    The softplus is the one activation offered: it is convex, increasing and
+    smooth, so ``u`` has a Hessian everywhere; ReLU is convex but has no
+    second derivative, and tanh and the sigmoid are not convex.
+
+    Parameters
+    ----------
+    width
+        Units per hidden layer, at least 1.
+    depth
+        Number of hidden layers, at least 1.
+    init_std
+        Standard deviation of every initial parameter, the roots ``V_j``
+        included; positive. The paper says "the normal distribution" and
+        gives no standard deviation.
+
+    Raises
+    ------
+    TypeError, ValueError
+        On construction, for a size that is not an integer or is less than
+        1, or an ``init_std`` that is not a positive real.
+    """
+
+    width: int = 10
+    depth: int = 5
+    init_std: float = 1.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "width", integer("width", self.width, 1))
+        object.__setattr__(self, "depth", integer("depth", self.depth, 1))
+        object.__setattr__(self, "init_std", positive("init_std", self.init_std))
+
+    def build(self, problem: Problem, collocation: Collocation) -> "torch.nn.Module":
+        """Make the network for the problem's dimension.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+        collocation
+            Not used.
+
+        Returns
+        -------
+        torch.nn.Module
+            Its trainable parameters are the ``V_j``, ``L_j`` and ``b_j``.
+        """
+        from maesolvers.neural import _torch
+
+        return _torch.InputConvex(problem.dim, self.width, self.depth, self.init_std)
+
+
+@dataclass(frozen=True, kw_only=True)
 class HardDirichlet(Network):
     """The ansatz ``u = G + D N``, which meets the Dirichlet condition by construction.
 

@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is pre-alpha (0.0.x): the interface may change until 0.1; two finite-difference solvers and the first neural solver are in.
+> It is pre-alpha (0.0.x): the interface may change until 0.1; four finite-difference solvers and two neural solvers are in.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -169,6 +169,7 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 | `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points), semi-smooth Newton | `Box` with equal sides | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
 | `FDHybrid` | the hybrid scheme of Froese-Oberman 2011: the standard scheme where the data are regular, the monotone one near the boundary and where `f` is near 0 or infinite; Newton from the monotone root | `Box` with equal sides | Dirichlet | monotone near the possible singularities; the start puts Newton on the convex root |
 | `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
+| `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by dense BFGS (SciPy's) on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
 
 Each solver is a preset, a scheme under an iteration (ADR 0004): `FDPoisson(n=64)` is `PoissonIteration(scheme=Standard9(n=64))`, `FDNewton(n=64)` is `Newton(scheme=Standard9(n=64))`, `FDMonotone(n=64)` is `Newton(scheme=Monotone17(n=64), max_iter=200)`, and `FDHybrid(n=64)` is `Newton(scheme=Hybrid(n=64), start=FDMonotone(n=64), max_iter=200)`, Newton from the root of `FDMonotone`.
 A new scheme subclasses `Scheme` as a frozen dataclass and runs under every iteration whose extra methods it provides (`Newton.requires`, `PoissonIteration.requires`), without a new solver class.
@@ -179,7 +180,8 @@ A new iteration subclasses `SchemeIteration` and writes only `initial_guess`, `s
 A neural solver is a network, a loss, a sampler and an optimizer (ADR 0004) on one training loop, a Lightning `Trainer` in float64 (ADR 0008): `PenaltyMLP()` is `NeuralSolver(network=HardDirichlet(network=MLP()), loss=PenaltyLoss(), sampler=UniformSampler(), optimizer=LBFGS(), max_steps=5000)`.
 A new part subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural` as a frozen dataclass; `docs/guide.md` writes one of each.
 The `seed` fixes the collocation points and the initial network, and `evaluate` measures the trained network on the shared evaluation grid.
-[`docs/methods/penalty_mlp.md`](docs/methods/penalty_mlp.md) describes the method.
+`DirichletICNN()` swaps the network for `ICNN()`, convex in its input by construction, the loss for `PenaltyLoss(convexity_weight=0, boundary_weight=100, equation_at_boundary=True)` and the optimizer for `BFGS()`, with `max_steps=10_000`.
+[`docs/methods/penalty_mlp.md`](docs/methods/penalty_mlp.md) and [`docs/methods/icnn.md`](docs/methods/icnn.md) describe the two methods.
 
 ## Reproduction
 
@@ -210,6 +212,9 @@ On T1 and T20 the published errors are above ours, and [`benchmarks/hybrid.md`](
 
 The penalty MLP of Nystrom-Vestberg 2023 reaches the figure-only level of ADR 0002 on T1: over seeds 0 to 9 its max error is 7.1e-3 (5% to 95%: 4.6e-3 to 1.7e-2), and Figure 1 of the paper tops at about 5.7e-3.
 The paper prints no table for it: its Tables 1 to 3 belong to its input convex network (`benchmarks/penalty_mlp.md`, Finding 1).
+The input convex network of the same paper (`DirichletICNN`) reaches the figure-only level on T1: its max error is 5.1e-5 (5% to 95%: 2.0e-5 to 1.9e-4), against about 3.0e-5 in Figure 2; it needs the dense BFGS of SciPy, which the paper ran, and on T1 a limited-memory L-BFGS leaves it near 1e-2.
+On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1.
+The equation term, which the paper prints as a sum, explains part of the gap: read as a mean, it gives 3.1e-5 (1.2e-5 to 5.0e-5) and meets the paper's stopping test, but is still a mismatch; the preset waits for #13 to choose (`benchmarks/icnn.md`, Finding 2).
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>
@@ -236,9 +241,9 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 
 ## Layout
 
-- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive` and `nonnegative`, and the part check `check_part`.
+- `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, and the part check `check_part`.
 - `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` and `Hybrid`, the iterations `Newton` and `PoissonIteration`, and the presets `FDNewton`, `FDPoisson`, `FDMonotone` and `FDHybrid`.
-- `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the preset `PenaltyMLP`.
+- `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP` and `DirichletICNN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate` and `summarize`; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
 - `benchmarks/`: the published tables, our runs, the comparisons and the scripts that make them.

@@ -58,6 +58,7 @@ class _Context:
     model: Any
     f: np.ndarray
     g: np.ndarray | None
+    f_boundary: np.ndarray
 
 
 @dataclass(frozen=True, eq=False)
@@ -228,8 +229,9 @@ class NeuralSolver(Solver[_Context, _Trained]):
         Returns
         -------
         _Context
-            The points, the network and ``f`` and ``g`` at the points (``g``
-            None for a boundary condition other than Dirichlet).
+            The points, the network, ``f`` at the interior points, and ``g``
+            (None for a boundary condition other than Dirichlet) and ``f``
+            at the boundary points.
         """
         from maesolvers.neural import _torch
 
@@ -240,7 +242,10 @@ class NeuralSolver(Solver[_Context, _Trained]):
         g = None
         if isinstance(boundary, Dirichlet):
             g = boundary.g(points) if len(points) else np.zeros(0)
-        return _Context(collocation, model, problem.f(collocation.interior), g)
+        f_boundary = problem.f(points) if len(points) else np.zeros(0)
+        return _Context(
+            collocation, model, problem.f(collocation.interior), g, f_boundary
+        )
 
     def run(
         self, problem: Problem, context: _Context, callbacks: Sequence[Callback]
@@ -338,4 +343,5 @@ class NeuralSolver(Solver[_Context, _Trained]):
             f=tensor(context.f),
             boundary=tensor(points.boundary),
             g=None if context.g is None else tensor(context.g),
+            f_boundary=tensor(context.f_boundary),
         )

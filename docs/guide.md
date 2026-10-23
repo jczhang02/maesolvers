@@ -391,6 +391,26 @@ assert all(
 ```
 
 Swap one part to get another method: `MLP()` as the network with `PenaltyLoss(boundary_weight=100.0)` imposes the boundary condition by a penalty instead of the ansatz, and `Adam(lr=1e-3)` replaces L-BFGS.
+The second preset, `DirichletICNN`, swaps three parts: the input convex network `ICNN()`, convex in its input by construction, a loss with a boundary penalty instead of the convexity term, and `BFGS()`, which keeps a dense inverse Hessian approximation.
+
+```python
+from maesolvers import BFGS, ICNN, DirichletICNN
+
+icnn = NeuralSolver(
+    network=ICNN(width=10, depth=5),
+    loss=PenaltyLoss(
+        convexity_weight=0.0, boundary_weight=100.0, equation_at_boundary=True
+    ),
+    sampler=UniformSampler(interior_points=3000, boundary_points=400),
+    optimizer=BFGS(),
+    max_steps=10_000,
+)
+assert all(
+    getattr(icnn, name) == getattr(DirichletICNN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps")
+)
+```
+
 The collocation points are drawn from the seed by the sampler, so every solver with an equal sampler and the same seed trains on the same points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
 
 ### Write your own network, loss or sampler
@@ -499,7 +519,7 @@ What each part does:
 - `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
   A loss supports the Dirichlet problems by default, because `batch.g` is Dirichlet data; `LaplacianPenaltyLoss` reads it and so keeps the default, and a loss for another boundary condition overrides `supports` and does not read `batch.g`.
   `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
-- `__post_init__` checks every parameter with `integer`, `positive` or `nonnegative`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
+- `__post_init__` checks every parameter with `integer`, `positive`, `nonnegative` or `boolean`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
 - A loss term built on `functional.mean_squared_misfit` raises `ValueError` when its points are empty, so a boundary term cannot drop out because the sampler gave no boundary points.
 - An optimizer part subclasses `Optimizer` and returns a torch optimizer from `build(parameters)`; the training loop calls its `step(closure)` once per training step.
 

@@ -15,6 +15,7 @@ from maesolvers import (
     T2,
     T8,
     T12,
+    DirichletICNN,
     FDHybrid,
     FDMonotone,
     FDNewton,
@@ -217,6 +218,7 @@ def test_the_registry_lists_the_presets_read_only():
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
         "PenaltyMLP": PenaltyMLP,
+        "DirichletICNN": DirichletICNN,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
