@@ -7,7 +7,7 @@ The paper's nonsmooth behaviour is compared on T40 turned off the grid, a test-l
 Receipt: `feng_jensen2017.csv`, written by `run_feng_jensen2017.py` on a100server at commit cf16a7c, clean checkout (tmux `maesolvers-feng-jensen3`), 6 worker processes with one thread each: T39, T40 and T40 turned on `n = 10 2^l`, `l = 0, ..., 7`, with `m = 2, 4, ..., 64`, 141 of the 144 solves.
 The three missing rows are at `n = 1280` with small `m`, where Howard's linear solves are slowest (Conventions, Linear solver): T40 at `m = 2`, T40 turned at `m = 2` and 4; none of them can be the best `m` at its level (T40 is at the rounding level for every `m`; T40 turned has 5.76e-3 at `m = 64` against 3.95e-2 at `m = 4`), so the tables below do not depend on them.
 A first run of the same scheme code at dde1578 (tmux `maesolvers-feng-jensen2`) gave the same errors, to the four printed digits, in all 141 shared solves, and the `m = 4` row in its log (3.954e-2); its solve of T40 turned at `n = 1280`, `m = 2` was still running after 13 hours, and its rows existed only in memory, which is why the runner now writes each row as it finishes.
-Every solve converged (Howard's step below `1e-6`).
+Every solve in the receipt converged (Howard's step below `1e-6`).
 Every solve is an MLflow run named `n=<n> m=<m>` in `maesolvers-feng_jensen2017-T39`, `-T40` and `-T40_turned`; the tag `mlflow.source.git.commit` tells the two runs apart.
 `python benchmarks/run_feng_jensen2017.py --summary benchmarks/feng_jensen2017.csv` prints the tables below from the CSV.
 
@@ -87,7 +87,7 @@ Ours, over all levels and `m` of the receipt: 4 to 7 on T39 (4 or 5 at the best 
 - **Stencil size near the boundary.** The paper shrinks the stencil where `m h` exceeds the distance to the boundary of the triangulated domain, and its Figure 5(b) shows a size that depends on the direction; ours is `min(m h, distance)` at each node, the same for every direction.
 - **Split.** The paper discretises the rotations of the frames by `i pi / 64` and says nothing about the split `a` of `diag(a, 1 - a)`; we take the supremum over `a` in closed form, which any fine discretisation of `a` approaches.
 - **Error measure.** Ours is the max error at the nodes relative to `max |u|` over the domain; the paper's `L^inf` error is that of the finite element function, whose maximum over the domain is at most the nodal one plus the interpolation error, `O(h^2)` for T39.
-- **Linear solver.** The paper used FEniCS without naming its linear solver; ours is BiCGSTAB with diagonal scaling, then GMRES, then LU (`Howard`). The discrete solution is the same, but at small `m` on fine grids the Krylov methods need many steps (Rerun).
+- **Linear solver.** The paper used FEniCS without naming its linear solver; ours is BiCGSTAB with diagonal scaling, then GMRES, then LU (`Howard`). The discrete solution is the one an LU factorisation gives, but at small `m` on fine grids the Krylov methods need many steps (Rerun).
 
 ## Not compared
 

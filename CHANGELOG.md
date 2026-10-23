@@ -16,6 +16,7 @@ Every change to the public interface is listed here; 0.x may break the interface
   Its linear systems are solved by BiCGSTAB with diagonal scaling, then GMRES, then a sparse LU factorisation where a Krylov method stops short.
   Exported at the top level and from `maesolvers.classical`.
 - The preset `FDSemiLagrangian(n, stencil_factor, directions, max_iter=50, tol=1e-6)`, `Howard` on `SemiLagrangian`, registered in `SOLVERS` after the other classical presets, and in the comparison table.
+  At a small `stencil_factor` on a fine grid its Krylov solves need many steps: T40 turned off the grid at `n = 1280`, `m = 2` ran for more than 13 hours (`benchmarks/feng_jensen2017.md`).
 - `DiskUnionSquare()`, the union of the unit disk and the unit square `(0, 1)^2`, a convex domain that is not strictly convex, exported at the top level and from `maesolvers.core`.
 - T39 (`u = |x|^4`) and T40 (`u = |x1|`, `f = 0`) of Feng-Jensen 2017 on `DiskUnionSquare`, in `CATALOGUE` and at the top level; the shared test-set specification does not define them yet.
 
