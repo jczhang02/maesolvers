@@ -351,7 +351,7 @@ def test_multigrid_matches_the_liu_et_al_table_1(problem, n, printed, cycles):
 # stencil scheme": the discrete L2 norm sqrt(h^2 sum e^2) and the max norm at
 # the nodes, h = 1/N on the unit square (benchmarks/chen_wan_lin2018.md,
 # Finding 1). Exact at every printed N on T1, on T2 up to N = 128 (Finding 5),
-# and in 7 of 10 values on T20c (Finding 4); the cheap ones are pinned. Table 2
+# and in 6 of 10 values on T20c (Finding 4); the cheap ones are pinned. Table 2
 # needs the paper's rule for the wide-stencil search (Finding 2), the preset's
 # default.
 T1_SQUARE = Problem(

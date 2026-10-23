@@ -1,7 +1,8 @@
 # Monotone mixed scheme (Chen-Wan-Lin 2018)
 
 The monotone mixed scheme of Chen, Wan and Lin (2018) solves the Monge-Ampere equation in its HJB form, a maximum over controls of linear operators, and discretises each control with the standard 7-point stencil where that stencil is monotone and with the semi-Lagrangian wide stencil elsewhere.
-Every control's operator then has an M-matrix, and the paper proves convergence to the viscosity solution; where the 7-point stencil serves every node the scheme is second order.
+Every control's operator then has an M-matrix; the maximum over all controls is monotone, and the paper proves its convergence to the viscosity solution; where the 7-point stencil serves every node the scheme is second order.
+The paper's tables follow a cheaper rule, the default here, that lets the wide stencil compete only at some nodes: that scheme is not monotone everywhere, can have a second root, and can make policy iteration cycle (below, and [`benchmarks/chen_wan_lin2018.md`](../../benchmarks/chen_wan_lin2018.md), Findings 2 and 5); `wide_search="everywhere"` is the monotone maximum.
 maesolvers ships it as the scheme `MixedHJB`, the iteration `PolicyIteration` (Howard's algorithm, the paper's), and the preset `FDMixed` for the pair (ADR 0004).
 Reproduction: [`benchmarks/chen_wan_lin2018.md`](../../benchmarks/chen_wan_lin2018.md).
 
@@ -58,13 +59,16 @@ Over the wide-stencil controls, the best `a` for each `theta` is closed-form, eq
 
 Where the stationary point of a 7-point objective lies in its region, it maximises that objective over all controls, and the paper's cost estimate (`O(1)` per node where the 7-point stencil applies) says its algorithm takes it without the wide-stencil search.
 The published tables match only this rule (`benchmarks/chen_wan_lin2018.md`, Finding 2), so it is the default, `wide_search="outside"`: the wide-stencil controls compete only at the nodes where neither stationary point lies in its region.
+Which controls compete then depends on `u`, so the discrete equation is no longer a maximum of monotone operators over one control set: it can have more than one root, and policy iteration on it can cycle (Finding 5).
 `wide_search="everywhere"` lets them compete at every node, as the paper's Section 5.2 states; `wide_search="only"` takes the wide stencil for every control, with `a` unrestricted, which is the pure semi-Lagrangian scheme of Feng and Jensen (2017) that the paper compares with.
 
 ## Policy iteration
 
 `PolicyIteration` is Howard's algorithm (the paper's Section 5.1): at the current unknowns it finds the optimal control at every node, assembles that policy's linear system `A v = F` (the scheme's `policy_system(grid, v)`), stops if `max |A v - F| <= tol`, and otherwise solves the system for the next unknowns.
-`A` is an M-matrix for every policy, so the iteration converges from any start (Bokanowski, Maroso and Zidani 2009); it is Newton's method with full steps and the policy's matrix as the Jacobian.
-It starts from `laplace u = 2 sqrt(f)`, the solution for `a = 1/2` (eq. (50)), and the paper's `tol = 1e-6` is the default.
+`A` is an M-matrix for every policy; with `wide_search="everywhere"` or `"only"` the policies range over one set at every iterate, so the iteration converges from any start (Bokanowski, Maroso and Zidani 2009).
+With the default `"outside"` that set depends on the iterate and the guarantee does not hold: in the receipts policy iteration cycles on T2 at `N = 512` and on Table 5's problem at `N = 256`, and stops at `max_iter` (Known limits).
+It is Newton's method with full steps and the policy's matrix as the Jacobian.
+It starts from `laplace u = d f^(1/d)`, as `Newton` does, in 2D `laplace u = 2 sqrt(f)`, the solution for `a = 1/2` (eq. (50)), and the paper's `tol = 1e-6` is the default.
 `Result.info["history"]` holds the residual at each iterate before its update, and `iterations` counts the policies evaluated, the paper's "number of policy iterations".
 `Newton(scheme=MixedHJB(...))` also solves the scheme, as a damped policy iteration, since `MixedHJB.jacobian` is the optimal policy's matrix.
 
@@ -87,9 +91,9 @@ A scheme of your own in HJB form plugs into `PolicyIteration` by providing `poli
 | `MixedHJB` | `spline_degree` | 3 | degree of the spline off the nodes, 1 to 5; degree `n` if `n` is smaller |
 | `PolicyIteration` | `max_iter` | 100 | most policy evaluations |
 | `PolicyIteration` | `tol` | 1e-6 | largest residual `max \|A v - F\|` of the HJB equation, absolute |
-| `PolicyIteration` | `krylov_tol` | None | None: each policy's system by sparse LU; a value: by BiCGSTAB to that relative residual, preconditioned by an incomplete LU (drop tolerance `1e-4`), as the paper's GMRES is |
+| `PolicyIteration` | `krylov_tol` | None | None: each policy's system by sparse LU; a value: by BiCGSTAB to that relative residual, preconditioned by an incomplete LU (drop tolerance `1e-4`), as the paper's GMRES is; where BiCGSTAB fails, a `RuntimeWarning` and the sparse LU |
 
-The preset takes `n`, `angles`, `spline_degree`, `max_iter`, `tol` and `krylov_tol` flat: `FDMixed(n=128)` is `PolicyIteration(scheme=MixedHJB(n=128))`.
+The preset takes `n`, `angles`, `wide_search`, `spline_degree`, `max_iter`, `tol` and `krylov_tol` flat: `FDMixed(n=128)` is `PolicyIteration(scheme=MixedHJB(n=128))`, and `FDMixed(n=128, wide_search="everywhere")` the monotone maximum.
 Results carry `info["residual_max"]`, `info["wide_fraction"]` (the share of unknowns whose optimal control takes the wide stencil at the final iterate) and `info["angles"]`.
 
 ## Known limits
@@ -97,8 +101,12 @@ Results carry `info["residual_max"]`, `info["wide_fraction"]` (the share of unkn
 - A box with equal sides and Dirichlet data only, in 2D; `f` must be finite and nonnegative at the interior nodes.
 - Where the wide stencil enters, the scheme is first order at most, and its error does not fall regularly with `h` (T20c, T21; the paper's Section 7 says the same).
 - With the default rule the scheme switches between the 7-point and the wide stencil discontinuously in `u` at a node where a stationary point leaves its region; the paper's convergence proof covers the maximum over all controls (`wide_search="everywhere"`), and on T2 that maximum takes the wide stencil near the corner `(1, 1)` and loses the second order (Finding 2).
-- With the default rule the scheme can have more than one root: on T2 from `N = 256` on, policy iteration from the paper's start ends on a root with the wide stencil next to the corner, ten to sixty times less accurate than the 7-point root it reaches from the exact solution (`benchmarks/chen_wan_lin2018.md`, Finding 5).
+- With the default rule the scheme can have more than one root: on T2 from `N = 256` on, policy iteration from the paper's start ends on a root with the wide stencil next to the corner, 10 to 65 times less accurate than the 7-point root it reaches from the exact solution (`benchmarks/chen_wan_lin2018.md`, Finding 5).
+- With the default rule policy iteration can cycle between policies and stop at `max_iter` unconverged: on T2 at `N = 512` (residual near `0.09`) and on Table 5's problem at `N = 256` (residual near `0.07`) in the receipts; `Result.info["converged"]` is then False.
+- The wide stencil's arm is the paper's `sqrt(h)` in the box's units, which does not scale with the box: on a box of side `L` it spans `sqrt(n / L)` cells, so the resolution of the wide stencil is set by `n / L`, and a box of side `L` needs about `L` times the cells of the unit square.
+  On `u = x^T H x / 2 + x_1` with `H = [[1, 1.5], [1.5, 4]]`, outside the 7-point band, the max error relative to `max |u|` is `5.8e-3`, `2.2e-3`, `7.8e-4`, `6.4e-4` at `n = 16`, 32, 64, 128 on a box of side 1, and `9.3e-3`, `9.3e-3`, `8.0e-3`, `9.0e-3` on a box of side 10, where at `n = 16` and 32 the bilinear interpolation over arms of 1.3 and 1.8 cells overestimates the convex `u` so much that the wide stencil wins at no node (`tests/test_mixed.py` pins this; the larger `n` are a probe on a100server for the review of PR #70).
+  `MixedHJB.discretize` warns (`RuntimeWarning`) when the arm spans fewer than 2 cells, `n < 4 L`.
 - A Dirac mass needs a discretisation of its own: with `f = pi / h^2` at the tip of the cone the error does not decrease with `h` (`benchmarks/chen_wan_lin2018.md`, Finding 3).
-- The search over the angles costs `O(M)` per node where the wide stencil competes, some 30 seconds per policy at `n = 512` with `wide_search="only"` on one thread.
+- The search over the angles costs `O(M)` per node where the wide stencil competes, some 30 seconds per policy at `n = 512` with `wide_search="only"` on one thread; `MixedHJB.solution` runs it once more at the final iterate for `info["residual_max"]` and `info["wide_fraction"]`.
 - The sparse LU of a policy with many wide-stencil rows fills in: at `n = 512` it takes tens of GB and does not finish in hours, so give `krylov_tol` there; `benchmarks/chen_wan_lin2018.md` uses `1e-12` from `n = 256` on where the wide stencil is used at many nodes, and keeps the LU elsewhere, since that tolerance moves the fourth digit of a 7-point error at `n = 512`.
 - `node_hessian` holds the centred 9-point differences, which the scheme does not use.
