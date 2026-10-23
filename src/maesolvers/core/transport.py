@@ -10,7 +10,12 @@ target sets :class:`~maesolvers.core.domains.Box`,
 :class:`~maesolvers.core.domains.Ellipse`, as pure functions beside the
 domains rather than as members of the
 :class:`~maesolvers.core.domains.Domain` protocol (ADR 0007), and the mass
-balance a solver checks before it solves.
+balance a solver of transport problems checks in its ``check``.
+
+Each function dispatches on the type of the target (or domain), so a target
+set of another type, such as a rotated ellipse or a polygon, raises
+``TypeError``; an optional protocol for a user's own target geometry is left
+to the first solver that needs one (issue #28).
 
 Everything here takes and returns numpy arrays; the torch version of
 :func:`signed_distance` for a neural loss is
@@ -26,11 +31,11 @@ from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field, _points
 from maesolvers.core.problem import Problem
 
-INTEGRABLE: tuple[type, ...] = (Box, Disk, Ellipse)
-"""The domains :func:`integrate` and so :func:`check_mass_balance` handle."""
+_MAX_BISECTION_STEPS = 100
+"""Cap on the bisection steps of the ellipse foot point, which needs at most 64."""
 
-_BISECTION_STEPS = 160
-"""Bisection steps of the ellipse foot point: enough to reach adjacent floats."""
+_SLAB_POINTS = 2**20
+"""Most points :func:`integrate` passes to ``f`` at once on a box."""
 
 
 def _unsupported(what: str, domain: object) -> TypeError:
@@ -114,8 +119,11 @@ def closest_boundary_point(
     The ellipse has no closed form: the nearest point solves a scalar
     equation, found by bisection after reflecting ``y`` into the first
     quadrant (Eberly, "Distance from a point to an ellipse, an ellipsoid, or
-    a hyperellipsoid", Geometric Tools, 2013), which stays robust near the
-    centre and the major axis, where Newton's method on the angle does not.
+    a hyperellipsoid", Geometric Tools, 2013). The unknown is shifted so
+    that it scales with the distance of ``y`` from the major axis, and the
+    bisection runs on its logarithm, so the result is accurate to rounding
+    near the centre and the major axis too, at any distance from it, in at
+    most 64 steps.
     """
     y = _points(y, target.dim)
     if isinstance(target, Box):
@@ -210,32 +218,40 @@ def _ellipse_foot(
     sign = np.where(local < 0.0, -1.0, 1.0)
     y0, y1 = np.abs(local[..., 0]), np.abs(local[..., 1])
 
-    # Off the axes: the foot is (r0 y0 / (s + r0), y1 / (s + 1)) e-scaled, with
-    # s the root of F(s) = (r0 z0 / (s + r0))^2 + (z1 / (s + 1))^2 - 1 on
-    # [z1 - 1, |(r0 z0, z1)| - 1] (outside) or [z1 - 1, 0] (inside); F falls on it.
+    # Off the major axis the foot is (r0 y0 / (t + r0 - 1), y1 / t), with t the
+    # root of F(t) = (r0 z0 / (t + r0 - 1))^2 + (z1 / t)^2 - 1, which falls on
+    # [z1, 1] inside and on [z1, |(r0 z0, z1)|] outside. Eberly's s is t - 1:
+    # near the major axis t is of the order of z1, which s + 1 would cancel.
+    # Bisecting at the geometric mean resolves t relative to its size, at any
+    # scale, in at most about 64 steps.
     r0 = (e0 / e1) ** 2
+    excess = r0 - 1.0  # first: (t + r0) - 1 would cancel a small t when r0 = 1
     z0, z1 = y0 / e0, y1 / e1
     n0 = r0 * z0
     level = z0**2 + z1**2 - 1.0
-    low = z1 - 1.0
-    high = np.where(level < 0.0, 0.0, np.hypot(n0, z1) - 1.0)
-    # On an axis the bracket can shrink to a pole of F (NaN, never selected below).
-    with np.errstate(invalid="ignore", divide="ignore"):
-        for _ in range(_BISECTION_STEPS):
-            s = 0.5 * (low + high)
-            f = (n0 / (s + r0)) ** 2 + (z1 / (s + 1.0)) ** 2 - 1.0
-            low = np.where(f > 0.0, s, low)
-            high = np.where(f < 0.0, s, high)
-            low, high = np.where(f == 0.0, s, low), np.where(f == 0.0, s, high)
-        s = 0.5 * (low + high)
-        x0 = np.where(level == 0.0, y0, r0 * y0 / (s + r0))
-        x1 = np.where(level == 0.0, y1, y1 / (s + 1.0))
+    # A subnormal z1 has too few digits for y1 / t: the major-axis branch below
+    # takes it, exact there up to O(z1).
+    off_axis = z1 >= np.finfo(float).tiny
+    low = np.where(off_axis, z1, 1.0)
+    high = np.where(off_axis & (level >= 0.0), np.hypot(n0, z1), 1.0)
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        for _ in range(_MAX_BISECTION_STEPS):
+            t = np.sqrt(low) * np.sqrt(high)
+            if np.all((t <= low) | (t >= high)):
+                break
+            f = (n0 / (t + excess)) ** 2 + (z1 / t) ** 2 - 1.0
+            low = np.where(f > 0.0, t, low)
+            high = np.where(f < 0.0, t, high)
+            low, high = np.where(f == 0.0, t, low), np.where(f == 0.0, t, high)
+        t = 0.5 * (low + high)
+        x0 = np.where(level == 0.0, y0, r0 * y0 / (t + excess))
+        x1 = np.where(level == 0.0, y1, y1 / t)
 
     # On the minor axis (y0 = 0) the foot is the vertex (0, e1). On the major
     # axis (y1 = 0) it leaves the axis when y0 e0 < e0^2 - e1^2.
     x0 = np.where(y0 == 0.0, 0.0, x0)
     x1 = np.where(y0 == 0.0, e1, x1)
-    on_major = (y1 == 0.0) & (y0 > 0.0)
+    on_major = ~off_axis & (y0 > 0.0)
     span = e0**2 - e1**2
     with np.errstate(invalid="ignore", divide="ignore"):
         ratio = np.where(span > 0.0, e0 * y0 / span, np.inf)
@@ -284,12 +300,17 @@ def integrate(domain: Domain, f: Field, points: int = 64) -> float:
     """Integral of ``f`` over a domain by Gauss quadrature.
 
     On a box, the tensor Gauss-Legendre rule with ``points`` nodes per axis
-    (``points ** d`` evaluations). On a disk or an ellipse, Gauss-Legendre
-    with ``points`` nodes in the radius times the trapezoidal rule with
-    ``2 * points`` nodes in the angle, which converges spectrally for a
-    smooth periodic integrand. ``f`` is never evaluated on the boundary. The
-    error is near rounding for a smooth ``f`` (T16's oscillating ``f``
-    included), and of the order ``1 / points`` for an ``f`` that jumps.
+    (``points ** d`` evaluations, passed to ``f`` in slabs along the first
+    axis of at most about a million points each (one slab up to 3D), so memory stays bounded
+    while time grows as ``points ** d``). On a disk or an ellipse,
+    Gauss-Legendre with ``points`` nodes in the radius times the trapezoidal
+    rule with ``2 * points`` nodes in the angle, which converges spectrally
+    for a smooth periodic integrand. ``f`` is never evaluated on the
+    boundary. The relative error is near rounding for a smooth ``f`` (T16's
+    oscillating ``f`` included). For an ``f`` that jumps across a curve it
+    is of the order of the jump over ``points``: at the default 64 nodes,
+    between 2e-3 and 1e-2 for a step density on the unit square and for the
+    indicator of a disk inside it.
 
     Parameters
     ----------
@@ -316,9 +337,15 @@ def integrate(domain: Domain, f: Field, points: int = 64) -> float:
         axes = [
             0.5 * (a + b) + 0.5 * (b - a) * nodes for a, b in zip(lo, hi, strict=True)
         ]
-        grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
-        w = np.prod(np.meshgrid(*[weights] * domain.dim, indexing="ij"), axis=0)
-        return float(np.sum(w * f(grid)) * np.prod(0.5 * (hi - lo)))
+        rows = max(1, _SLAB_POINTS // points ** (domain.dim - 1))
+        total = 0.0
+        for start in range(0, points, rows):
+            block = slice(start, start + rows)
+            grid = np.stack(np.meshgrid(axes[0][block], *axes[1:], indexing="ij"), -1)
+            rest = [weights] * (domain.dim - 1)
+            w = np.prod(np.meshgrid(weights[block], *rest, indexing="ij"), axis=0)
+            total += np.sum(w * f(grid))
+        return float(total * np.prod(0.5 * (hi - lo)))
     if isinstance(domain, (Disk, Ellipse)):
         center = np.asarray(domain.center)
         if isinstance(domain, Disk):
@@ -334,15 +361,22 @@ def integrate(domain: Domain, f: Field, points: int = 64) -> float:
     raise _unsupported("integrate", domain)
 
 
-def check_mass_balance(problem: Problem, rtol: float = 1e-3, points: int = 64) -> None:
+def check_mass_balance(
+    problem: Problem,
+    rtol: float = 1e-3,
+    points: int = 64,
+    *,
+    mass: float | None = None,
+) -> None:
     """Raise unless the source mass of a transport problem equals the target's volume.
 
     The target density of a
     :class:`~maesolvers.core.boundary.Transport` problem is uniform 1, so a
     solution exists only when the integral of ``f`` over the domain equals
     the volume of the target. A solver of transport problems calls this from
-    its ``check``, after its support check, so that it never runs on
-    unbalanced data.
+    its own ``check``, after ``super().check(problem)``, so that it never
+    runs on unbalanced data; the base
+    :meth:`~maesolvers.core.solver.Solver.check` does not.
 
     Parameters
     ----------
@@ -351,10 +385,17 @@ def check_mass_balance(problem: Problem, rtol: float = 1e-3, points: int = 64) -
         boundary condition.
     rtol
         Largest relative difference allowed, against the target's volume.
-        The default leaves room for an ``f`` that jumps, which
-        :func:`integrate` resolves to about ``1 / points``.
+        The default suits an ``f`` that :func:`integrate` resolves to
+        rounding, a smooth one. For an ``f`` that jumps, whose integral
+        :func:`integrate` resolves only to the order of the jump over
+        ``points``, pass a larger ``rtol``, more ``points`` or the ``mass``.
     points
-        Quadrature nodes per axis, passed to :func:`integrate`.
+        Quadrature nodes per axis, passed to :func:`integrate`; not used
+        when ``mass`` is given.
+    mass
+        The integral of ``f`` over the domain, computed by the caller: for a
+        domain :func:`integrate` does not know, or with the solver's own
+        quadrature. None to compute it with :func:`integrate`.
 
     Raises
     ------
@@ -363,8 +404,8 @@ def check_mass_balance(problem: Problem, rtol: float = 1e-3, points: int = 64) -
         source mass and the target's volume differ by more than ``rtol``; the
         message gives both.
     TypeError
-        If :func:`integrate` does not know the domain or :func:`volume` the
-        target.
+        If :func:`volume` does not know the target, or, with no ``mass``,
+        :func:`integrate` the domain.
     """
     rtol = positive("rtol", rtol)
     boundary = problem.boundary
@@ -373,7 +414,8 @@ def check_mass_balance(problem: Problem, rtol: float = 1e-3, points: int = 64) -
             f"{problem.name} has a {type(boundary).__name__} boundary condition, "
             "not Transport: mass balance does not apply"
         )
-    mass = integrate(problem.domain, problem.f, points)
+    if mass is None:
+        mass = integrate(problem.domain, problem.f, points)
     target = volume(boundary.target)
     if not abs(mass - target) <= rtol * target:
         raise ValueError(

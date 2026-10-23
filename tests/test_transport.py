@@ -167,6 +167,68 @@ def test_the_ellipse_on_its_axes_and_at_its_centre(target):
             assert value == pytest.approx(want, abs=1e-12)
 
 
+def _ellipse_distance_by_angle(target, y):
+    """Distance from each point to the ellipse, by search over its parameter.
+
+    The nearest of 4096 boundary points, refined by ternary search on the
+    angle around it, accurate to about 1e-14 where the nearest point is
+    unique and to the gap between the two nearest points where it is not.
+    """
+    c, axes = np.asarray(target.center), np.asarray(target.semi_axes)
+
+    def dist(theta):
+        circle = np.stack([np.cos(theta), np.sin(theta)], axis=-1)
+        return np.linalg.norm(c + axes * circle - y, axis=-1)
+
+    coarse = np.linspace(0.0, 2.0 * np.pi, 4096, endpoint=False)
+    step = coarse[1]
+    best = coarse[np.argmin(dist(coarse[:, None]), axis=0)]
+    low, high = best - step, best + step
+    for _ in range(100):
+        left, right = (2 * low + high) / 3, (low + 2 * high) / 3
+        closer = dist(left) < dist(right)
+        low, high = np.where(closer, low, left), np.where(closer, right, high)
+    return dist((low + high) / 2)
+
+
+@pytest.mark.parametrize("target", TARGETS[3:], ids=repr)
+@pytest.mark.parametrize("off_axis", [1e-300, 1e-20, 1e-17, 1e-15, 1e-13, 1e-9])
+def test_the_ellipse_near_its_major_axis(target, off_axis):
+    """Accurate and finite at any distance from the major axis.
+
+    Along the major axis, inside the evolute (the foot leaves the axis),
+    past it, near the vertex and outside; above and below the axis.
+    """
+    c, (a, b) = np.asarray(target.center), target.semi_axes
+    long, short = (np.array([1.0, 0.0]), np.array([0.0, 1.0]))[:: 1 if a >= b else -1]
+    big, small = max(a, b), min(a, b)
+    evolute = (big**2 - small**2) / big
+    along = np.array([0.1, 0.5, 0.95 * evolute, 1.05 * evolute, 0.999, 1.5, 3.0])
+    along = np.concatenate([along[:2], along[2:4] if evolute > 0 else [], along[4:]])
+    shift = along[:, None] * big * long
+    y = c + np.concatenate([shift + off_axis * short, -shift - off_axis * short])
+    foot, normal = closest_boundary_point(target, y)
+    d = signed_distance(target, y)
+    assert np.all(np.isfinite(foot)) and np.all(np.isfinite(normal))
+    assert np.all(np.isfinite(d))
+    assert np.allclose(np.sum(((foot - c) / [a, b]) ** 2, axis=-1), 1.0, atol=1e-14)
+    assert np.allclose(np.abs(d), _ellipse_distance_by_angle(target, y), atol=1e-10)
+    assert np.array_equal(d < 0, target.interior(y))
+
+
+def test_the_ellipse_near_its_centre():
+    """Near the centre of a circle written as an ellipse, and of a near-circle."""
+    y = np.array([[1e-17, 1e-17], [1e-10, 1e-17], [-1e-300, 1e-17]])
+    for target in (
+        Ellipse((0.0, 0.0), (1.0, 1.0)),
+        Ellipse((0.0, 0.0), (1 + 1e-9, 1.0)),
+    ):
+        foot, normal = closest_boundary_point(target, y)
+        assert np.all(np.isfinite(foot)) and np.all(np.isfinite(normal))
+        d = signed_distance(target, y)
+        assert np.allclose(np.abs(d), _ellipse_distance_by_angle(target, y), atol=1e-10)
+
+
 def test_signed_distance_against_boundary_distance_inside():
     """Inside, the signed distance is minus the domain's boundary distance."""
     for domain in (Box((0.0, 0.0), (1.0, 2.0)), Disk((0.5, 0.0), 2.0)):
@@ -243,6 +305,46 @@ def test_an_unbalanced_problem_fails_the_check():
         check_mass_balance(_unbalanced(1.0005), rtol=1e-4)
 
 
+def _step_density(x):
+    """Balanced on the unit square, with a jump at x_0 = 0.3."""
+    return np.where(x[..., 0] < 0.3, 0.5 / 0.3, 0.5 / 0.7)
+
+
+def test_a_balanced_density_that_jumps_needs_a_wider_rtol_or_its_mass():
+    """The quadrature resolves the step to about 1e-2, as documented."""
+    square = Box((0.0, 0.0), (1.0, 1.0))
+    step = Problem("step", square, _step_density, Transport(square))
+    assert 2e-3 < abs(integrate(square, _step_density) - 1.0) < 1e-2
+    with pytest.raises(ValueError, match="out of mass balance"):
+        check_mass_balance(step)
+    check_mass_balance(step, rtol=2e-2)
+    check_mass_balance(step, mass=1.0)
+
+
+def test_the_mass_balance_on_another_domain_takes_the_mass():
+    cut = Problem("cut", CutQuarterDisk(), T12.f, Transport(Disk((0.0, 0.0), 1.0)))
+    with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
+        check_mass_balance(cut)
+    check_mass_balance(cut, mass=np.pi)
+    with pytest.raises(ValueError, match="out of mass balance"):
+        check_mass_balance(cut, mass=3.0)
+
+
+def test_integrate_in_slabs_on_a_box_in_four_dimensions():
+    """``points ** d`` evaluations, at most about a million at a time."""
+    box = Box((0.0,) * 4, (1.0, 2.0, 1.0, 0.5))
+    sizes = []
+
+    def f(x):
+        sizes.append(x[..., 0].size)
+        return np.sum(x, axis=-1)
+
+    # The integral of x_0 + ... + x_3 is the volume times the sum of the midpoints.
+    exact = 1.0 * (0.5 + 1.0 + 0.5 + 0.25)
+    assert integrate(box, f, points=40) == pytest.approx(exact, rel=1e-13)
+    assert sum(sizes) == 40**4 and max(sizes) <= 2**20
+
+
 def test_the_mass_balance_needs_a_transport_problem():
     from maesolvers import T1
 
@@ -254,6 +356,10 @@ def test_the_mass_balance_needs_a_transport_problem():
 class _Transporter(Solver):
     domains: ClassVar = (Disk, Box)
     boundaries: ClassVar = (Transport,)
+
+    def check(self, problem):
+        super().check(problem)
+        check_mass_balance(problem)
 
     def setup(self, problem):
         return None
@@ -276,17 +382,22 @@ def test_a_transport_solver_checks_the_mass_balance_before_it_solves():
         )
 
 
-def test_the_base_check_skips_the_balance_on_a_domain_it_cannot_integrate():
-    """``super().check`` stays safe for a transport solver on another domain."""
+def test_the_base_check_leaves_the_mass_balance_to_the_solver():
+    """``super().check`` neither integrates f nor needs to know the target."""
 
     @dataclass(frozen=True)
-    class OnCutDisk(_Transporter):
-        domains: ClassVar = (CutQuarterDisk,)
+    class Unchecked(_Transporter):
+        def check(self, problem):
+            Solver.check(self, problem)
 
-    cut = Problem("cut", CutQuarterDisk(), T12.f, Transport(Disk((0.0, 0.0), 1.0)))
-    with pytest.raises(TypeError, match="knows Box, Disk and Ellipse"):
-        check_mass_balance(cut)
-    assert OnCutDisk().solve(cut).info["converged"]
+    assert Unchecked().solve(_unbalanced(2.0)).info["converged"]
+    polygon = Problem(
+        "polygon target",
+        Box((0.0, 0.0), (1.0, 1.0)),
+        T16.f,
+        Transport(CutQuarterDisk()),
+    )
+    assert Unchecked().solve(polygon).info["converged"]
 
 
 # the gradient-map error

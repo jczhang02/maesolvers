@@ -65,6 +65,12 @@ def signed_distance(target: Domain, y: torch.Tensor) -> torch.Tensor:
     nearest point is unique, so a loss trains through it with no NaN on the
     boundary. Its second derivatives in ``y`` are zero, not the curvature.
 
+    Each call copies ``y`` to the CPU and the nearest points back, so on a
+    GPU it waits for the device once per loss evaluation; the ellipse takes
+    up to 64 bisection steps in numpy. Torch closed forms for ``Box`` and
+    ``Disk``, which would avoid the copy, are left to the first loss that
+    needs the speed.
+
     Parameters
     ----------
     target

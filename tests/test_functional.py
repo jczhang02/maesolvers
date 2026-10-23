@@ -134,3 +134,21 @@ def test_signed_distance_in_torch_is_the_numpy_one_and_trains(target):
     # d(d^2 + d)/dy = (2 d + 1) nu: finite on the boundary, where it is nu.
     expected = (2 * d.detach().numpy() + 1)[:, None] * normal
     np.testing.assert_allclose(grad.numpy(), expected, atol=1e-12)
+
+
+def test_signed_distance_in_torch_near_the_major_axis_of_an_ellipse():
+    """Rounding noise off the axis of a symmetric problem leaves the loss finite."""
+    from maesolvers.core import signed_distance
+
+    target = Ellipse((3.5, 0.0), (2.0, 0.5))  # T12's target
+    noise = np.array([1e-300, -1e-20, 1e-17, -1e-16, 1e-15])
+    points = np.stack([np.full(5, 3.5 + 0.3), noise], axis=-1)
+    y = torch.tensor(points, requires_grad=True)
+    d = functional.signed_distance(target, y)
+    np.testing.assert_array_equal(d.detach().numpy(), signed_distance(target, points))
+    # On the axis, 0.3 from the centre, inside the evolute, the nearest point
+    # (0.32, 0.5 sqrt(1 - 0.16^2)) leaves the axis: 0.16 = 2 * 0.3 / (2^2 - 0.5^2).
+    on_axis = -np.sqrt((0.32 - 0.3) ** 2 + 0.25 * (1 - 0.16**2))
+    np.testing.assert_allclose(d.detach().numpy(), on_axis, rtol=1e-14)
+    (grad,) = torch.autograd.grad(d.pow(2).sum(), y)
+    assert torch.isfinite(grad).all()

@@ -25,12 +25,10 @@ from typing import Any, ClassVar, Generic, TypeVar
 import numpy as np
 
 from maesolvers.core._params import integer
-from maesolvers.core.boundary import Transport
 from maesolvers.core.callbacks import Callback
 from maesolvers.core.domains import Field, HessianField
 from maesolvers.core.problem import Problem
 from maesolvers.core.result import Result
-from maesolvers.core.transport import INTEGRABLE, check_mass_balance
 
 ContextT = TypeVar("ContextT")
 StateT = TypeVar("StateT")
@@ -308,20 +306,14 @@ class Solver(ABC, Generic[ContextT, StateT]):
     def check(self, problem: Problem) -> None:
         """Raise if the solver cannot solve the problem.
 
-        Override to add checks, and call ``super().check(problem)``. For a
-        supported :class:`~maesolvers.core.boundary.Transport` problem on a
-        domain :func:`~maesolvers.core.transport.integrate` handles (a
-        ``Box``, ``Disk`` or ``Ellipse``) it also checks the mass balance
-        with :func:`~maesolvers.core.transport.check_mass_balance` and its
-        defaults; a transport solver on another domain checks the balance
-        in its own override.
+        Override to add checks, and call ``super().check(problem)``. A
+        solver of transport problems adds
+        :func:`~maesolvers.core.transport.check_mass_balance` there.
 
         Raises
         ------
         UnsupportedProblemError
             If :meth:`supports` is False.
-        ValueError
-            If a transport problem is out of mass balance.
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
@@ -329,10 +321,6 @@ class Solver(ABC, Generic[ContextT, StateT]):
                 f"{problem.dim}D {type(problem.domain).__name__} problem with a "
                 f"{type(problem.boundary).__name__} boundary"
             )
-        if isinstance(problem.boundary, Transport) and isinstance(
-            problem.domain, INTEGRABLE
-        ):
-            check_mass_balance(problem)
 
     @abstractmethod
     def setup(self, problem: Problem) -> ContextT:
