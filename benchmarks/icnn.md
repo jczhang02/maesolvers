@@ -3,7 +3,7 @@
 `DirichletICNN` with the preset's defaults (the paper's, where the paper gives them), seeds 0 to 9, against Nystrom and Vestberg (2023), arXiv 2110.03310v3, read from the PDF.
 **Levels (ADR 0002): figure only on T1**, against Figure 2 (Example 4.2), which prints no table; **mismatch on T6**, against Table 1 (Example 4.6, the `stdev = 0` row).
 The T6 mismatch holds under either reading of the equation term, which eq. (3.3) prints as a sum: read as a mean, the same network and optimizer meet the paper's stopping test and come about 3.6 times closer, but stay about 3.6 times above Table 1 (Finding 2).
-`TransportICNN`, the input convex network of Caboussat and Peruso (2025) on the transport problem T12, is compared with their Table 2 at the end of this file: **statistical for the L-BFGS row's errors, mismatch for the Adam row's errors and for both rows' final loss** (T12, below); the L-BFGS errors agree although the same row's loss does not, and Finding 3 suggests that this agreement is in part a coincidence.
+`TransportICNN`, the input convex network of Caboussat and Peruso (2025) on the transport problem T12, is compared with their Table 2 at the end of this file: **statistical for the L-BFGS row's errors, mismatch for the Adam row's errors and for both rows' final loss** (T12, below); the L-BFGS errors agree although the same row's loss does not, and Finding 3 suggests that this agreement may be in part a coincidence.
 
 Receipts: `icnn_t1.csv` and `icnn_t6.csv`, written by `run_icnn.py` on a100server at commit 08a29b7, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-icnn-T1` and `maesolvers-icnn-T6`, with its training curve and the device and thread count as parameters.
 The commits this file cites are on the branch of PR #55, which was squash-merged into `next` as 02a6ab6, so they are not in its history; GitHub keeps them under `refs/pull/55/head`.
@@ -207,10 +207,10 @@ The first is the letter of ADR 0002: the published mean, 2.67e-3, lies inside ou
 The second compares like with like, a mean with a mean: 2.67e-3 lies inside the bootstrap band of our ten-seed mean, [1.83e-3, 2.75e-3], but only just, 3% below its top; our mean, 2.24e-3, is 0.84 times theirs.
 Three facts weaken the agreement.
 The spreads differ: the paper's standard deviation, 3.76e-3, is larger than its mean and four times ours, 9.4e-4.
-The same row's final loss is a mismatch (below), and Finding 3 shows that a sampling under which our loss falls below the paper's brings our error to 3.0e-4, with the paper's mean three times above our 95% quantile, so the error agreement probably joins two different regimes and is in part a coincidence, not evidence that the method was reproduced.
+The same row's final loss is a mismatch (below), and Finding 3 shows that a sampling under which our loss falls below the paper's brings our error to 3.0e-4, with the paper's mean three times above our 95% quantile; if the paper's runs sampled that way, in some runs or all, the error agreement joins two different regimes and is in part a coincidence, not evidence that the method was reproduced.
 The second check depends on the reading of the L2 error (Conventions): as the L2 norm over the disk, our mean's band is [3.25e-3, 4.88e-3] and 2.67e-3 lies below it.
 **Mismatch** for the Adam row: the published means lie above our per-seed 95% quantiles (2.40e-2 against 2.15e-2 on the training points) and far above the band of our mean ([7.04e-3, 1.42e-2]), and our Adam runs train further than the paper's (Finding 4).
-**Mismatch** for the final loss of both rows: the paper's L-BFGS loss lies a factor 10 below our band, which with independent random points on the two boundaries no network can reach (Finding 3), and its Adam loss a factor 3 above our band.
+**Mismatch** for the final loss of both rows: the paper's L-BFGS loss lies a factor 10 below our band and below the level the exact map leaves at our independent boundary points (Finding 3), and its Adam loss a factor 3 above our band.
 No seed failed, and the network is convex at every point of the shared grid in every seed (`nonconvex_fraction` 0), as it must be by construction.
 
 Two more numbers that Table 2 does not print: the largest pointwise error of the map on the shared grid is 4.53e-3 [2.93e-3, 6.30e-3] with L-BFGS and 1.53e-2 [7.60e-3, 3.37e-2] with Adam, and `evaluate`'s max error of `u`, after both sides' means are subtracted, is 2.03e-3 [1.34e-3, 3.63e-3] and 7.17e-3 [3.28e-3, 1.93e-2].
@@ -218,16 +218,18 @@ Figure 4 of the paper, one L-BFGS run, shows pointwise errors of each component 
 The paper's standard deviations are large next to its means (0.00376 against 0.00267 for L-BFGS): with ten positive errors, that says one or two runs far worse than the rest, and Figure 5's band (5% to 95%, from about 2e-4 to 9e-3 for the L-BFGS error) says the same.
 Our L-BFGS spread is narrower, 1.29e-3 to 4.64e-3 over the ten seeds.
 
-### Finding 3: the paper's final L-BFGS loss lies below what the exact map reaches with independent boundary points
+### Finding 3: the paper's final L-BFGS loss lies ten times below the level the exact map leaves at independent boundary points
 
 The transport term of eq. (3.4) compares two finite point sets: `grad u` of the 800 points on the circle and the 800 points on the ellipse.
 When the two are drawn independently, as `TransportSampler` draws them, the exact map does not make the term zero: each image lies some way from the nearest target point.
-For the exact solution and the collocation points of seeds 0 to 2, the term is 1.11e-4, 1.67e-4 and 1.34e-4 (`into` 4.35e-5 plus `onto` 6.77e-5 for seed 0), pinned in `tests/test_transport_icnn.py` (`test_the_exact_map_leaves_a_transport_term_at_independent_points`); `python benchmarks/run_icnn_transport.py --floor` prints it for seeds 0 to 9, 1.11e-4 to 1.73e-4.
+For the exact solution and the collocation points of seeds 0 to 2, the term is 1.11e-4, 1.67e-4 and 1.34e-4 (`into` 4.35e-5 plus `onto` 6.77e-5 for seed 0), pinned in `tests/test_transport_icnn.py` (`test_the_exact_map_leaves_a_transport_term_at_independent_points`); `python benchmarks/run_icnn_transport.py --exact-map` prints it for seeds 0 to 9, 1.11e-4 to 1.73e-4, next to the trained network of each seed.
 With the target points uniform in the parameter angle instead of in arc length (the same command, `parametric target`), it is 1.30e-4, 1.37e-4 and 1.31e-4.
-Our trained networks end at the same level, 1.38e-4 [1.16e-4, 1.66e-4], almost all of it in the transport term (`into` plus `onto`; the equation term is 1.2e-6), so L-BFGS has found the minimiser the sampling allows, and its error of about 2e-3 is the error that sampling leaves.
-The paper's mean final loss, 1.13e-5, is ten times below that level, and its best runs (Figure 5's band reaches 1e-6) a hundred times.
-The paper does not say how many target points it drew, but more target points do not remove the floor: they shrink `into`, while `onto`, a mean over the target points of the distance to the nearest of the 800 images, stays where it is (seed 0 with 8000 target points: `into` 6.2e-7, `onto` 6.8e-5; `--floor` prints both halves with ten times the target points).
-So, if the reported loss is eq. (3.4) with `C = 1` and the means as printed, the paper's boundary points cannot have been independent uniform draws on the two curves; its code is not public and it does not describe how it reports the loss.
+This level is the loss of one map, the exact one, not a lower bound over maps: a network can move the images of the boundary points toward the drawn target points and lower the term below it.
+Our trained networks end at the same level, 1.38e-4 [1.16e-4, 1.66e-4], almost all of it in the transport term (`into` plus `onto`; the equation term is 1.2e-6 in the median), and within 4% of the exact map's term at the same points: the final loss lies above it in seeds 0, 2, 4, 6 and 8 (by 0.5% to 3.1%) and below it in seeds 1, 3, 5, 7 and 9 (by 1.1% to 3.3%), and the transport term alone lies below it in eight seeds (seed 5: 1.65e-4 against 1.73e-4, 4% below).
+So the 433 parameters of the network bend the map only a little toward the drawn points, and its error of about 2e-3 is about what the sampling leaves; how far a richer convex map could lower the term we did not measure.
+The paper's mean final loss, 1.13e-5, is ten times below both the exact map's level and every trained seed of ours, and its best runs (Figure 5's band reaches 1e-6) a hundred times.
+The paper does not say how many target points it drew, but more target points do not lower the exact map's level much: they shrink `into`, while `onto`, a mean over the target points of the distance to the nearest of the 800 images, stays where it is (seed 0 with 8000 target points: `into` 6.2e-7, `onto` 6.8e-5; `--exact-map` prints both halves with ten times the target points).
+So, if the reported loss is eq. (3.4) with `C = 1` and the means as printed, we see no way to reach it with independent uniform draws on the two curves and a network of this size, and the paper's boundary points probably were not such draws; this suggests, but does not prove, a different sampling or loss, and its code is not public and it does not describe how it reports the loss.
 
 A sampling under which the exact map makes the term zero: the same random angles `t` on both curves, `(cos t, sin t)` on the circle and `(3.5 + 2 cos t, 0.5 sin t)` on the ellipse, which the exact map `grad u(x) = (2 x_1 + 3.5, x_2 / 2)` sends one onto the other.
 That is a natural way to code the two boundaries, and the paper does not say how it drew them.
@@ -245,7 +247,7 @@ With shared angles the transport term of the trained network falls by a factor o
 Now the paper's means lie above our bands: its loss, 1.13e-5, above the 95% quantile 6.9e-6, and its error, 2.67e-3, three times above the 95% quantile 8.1e-4.
 Neither sampling reproduces both columns of the L-BFGS row at once, so the paper's runs probably mixed the two regimes, or sampled in a third way; its large standard deviations fit a mixture.
 The preset keeps independent draws: the shared angles use the exact map of this one problem (it preserves the parameter angle), which a solver cannot know, and independent points are what the paper's text describes ("two sets of boundary points").
-`TransportSampler`'s docstring and `docs/methods/icnn.md` (Known limits) state the floor.
+`TransportSampler`'s docstring and `docs/methods/icnn.md` (Known limits) state the exact map's level.
 
 ### Finding 4: our Adam trains further than the paper's
 
@@ -265,7 +267,7 @@ We did not search for the setting that matches the figure: both are unstated, th
 - **Initialisation.** The paper fits `grad u` to the identity map before training and gives no details; `IdentityStart` fits it by L-BFGS, at most 1000 iterations, at the interior and boundary collocation points. No fit met its tolerance; the largest misfit of a component after the fit is 1.8e-3 [1.0e-3, 3.4e-3].
 - **Network.** "4 hidden layers with 10 neurons per layer", softplus, non-negative weights as squares: `ICNN(width=10, depth=4)`, 433 parameters in 2D. Every input feeds every layer (the passthrough of the paper's eq. (3.1)).
 - **Equation term.** The paper's residual is `det D^2 u - f / g(grad u)`, with `f = g = 1 / pi`; a `Transport` problem has the target density 1 and `f = 1` on T12, so the residual is `det D^2 u - 1` in both. It is a mean over the interior points (the paper's `E_PDE`), the boundary weight is `C = 1`.
-- **Target points.** 800, as many as the boundary points; the paper gives `N_b = 800` and does not count the target points separately. They are uniform in arc length on the ellipse (the `BoundarySampling` contract); Finding 3 shows that the choice moves the loss floor by little.
+- **Target points.** 800, as many as the boundary points; the paper gives `N_b = 800` and does not count the target points separately. They are uniform in arc length on the ellipse (the `BoundarySampling` contract); Finding 3 shows that the choice moves the exact map's level by little.
 - **Float64** throughout (ADR 0008); the paper does not say.
 - **Device.** The receipt trained on an A100; `TransportICNN()` trains on the CPU by default, as the comparison table does, and rounds differently there.
 
@@ -275,9 +277,9 @@ We did not search for the setting that matches the figure: both are unstated, th
 just push
 # pick a GPU with no process in `ssh a100server nvidia-smi`
 just remote-bg icnn-t12 env CUDA_VISIBLE_DEVICES=2 python benchmarks/run_icnn_transport.py
-# the table's cells from the receipt, and Finding 3's floor; seconds, nothing trained
+# the table's cells from the receipt, and Finding 3's exact map's level; seconds, nothing trained
 just remote python benchmarks/run_icnn_transport.py --summary
-just remote python benchmarks/run_icnn_transport.py --floor
+just remote python benchmarks/run_icnn_transport.py --exact-map
 # Finding 3, shared angles; Finding 4, a smaller start (seeds 0 to 2)
 D=/jczhang02/maesolvers-data/logs/icnn-t12
 just remote-bg icnn-t12-shared10 env CUDA_VISIBLE_DEVICES=2 python benchmarks/run_icnn_transport.py \

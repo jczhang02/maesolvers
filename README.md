@@ -273,8 +273,8 @@ The input convex network of the same paper (`DirichletICNN`) reaches the figure-
 On T6 it is a mismatch: 1.1e-4 (5.5e-5 to 2.4e-4) at 10^6 random points against 8.58e-6 in Table 1.
 The equation term, which the paper prints as a sum, explains part of the gap: read as a mean, it gives 3.1e-5 (1.2e-5 to 5.0e-5) and meets the paper's stopping test, but is still a mismatch; the preset waits for #13 to choose (`benchmarks/icnn.md`, Finding 2).
 The convex PINN of Caboussat-Peruso 2025 (`TransportICNN`) reaches the statistical level on T12 for the errors of Table 2's L-BFGS row: the root mean square error of `grad u` is 2.1e-3 (5% to 95%: 1.4e-3 to 3.8e-3) over seeds 0 to 9, against a mean of 2.67e-3 over the paper's ten runs, which also lies, just, inside the bootstrap band of our mean (1.8e-3 to 2.8e-3).
-The agreement is in the errors only: the same row's final loss is a mismatch, and Finding 3 suggests that the error agreement is in part a coincidence.
-Its Adam row and the final losses are a mismatch: the paper's L-BFGS loss lies ten times below what even the exact map reaches with independent random points on the two boundaries, and our Adam trains further than the paper's (`benchmarks/icnn.md`, Findings 3 and 4).
+The agreement is in the errors only: the same row's final loss is a mismatch, and Finding 3 suggests that the error agreement may be in part a coincidence.
+Its Adam row and the final losses are a mismatch: the paper's L-BFGS loss lies ten times below both our trained seeds and the level the exact map leaves at independent random points on the two boundaries, and our Adam trains further than the paper's (`benchmarks/icnn.md`, Findings 3 and 4).
 
 <details>
 <summary><strong>Redraw the figure</strong></summary>

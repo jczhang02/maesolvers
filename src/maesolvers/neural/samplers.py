@@ -271,7 +271,9 @@ class TransportSampler(Sampler):
     separately. The target points are independent of the boundary points,
     so even the exact map leaves a Hausdorff-type distance between the two
     sets, of the order of the squared spacing of the points (about 1e-4 on
-    T12 with 800 points each; ``benchmarks/icnn.md``, Finding 3).
+    T12 with 800 points each). That is the loss of one map, not a bound: a
+    trained network can bend its boundary images toward the drawn points
+    and end slightly below it (``benchmarks/icnn.md``, Finding 3).
 
     Parameters
     ----------
