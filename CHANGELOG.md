@@ -17,6 +17,15 @@ Every change to the public interface is listed here; 0.x may break the interface
   The 19-point arms never leave the box, so `boundary` does not change a 3D solve.
 - `Monotone17.dim`, the dimension of its stencil, and the pure function `stencil_dimension(points)` in `maesolvers.classical.monotone`.
 - `angular_resolution(19)`: the covering angle of the 19-point directions on the sphere, `acos(sqrt(2/3))` (about 35.3 degrees, at the body diagonals).
+- `maesolvers.core.transport`, the shared helpers of the second boundary value problem (issue #26), pure numpy functions exported from `maesolvers.core`, for the target sets `Box` (any dimension), `Disk` and `Ellipse` (`TypeError` for another set; the `Domain` protocol is unchanged):
+  `signed_distance(target, y)`, the signed distance to the target's boundary, positive outside and negative inside (`H` of Benamou-Froese-Oberman 2014, eq. (3));
+  `support_function(target, n)`, `sup_{y in Y} y . n` for any direction `n` (their `H*`, eq. (5));
+  `closest_boundary_point(target, y)`, the nearest boundary point and the outward unit normal there (Eberly's bisection for the ellipse, accurate to rounding near its centre and its major axis);
+  `volume(domain)`; `integrate(domain, f, points=64)`, Gauss quadrature over a box, a disk or an ellipse;
+  `check_mass_balance(problem, rtol=1e-3, points=64, *, mass=None)`, which raises `ValueError` unless the integral of `f` over the domain (computed by `integrate`, or `mass` when given) equals the target's volume, for a transport solver written as a subclass to call from its own `check`; a composed solver has no hook for it yet, so its caller runs it before `solve`.
+- `gradient_fd(u, points, step=None)` and `gradient_map_error(gradient, exact)` in `maesolvers.metrics`: the central-difference gradient of a field, and the max and RMS of `|grad u - grad u_exact|` as `gradient_max` and `gradient_rms`, for the tables that report the error of the transport map (`gradient_fd` evaluates `u` a step past each point, so a classical result's `u`, an interpolant of its grid values that is not the solution past the domain, takes interior points only); `evaluate` and its fields are unchanged (ADR 0007).
+- `gradient(u, x, create_graph=True)`, the autograd gradient, and `signed_distance(target, y)`, the torch form of the core function with the outward normal as its gradient in `y`, in `maesolvers.neural.functional`.
+- `Batch.target`, the target set of a `Transport` problem for a loss on the transport condition, None for another boundary condition; a keyword field with default None after `f_boundary`, so existing code that builds a `Batch` keeps working, and `Batch.to` leaves it as it is.
 
 ### Changed
 

@@ -306,7 +306,11 @@ class Solver(ABC, Generic[ContextT, StateT]):
     def check(self, problem: Problem) -> None:
         """Raise if the solver cannot solve the problem.
 
-        Override to add checks, and call ``super().check(problem)``.
+        Override to add checks, and call ``super().check(problem)``. A
+        solver of transport problems written as a subclass adds
+        :func:`~maesolvers.core.transport.check_mass_balance` there; a
+        composed solver has no hook for its parts to add a check, so its
+        caller runs ``check_mass_balance`` before :meth:`solve`.
 
         Raises
         ------
