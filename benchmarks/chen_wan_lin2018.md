@@ -17,7 +17,7 @@ Each policy's linear system is solved by sparse LU, except in the columns where 
 The paper uses GMRES with an incomplete LU throughout; where the LU is cheap it stays, because that tolerance moves the fourth digit of a 7-point error at `N = 512` (T1: `4.70448e-6` by BiCGSTAB, an MLflow run at commit 1f96a1b, against `4.70454e-6` by LU and the published `4.705e-6`).
 The errors are the paper's: `||e||_inf`, the max at the nodes, and `||e||_2 = sqrt(h^2 sum e^2)` over the nodes (Finding 1).
 
-Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 9c24bcb, the same code) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`).
+Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 9c24bcb, the same code) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 9c24bcb, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 1f96a1b, some KILLED), which the receipts do not use.
 
 ## Verdict
 
@@ -114,7 +114,7 @@ The tables follow the cost estimate.
 `wide_search="outside"`, the default, skips the search where the stationary point of a 7-point objective, eq. (30), lies in its region (there it maximises that objective over all controls), and matches Tables 1 to 3.
 `wide_search="everywhere"` searches at every node, as Section 5.2 reads (rows `search`):
 
-- on T1 and T20c it gives the same solution, since the wide stencil never wins;
+- on T1 the wide stencil never wins, and on T20c the same few nodes take it under either rule, so both solutions are unchanged;
 - on T2 it takes the wide stencil at 0.7% of the nodes, next to the corner `(1, 1)`, where the Hessian of the solution is near the edge of diagonal dominance: the max error is `8.82e-4`, `7.77e-4`, `5.10e-4` at `N = 32`, 64, 128 against the published `2.359e-4`, `8.211e-5`, `2.882e-5`, and the order drops from 1.5 to 0.2 and 0.6;
 - on the cone it fails, with max errors of 1.5 to 3.7 that grow with `N`: near the tip the wide stencil's arms of length `sqrt(h)` see smaller second differences of the cone than the 7-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by `O(1)`.
 

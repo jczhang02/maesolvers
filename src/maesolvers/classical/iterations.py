@@ -576,7 +576,8 @@ class PolicyIteration(SchemeIteration):
         solves it by BiCGSTAB to that relative residual, preconditioned by
         an incomplete LU (drop tolerance ``1e-4``), and by LU if BiCGSTAB
         fails; the paper uses GMRES with an incomplete LU. Needed where the
-        LU fills in, as for the 17-point wide stencil at ``n = 512``.
+        LU fills in, as for the 17-point wide stencil at many nodes from
+        ``n = 256`` on.
 
     Notes
     -----
