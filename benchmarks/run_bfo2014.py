@@ -11,10 +11,10 @@ variant with other matrices), so they are built here, with their target and
 source sets as small Domain classes of this script. T12 runs too, at the same
 grids, for the method page; it has no published table.
 
-Every solve uses the preset FDTransport, or, where its mass-balance check
-cannot run (``volume`` and ``integrate`` do not know the sets of Tables 2 and
-3), the same scheme, start and iteration composed by hand
-(:func:`unchecked`); the balance holds there by construction. Variants beside
+Every solve uses the preset FDTransport. It cannot check the mass balance
+of Tables 2 and 3 (``volume`` and ``integrate`` do not know their sets) and
+warns; the balance holds there by construction, so this script silences
+that warning. Variants beside
 the preset: the paper's Poisson start without the monotone root
 (``poisson_start``), the monotone interior alone (``monotone``), ``h = 1/(N -
 1)`` (``n = N - 1``) and, for Table 2, the smallest square around the ellipse.
@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import csv
 import time
+import warnings
 from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
@@ -230,16 +231,6 @@ def exact_gradient(name: str, x: np.ndarray) -> np.ndarray:
     return gradient_fd(exact, x)
 
 
-def unchecked(preset: FDTransport) -> Newton:
-    """``preset`` as a composed solver: its scheme, start and iteration, no balance check."""
-    return Newton(
-        scheme=preset.scheme,
-        start=preset.start,
-        max_iter=preset.max_iter,
-        tol=preset.tol,
-    )
-
-
 def solver_for(name: str, variant: str, n: int, directions: int | None) -> Solver:
     """The solver of one row."""
     box = Box((-0.8, -0.8), (0.8, 0.8)) if variant == "tight_square" else SQUARES[name]
@@ -249,7 +240,7 @@ def solver_for(name: str, variant: str, n: int, directions: int | None) -> Solve
     if variant == "monotone":
         assert preset.start is not None
         return preset.start
-    return preset if name in ("T16", "T12") else unchecked(preset)
+    return preset
 
 
 def gradient_errors(name: str, result: Any) -> dict[str, float]:
@@ -307,6 +298,7 @@ def run(task: tuple[str, str, int, int | None, bool]) -> dict[str, Any]:
     problem = PROBLEMS[name]
     solver = solver_for(name, variant, n, ny)
     run_name = f"N={N} NY={ny} {variant}"
+    warnings.filterwarnings("ignore", "FDTransport does not check the mass balance")
     start = time.time()
     if log:
         import mlflow
@@ -315,7 +307,12 @@ def run(task: tuple[str, str, int, int | None, bool]) -> dict[str, Any]:
         with tracking.run(f"maesolvers-bfo2014-{name}", run_name=run_name):
             result = solver.solve(problem, callbacks=[logger])
             errors = gradient_errors(name, result)
-            mlflow.log_metrics(errors)
+            begun = {
+                k: float(result.info[k])
+                for k in ("start_iterations", "start_converged")
+                if k in result.info
+            }
+            mlflow.log_metrics({**errors, **begun})
     else:
         result = solver.solve(problem)
         errors = gradient_errors(name, result)
@@ -343,6 +340,7 @@ def run(task: tuple[str, str, int, int | None, bool]) -> dict[str, Any]:
         "published_iterations": pub[2],
         "iterations": info["iterations"],
         "start_iterations": info.get("start_iterations", ""),
+        "start_converged": info.get("start_converged", ""),
         "converged": info["converged"],
         "residual_max": info["residual_max"],
         "u_anchor": info["u_anchor"],
