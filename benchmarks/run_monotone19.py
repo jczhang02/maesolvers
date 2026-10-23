@@ -9,6 +9,12 @@ h = 1/(N - 1). Then it runs Newton from the paper's start (one semi-implicit
 step, laplace u = (d! f)^(1/d), SINUM eq. (8), solved on the grid itself) for
 1 to 8 steps at every N, as monotone17.md, Finding 2 does in 2D.
 
+With --checks it writes monotone19_checks.csv instead, the evidence for the
+findings on the C^1 example: Newton on the bare scheme as the paper prints it
+(min over triples of prod (D u)^+, no slope below zero, the paper's floored
+Jacobian) from our start and from the paper's, and Monotone17 under the
+paper's Jacobian floor 1e-8 against the default 1e-12.
+
 Every solve is one MLflow run in maesolvers-monotone19-<problem> (T9, C1-3D,
 T22) unless --no-mlflow is given. The converged solves run in --processes
 worker processes (default 8), the iterates in one process per problem, so set
@@ -16,6 +22,8 @@ one thread each. Run it on a100server from the repository root::
 
     just remote-bg monotone19 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
         python benchmarks/run_monotone19.py
+    just remote-bg monotone19-checks env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
+        python benchmarks/run_monotone19.py --checks
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import scipy.sparse as sp
 
 from maesolvers import (
     T9,
@@ -43,6 +52,7 @@ from maesolvers import (
     Solver,
     tracking,
 )
+from maesolvers.classical.monotone import MonotoneGrid
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -133,6 +143,44 @@ class PapersStartNewton(Newton):
         )
 
 
+@dataclass(frozen=True, kw_only=True)
+class BareMonotone19(Monotone17):
+    """The paper's scheme as printed: min over triples of prod (D u)^+ = f.
+
+    No slope below zero, and the paper's Jacobian (SINUM Section 5): Danskin's
+    theorem on the active triple, each factor max(D u, floor) whatever its
+    sign, with the floor 1e-8 / (2 h^2) (Section 5.3).
+    """
+
+    stencil: Any = 19
+    jacobian_floor: float = 1e-8
+
+    def residual(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
+        """``min over triples of prod (D u)^+ - f``."""
+        return self._bare(grid, v).min(axis=0) - grid.f
+
+    def jacobian(self, grid: MonotoneGrid, v: np.ndarray) -> sp.csc_matrix:
+        """The paper's floored Danskin Jacobian."""
+        d = self.directional_differences(grid, v)
+        chosen = np.arange(grid.frames)[:, None] == self._bare(grid, v).argmin(axis=0)
+        floored = np.maximum(d, grid.floor)
+        weights = np.stack(
+            [np.delete(floored, k, axis=1).prod(axis=1) for k in range(d.shape[1])],
+            axis=1,
+        )
+        weights = (weights * chosen[:, None, :]).ravel()
+        m = grid.f.size
+        rows = np.tile(np.arange(m), d.shape[0] * d.shape[1])
+        collapse = sp.csr_matrix(
+            (weights, (rows, np.arange(weights.size))), shape=(m, weights.size)
+        )
+        return sp.csc_matrix(collapse @ grid.operators)
+
+    def _bare(self, grid: MonotoneGrid, v: np.ndarray) -> np.ndarray:
+        d = self.directional_differences(grid, v)
+        return np.maximum(d, 0.0).prod(axis=1)
+
+
 def solve(
     solver: Solver, problem: Problem, run_name: str, log: bool
 ) -> tuple[dict[str, Any], Result]:
@@ -209,6 +257,52 @@ def iterates(task: tuple[str, bool]) -> list[dict[str, Any]]:
     return rows
 
 
+CHECK_TASKS: list[tuple[str, str, int, Any]] = [
+    *(
+        ("bare", "C1-3D", N, start)
+        for N in (7, 11, 15, 21)
+        for start in ("ours", "papers")
+    ),
+    *(("floor", "C1-3D", N, floor) for N in (15, 21) for floor in (1e-8, 1e-12)),
+]
+"""(check, problem, N, variant) of every row of monotone19_checks.csv, h = 1/N; the
+variant is the start for "bare", the Jacobian floor for "floor"."""
+
+
+def checks(task: tuple[str, str, int, Any, bool]) -> dict[str, Any]:
+    """One row of monotone19_checks.csv."""
+    check, name, N, variant, log = task
+    problem = PROBLEMS[name]
+    solver: Solver
+    if check == "bare":
+        start_class = PapersStartNewton if variant == "papers" else Newton
+        solver = start_class(scheme=BareMonotone19(n=N), max_iter=200)
+    else:  # "floor"
+        solver = Newton(
+            scheme=Monotone17(n=N, stencil=19, jacobian_floor=variant), max_iter=200
+        )
+    run_name = f"check={check} N={N} h=1/N variant={variant}"
+    m, result = solve(solver, problem, run_name, log)
+    print(f"{name} {run_name}: max {m['max']:.4g} its {m['iterations']}", flush=True)
+    scheme: Any = solver.scheme  # type: ignore[attr-defined]
+    grid = scheme.discretize(problem)
+    d = scheme.directional_differences(grid, result.values[grid.interior])
+    return {
+        "check": check,
+        "problem": name,
+        "N": N,
+        "h_convention": "1/N",
+        "start": variant if check == "bare" else "ours",
+        "jacobian_floor": 1e-8 if check == "bare" else variant,
+        "max_err_nodes": m["max"],
+        "iterations": m["iterations"],
+        "converged": m["converged"],
+        "residual_max": m["residual_max"],
+        "min_difference": float(d.min()),
+        "time_s": f"{m['time']:.2f}",
+    }
+
+
 def write(path: Path, rows: list[dict[str, Any]]) -> None:
     """Write rows as CSV, the header from the first row."""
     with path.open("w", newline="") as fh:
@@ -222,8 +316,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-mlflow", action="store_true", help="do not log runs")
     parser.add_argument("--processes", type=int, default=8, help="worker processes")
+    parser.add_argument(
+        "--checks", action="store_true", help="write monotone19_checks.csv only"
+    )
     args = parser.parse_args()
     log = not args.no_mlflow
+    if args.checks:
+        with Pool(args.processes) as pool:
+            check_rows = pool.map(checks, [(*task, log) for task in CHECK_TASKS], 1)
+        write(HERE / "monotone19_checks.csv", check_rows)
+        return
     tasks = [
         (name, N, convention, log)
         for name in PROBLEMS
