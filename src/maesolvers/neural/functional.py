@@ -96,6 +96,47 @@ def signed_distance(target: Domain, y: torch.Tensor) -> torch.Tensor:
     return ((y - foot_t) * normal_t).sum(dim=-1)
 
 
+def nearest_squared_distances(
+    a: torch.Tensor, b: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Squared distance from each point of one set to the nearest point of the other.
+
+    The two halves of the discrete Hausdorff-type distance of
+    Caboussat-Peruso 2025, eq. (3.4): ``min_j |a_i - b_j|^2`` for each
+    ``a_i`` and ``min_i |a_i - b_j|^2`` for each ``b_j``. The squares come
+    from the differences themselves, with no square root and no expansion
+    ``|a|^2 + |b|^2 - 2 a . b``, so they are never negative and their
+    gradient is finite where two points coincide; where several points tie
+    for the nearest, the gradient goes to one of them. The work and memory
+    grow as ``M K d``.
+
+    Parameters
+    ----------
+    a
+        Points of shape ``(M, d)``, ``M >= 1``.
+    b
+        Points of shape ``(K, d)``, ``K >= 1``, on the device and in the
+        dtype of ``a``.
+
+    Returns
+    -------
+    tuple of torch.Tensor
+        Shapes ``(M,)`` and ``(K,)``.
+
+    Raises
+    ------
+    ValueError
+        If a set is empty: the distance to no points is not defined.
+    """
+    if a.shape[0] == 0 or b.shape[0] == 0:
+        raise ValueError(
+            "nearest_squared_distances needs two non-empty sets, "
+            f"got {a.shape[0]} and {b.shape[0]} points"
+        )
+    squared = (a[:, None, :] - b[None, :, :]).pow(2).sum(dim=-1)
+    return squared.min(dim=1).values, squared.min(dim=0).values
+
+
 def hessian(u: Function, x: torch.Tensor, create_graph: bool = True) -> torch.Tensor:
     """Hessian of ``u`` at each point, by automatic differentiation.
 

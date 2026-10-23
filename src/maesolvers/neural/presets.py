@@ -15,12 +15,14 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 from maesolvers.core._params import integer, positive
-from maesolvers.core.boundary import Dirichlet
-from maesolvers.core.domains import Box, CutQuarterDisk, Disk
-from maesolvers.neural.losses import Loss, PenaltyLoss
-from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, Network
-from maesolvers.neural.optimizers import BFGS, LBFGS, Optimizer
-from maesolvers.neural.samplers import Sampler, UniformSampler
+from maesolvers.core.boundary import Dirichlet, Transport
+from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Ellipse
+from maesolvers.core.problem import Problem
+from maesolvers.core.transport import check_mass_balance
+from maesolvers.neural.losses import HausdorffLoss, Loss, PenaltyLoss
+from maesolvers.neural.networks import ICNN, MLP, HardDirichlet, IdentityStart, Network
+from maesolvers.neural.optimizers import BFGS, LBFGS, Adam, Optimizer, Switch
+from maesolvers.neural.samplers import Sampler, TransportSampler, UniformSampler
 from maesolvers.neural.solver import NeuralSolver
 
 
@@ -165,7 +167,7 @@ class DirichletICNN(NeuralSolver):
         ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
     """
 
-    domains: ClassVar[tuple[type, ...]] = (Box, Disk, CutQuarterDisk)
+    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse, CutQuarterDisk)
     boundaries: ClassVar[tuple[type, ...]] = (Dirichlet,)
     dims: ClassVar[tuple[int, ...] | None] = None
 
@@ -203,3 +205,147 @@ class DirichletICNN(NeuralSolver):
         object.__setattr__(self, "interior_points", sampler.interior_points)
         object.__setattr__(self, "boundary_points", sampler.boundary_points)
         super().__post_init__()
+
+
+@dataclass(frozen=True, kw_only=True)
+class TransportICNN(NeuralSolver):
+    """The convex PINN of Caboussat-Peruso 2025: an input convex network on a transport problem.
+
+    ``TransportICNN(width=w, depth=k, init_std=s, fit_steps=n, fit_tol=t,
+    boundary_weight=C, interior_points=M, boundary_points=K,
+    target_points=L, adam_lr=r, adam_steps=a, ...)`` is ``NeuralSolver``
+    with
+
+    - ``network=IdentityStart(network=ICNN(width=w, depth=k, init_std=s),
+      fit_steps=n, fit_tol=t)``: convex by construction, and fitted to
+      ``grad u = x`` before the training (Section 4.1);
+    - ``loss=HausdorffLoss(boundary_weight=C)``: the mean squared residual
+      plus ``C`` times the Hausdorff-type distance between ``grad u`` of the
+      boundary points and the target's boundary points, eq. (3.4);
+    - ``sampler=TransportSampler(interior_points=M, boundary_points=K,
+      target_points=L)``;
+    - ``optimizer=Switch(first=Adam(lr=r), then=LBFGS(), after=a)``: Adam
+      for ``a`` steps, then L-BFGS with a strong Wolfe line search and step
+      1 (Table 1), one iteration per step.
+
+    The defaults are the paper's where it gives them: 4 hidden layers of 10
+    softplus units (433 parameters in 2D), ``C = 1``, 800 interior and 800
+    boundary points, the switch to L-BFGS after 200 of 2000 steps (Figure
+    5; Table 1's 100 epochs of 20 L-BFGS iterations). What it does not
+    give is ``docs/methods/icnn.md``'s list: the Adam learning rate, the
+    initial parameters, the fit to the identity map, the number of target
+    points and the stopping test. ``adam_steps`` at least ``max_steps``
+    gives the paper's Adam-only runs (Table 2, "Adam").
+
+    The preset takes a :class:`~maesolvers.core.boundary.Transport`
+    problem on a domain whose boundary it samples and whose source mass
+    :func:`~maesolvers.core.transport.check_mass_balance` integrates
+    (``Box``, ``Disk``, ``Ellipse``), onto a target that samples its
+    boundary (``Box``, ``Disk``, ``Ellipse``), in any dimension; its
+    :meth:`check` raises ``ValueError`` when the source mass differs from
+    the target's volume. The training runs on the CPU unless
+    ``accelerator`` says otherwise.
+
+    Parameters
+    ----------
+    width, depth
+        Units per hidden layer and hidden layers of the network, each at
+        least 1.
+    init_std
+        Standard deviation of the network's parameters before the fit,
+        positive.
+    fit_steps, fit_tol
+        Most L-BFGS iterations of the fit to the identity map, and the
+        largest gradient component at which it stops.
+    boundary_weight
+        ``C``, the weight of the transport term, positive.
+    interior_points, boundary_points, target_points
+        Collocation points inside the domain, on its boundary and on the
+        target's boundary, each at least 1.
+    adam_lr
+        Learning rate of Adam, positive.
+    adam_steps
+        Steps of Adam before L-BFGS, at least 0.
+    max_steps
+        Most training steps, Adam's and L-BFGS's together.
+    tol
+        Stop when the largest component of the loss gradient is at most this.
+    seed
+        Seeds the collocation points and the initial network.
+    accelerator
+        ``"cpu"``, ``"gpu"`` or ``"auto"`` (a GPU when there is one).
+    """
+
+    domains: ClassVar[tuple[type, ...]] = (Box, Disk, Ellipse)
+    boundaries: ClassVar[tuple[type, ...]] = (Transport,)
+    dims: ClassVar[tuple[int, ...] | None] = None
+
+    network: Network = field(init=False, repr=False)
+    loss: Loss = field(init=False, repr=False)
+    sampler: Sampler = field(init=False, repr=False)
+    optimizer: Optimizer = field(init=False, repr=False)
+    width: int = ICNN.width
+    depth: int = 4
+    init_std: float = ICNN.init_std
+    fit_steps: int = IdentityStart.fit_steps
+    fit_tol: float = IdentityStart.fit_tol
+    boundary_weight: float = HausdorffLoss.boundary_weight
+    interior_points: int = TransportSampler.interior_points
+    boundary_points: int = TransportSampler.boundary_points
+    target_points: int = TransportSampler.target_points
+    adam_lr: float = Adam.lr
+    adam_steps: int = 200
+    max_steps: int = 2000
+    tol: float = 1e-7
+
+    def __post_init__(self) -> None:
+        icnn = ICNN(width=self.width, depth=self.depth, init_std=self.init_std)
+        network = IdentityStart(
+            network=icnn, fit_steps=self.fit_steps, fit_tol=self.fit_tol
+        )
+        loss = HausdorffLoss(boundary_weight=self.boundary_weight)
+        sampler = TransportSampler(
+            interior_points=self.interior_points,
+            boundary_points=self.boundary_points,
+            target_points=self.target_points,
+        )
+        adam = Adam(lr=self.adam_lr)
+        optimizer = Switch(first=adam, then=LBFGS(), after=self.adam_steps)
+        object.__setattr__(self, "network", network)
+        object.__setattr__(self, "loss", loss)
+        object.__setattr__(self, "sampler", sampler)
+        object.__setattr__(self, "optimizer", optimizer)
+        object.__setattr__(self, "width", icnn.width)
+        object.__setattr__(self, "depth", icnn.depth)
+        object.__setattr__(self, "init_std", icnn.init_std)
+        object.__setattr__(self, "fit_steps", network.fit_steps)
+        object.__setattr__(self, "fit_tol", network.fit_tol)
+        object.__setattr__(self, "boundary_weight", loss.boundary_weight)
+        object.__setattr__(self, "interior_points", sampler.interior_points)
+        object.__setattr__(self, "boundary_points", sampler.boundary_points)
+        object.__setattr__(self, "target_points", sampler.target_points)
+        object.__setattr__(self, "adam_lr", adam.lr)
+        object.__setattr__(self, "adam_steps", optimizer.after)
+        super().__post_init__()
+
+    def check(self, problem: Problem) -> None:
+        """Raise if the parts do not support the problem or its mass is out of balance.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If a part does not support the problem.
+        ValueError
+            If the integral of ``f`` over the domain differs from the
+            target's volume by more than a relative ``1e-3``
+            (:func:`~maesolvers.core.transport.check_mass_balance`).
+        ImportError
+            Without torch or lightning.
+        """
+        super().check(problem)
+        check_mass_balance(problem)

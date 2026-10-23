@@ -15,11 +15,12 @@ is open (issue #52). Everything here needs numpy only.
 
 import hashlib
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from maesolvers.core._params import integer
+from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import BoundarySampling, Domain
 from maesolvers.core.problem import Problem
 
@@ -40,6 +41,11 @@ class Collocation:
         Shape ``(M, d)``: points in the open domain.
     boundary
         Shape ``(K, d)``: points on the boundary; ``K`` may be 0.
+    target_boundary
+        Shape ``(J, d)``: points on the boundary of the target set of a
+        :class:`~maesolvers.core.boundary.Transport` problem, for a loss on
+        the transport condition; empty by default. Any empty array is
+        stored with shape ``(0, d)``.
 
     Raises
     ------
@@ -50,22 +56,28 @@ class Collocation:
 
     interior: np.ndarray
     boundary: np.ndarray
+    target_boundary: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
 
     def __post_init__(self) -> None:
         interior = _read_only(self.interior)
-        boundary = _read_only(self.boundary)
         if interior.ndim != 2 or interior.shape[0] == 0:
             raise ValueError(
                 f"Collocation.interior must have shape (M, d), M >= 1, "
                 f"got {interior.shape}"
             )
-        if boundary.ndim != 2 or boundary.shape[1] != interior.shape[1]:
-            raise ValueError(
-                f"Collocation.boundary must have shape (K, {interior.shape[1]}), "
-                f"got {boundary.shape}"
-            )
+        dim = interior.shape[1]
+        target = _read_only(self.target_boundary)
+        arrays = {
+            "boundary": _read_only(self.boundary),
+            "target_boundary": target.reshape(0, dim) if target.size == 0 else target,
+        }
+        for name, array in arrays.items():
+            if array.ndim != 2 or array.shape[1] != dim:
+                raise ValueError(
+                    f"Collocation.{name} must have shape (K, {dim}), got {array.shape}"
+                )
+            object.__setattr__(self, name, array)
         object.__setattr__(self, "interior", interior)
-        object.__setattr__(self, "boundary", boundary)
 
     def fingerprint(self) -> str:
         """Return the SHA-256 of the points, to check that two solves share them.
@@ -73,11 +85,13 @@ class Collocation:
         Returns
         -------
         str
-            Hexadecimal digest of the interior points, then the boundary
-            points, as little-endian float64 bytes.
+            Hexadecimal digest of the interior points, the boundary points
+            and the target boundary points, in this order, as little-endian
+            float64 bytes; no target boundary points add no bytes, so a set
+            without them has the digest it had before the field existed.
         """
         digest = hashlib.sha256()
-        for points in (self.interior, self.boundary):
+        for points in (self.interior, self.boundary, self.target_boundary):
             digest.update(np.ascontiguousarray(points, dtype="<f8").tobytes())
         return digest.hexdigest()
 
@@ -239,3 +253,85 @@ class UniformSampler(Sampler):
             assert isinstance(domain, BoundarySampling)  # supports checked it
             boundary = domain.sample_boundary(self.boundary_points, rng)
         return Collocation(interior=interior, boundary=boundary)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TransportSampler(Sampler):
+    """Uniform random points inside the domain, on its boundary and on the target's.
+
+    For a :class:`~maesolvers.core.boundary.Transport` problem: the interior
+    and boundary points as :class:`UniformSampler` draws them, in the same
+    order from the same generator, then ``target_points`` points on the
+    boundary of the target set, from its
+    :meth:`~maesolvers.core.domains.BoundarySampling.sample_boundary`, for a
+    loss that compares ``grad u`` on the boundary with the target's
+    boundary (:class:`~maesolvers.neural.losses.HausdorffLoss`). The
+    defaults are the 800 and 800 points of Caboussat-Peruso 2025 (Section
+    4.1), and as many target points, which the paper does not give
+    separately.
+
+    Parameters
+    ----------
+    interior_points
+        Number of points inside the domain, at least 1.
+    boundary_points
+        Number of points on the domain's boundary, at least 1.
+    target_points
+        Number of points on the target's boundary, at least 1.
+
+    Raises
+    ------
+    TypeError, ValueError
+        On construction, for a count that is not an integer or is less than 1.
+    """
+
+    interior_points: int = 800
+    boundary_points: int = 800
+    target_points: int = 800
+
+    def __post_init__(self) -> None:
+        for name in ("interior_points", "boundary_points", "target_points"):
+            object.__setattr__(self, name, integer(name, getattr(self, name), 1))
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the problem is Transport and both its domain and target sample their boundary.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        boundary = problem.boundary
+        return (
+            isinstance(boundary, Transport)
+            and isinstance(problem.domain, BoundarySampling)
+            and isinstance(boundary.target, BoundarySampling)
+        )
+
+    def sample(self, problem: Problem, rng: np.random.Generator) -> Collocation:
+        """Draw the interior points, the boundary points, then the target's, from ``rng``.
+
+        Parameters
+        ----------
+        problem
+            A problem the sampler supports.
+        rng
+            The random generator.
+
+        Returns
+        -------
+        Collocation
+            With ``target_boundary`` set.
+        """
+        domain, boundary = problem.domain, problem.boundary
+        assert isinstance(domain, BoundarySampling)  # supports checked it
+        assert isinstance(boundary, Transport)
+        assert isinstance(boundary.target, BoundarySampling)
+        interior = sample_interior(problem.domain, self.interior_points, rng)
+        edge = domain.sample_boundary(self.boundary_points, rng)
+        target = boundary.target.sample_boundary(self.target_points, rng)
+        return Collocation(interior=interior, boundary=edge, target_boundary=target)
