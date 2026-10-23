@@ -146,9 +146,11 @@ def gradient_fd(u: Field, points: np.ndarray, step: float | None = None) -> np.n
     ``u`` is evaluated within ``step`` of each point along each axis, so a
     little outside the domain at a boundary point, and must be defined and
     smooth there. A problem's exact solution and a network are. A classical
-    result's ``u`` interpolates its grid and is constant past the domain's
-    bounding box, so at a boundary point of a ``Box`` the difference is about
-    half the derivative: pass the interior points only,
+    result's ``u`` is an interpolant of its grid values, and past the domain
+    it is not the solution: the 2D box spline is constant there, the tensor
+    spline in another dimension extends its end polynomials, and the
+    Clough-Tocher interpolant of a curved domain extrapolates to first order.
+    So at boundary points pass the interior points only,
     ``points[domain.interior(points)]``, or the method's own gradient.
 
     Parameters
@@ -196,9 +198,9 @@ def gradient_map_error(gradient: np.ndarray, exact: np.ndarray) -> dict[str, flo
     gradient
         The method's gradient, shape ``(..., d)``: its own discrete gradient
         at its nodes, an autograd gradient, or :func:`gradient_fd` of
-        ``result.u`` at points where ``result.u`` is defined a step beyond
-        (the interior points, for a grid interpolant; see
-        :func:`gradient_fd`).
+        ``result.u`` at points where ``result.u`` is the solution a step
+        beyond (the interior points, for a classical result's interpolant
+        of its grid values; see :func:`gradient_fd`).
     exact
         The exact gradient at the same points, shape ``(..., d)``, such as
         :func:`gradient_fd` of ``problem.exact``.

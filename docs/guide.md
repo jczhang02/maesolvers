@@ -169,10 +169,9 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
-from maesolvers import Box, Dirichlet, IterativeSolver, Solution
+from maesolvers import Box, BoxGrid, Dirichlet, IterativeSolver, Solution
 from maesolvers.classical.schemes import difference_operators
 from maesolvers.core import integer, positive
 
@@ -196,57 +195,45 @@ class MyPoisson(IterativeSolver):
         object.__setattr__(self, "tol", positive("tol", self.tol))
 
     def setup(self, problem):
-        (x0, y0), (x1, y1) = problem.domain.lo, problem.domain.hi
-        x, y = np.linspace(x0, x1, self.n + 1), np.linspace(y0, y1, self.n + 1)
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        inner = np.zeros((self.n + 1, self.n + 1), dtype=bool)
-        inner[1:-1, 1:-1] = True
-        inner = inner.ravel()
-        dxx, dyy, dxy = difference_operators(self.n, x[1] - x[0], y[1] - y[0])
+        grid = BoxGrid(problem.domain, self.n)  # (n + 1)^2 nodes, h = side / n
+        inner = grid.interior  # the unknowns; the other nodes carry g
+        dxx, dyy, dxy = difference_operators(self.n, *grid.h)
         laplace = dxx + dyy
         return SimpleNamespace(  # the context, passed to every later hook
-            x=x,
-            y=y,
-            nodes=nodes,
+            grid=grid,
             inner=inner,
             second_differences=(dxx, dyy, dxy),
             laplace=laplace,
             solve=factorized(laplace[:, inner].tocsc()),
-            g=np.where(inner, 0.0, problem.boundary.g(nodes)),
-            f=problem.f(nodes[inner]),
+            g=np.where(inner, 0.0, problem.boundary.g(grid.nodes)),
+            f=problem.f(grid.nodes[inner]),
         )
 
-    def poisson(self, grid, rhs):
+    def poisson(self, context, rhs):
         """Solve laplace u = rhs at the interior nodes, with u = g on the boundary."""
-        u = grid.g.copy()
-        u[grid.inner] = grid.solve(rhs - grid.laplace @ grid.g)
+        u = context.g.copy()
+        u[context.inner] = context.solve(rhs - context.laplace @ context.g)
         return u
 
-    def initial_guess(self, problem, grid):
-        return self.poisson(grid, np.sqrt(2.0 * grid.f))
+    def initial_guess(self, problem, context):
+        return self.poisson(context, np.sqrt(2.0 * context.f))
 
-    def step(self, problem, grid, u):
-        uxx, uyy, uxy = (d @ u for d in grid.second_differences)
-        new = self.poisson(grid, np.sqrt(uxx**2 + uyy**2 + 2 * uxy**2 + 2 * grid.f))
+    def step(self, problem, context, u):
+        uxx, uyy, uxy = (d @ u for d in context.second_differences)
+        rhs = np.sqrt(uxx**2 + uyy**2 + 2 * uxy**2 + 2 * context.f)
+        new = self.poisson(context, rhs)
         return new, float(np.max(np.abs(new - u)))
 
-    def converged(self, problem, grid, measure):
+    def converged(self, problem, context, measure):
         return measure <= self.tol
 
-    def finalize(self, problem, grid, u):
-        spline = RectBivariateSpline(grid.x, grid.y, u.reshape(self.n + 1, -1))
-
-        def u_at(points):
-            p = np.asarray(points, dtype=float)
-            values = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
-            return values.reshape(p.shape[:-1])
-
+    def finalize(self, problem, context, u):
         return Solution(
-            u=u_at,
-            nodes=grid.nodes,
+            u=context.grid.interpolant(u, 3),  # the cubic tensor spline off the nodes
+            nodes=context.grid.nodes,
             values=u,
-            interior=grid.inner,
-            unknowns=int(grid.inner.sum()),
+            interior=context.inner,
+            unknowns=int(context.inner.sum()),
         )
 ```
 
@@ -260,6 +247,7 @@ What each part does:
 - `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction.
   `integer` and `positive` from `maesolvers.core` are the checks the solvers maesolvers ships use: they raise `TypeError` or `ValueError` with a message that names the parameter, and return a plain `int` or `float`, which `object.__setattr__` stores on the frozen solver, so that `hparams` holds no numpy scalars.
 - `setup` builds what the solve needs once; every later hook takes the problem and this context first.
+  `BoxGrid(problem.domain, n)` is the grid of `n` cells per side over a box that the shipped schemes use, in any dimension: its `nodes` in flat order, the mask `interior` of the nodes that carry unknowns (the others, the boundary ring, carry the Dirichlet data), the spacing `h`, and `interpolant(values, degree)`, the tensor spline through values at the nodes.
 - `step` returns the next iterate and its measure, or None when it can make no progress; it must not change the iterate it was given.
 - `finalize` turns the final iterate into a `Solution`, the method's part of the result.
   `u` must accept points of shape `(..., 2)`, and `nodes`, `values` and `interior` let `evaluate` report the errors at the nodes; add `node_hessian` or `hessian` for the convexity fields.
@@ -336,6 +324,39 @@ A new iteration that calls other scheme methods lists them in its own `requires`
 
 A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, so its fields are its parameters (an iteration checks this as the base class checks a solver), and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
 `Standard9` in `maesolvers/classical/schemes.py` is the model to follow; `docs/methods/standard9.md` describes its mathematics.
+
+### Grids in any dimension
+
+Every finite-difference scheme maesolvers ships is two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10), but the grid under them is not.
+`BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
+
+- `nodes`, shape `((n + 1)^d, d)`, in C order (the last axis fastest), so `values.reshape(grid.shape)` is the d-dimensional array; for even `n` the nodes of the grid with `n // 2` cells are the nodes with even indices;
+- `interior`, the mask of the `(n - 1)^d` nodes that carry the unknowns, and `interior_index`, their multi-indices; the boundary ring `~interior` carries the Dirichlet data `g(grid.nodes[~grid.interior])`;
+- `offset(direction)`, the step of the flat index to the neighbour along a direction of index offsets, and `reach(direction)`, the fraction of that step that stays in the box at each interior node, for the arms of a wide stencil (the pure function `reach(index, n, direction)` gives it at any nodes);
+- `stencil(n, offsets, weights)`, any linear stencil of width 1 as a sparse matrix; `second_differences(n, h)`, the centred second differences (9 points in 2D, 19 in 3D, 33 in 4D); `centred_hessian(grid, values)`, the discrete Hessian at the nodes in the shape `Result.node_hessian` takes;
+- `interpolant(values, degree)`, the tensor spline through values at the nodes, which `evaluate` reads on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D; fitting and evaluating it there takes well under a second, `benchmarks/nd_grids.md`); it is defined on the box, and off the box the 2D spline clamps the points to the box while the spline in any other dimension extends its end polynomials.
+
+A grid method with the exact values at its nodes has no error there, in any dimension:
+
+```python
+from maesolvers import T9, BoxGrid, Result
+from maesolvers.classical.grid import centred_hessian
+from maesolvers.metrics import evaluate
+
+grid = BoxGrid(T9.domain, 16)  # (0, 1)^3, h = 1/16
+values = T9.exact(grid.nodes)
+exact = Result(
+    T9,
+    grid.interpolant(values, 3),
+    nodes=grid.nodes,
+    values=values,
+    node_hessian=centred_hessian(grid, values),
+    interior=grid.interior,
+)
+m = evaluate(exact)
+assert m["max"] == 0.0 and m["nonconvex_fraction"] == 0.0
+print(m["max_grid"])  # the spline's error on the 51^3 shared grid
+```
 
 ## Neural solvers (needs the `neural` extra)
 
@@ -619,8 +640,9 @@ print(support_function(target, np.array([[1.0, 0.0], [1.0, 1.0]])))  # [0.5 1. ]
 `gradient_map_error(gradient, exact)` returns `gradient_max` and `gradient_rms`, the largest and the root mean square Euclidean norm of the difference over the points, under names that do not clash with those of `evaluate`.
 The RMS weighs every point by `1 / M`; the L2 norm over the domain is about `sqrt(volume(domain))` times it, which differs from it where the domain's area is not 1, as on T12's unit disk, so a benchmark states which of the two a paper's "L2 error" is.
 Pass the method's own gradient where it has one, such as the differences of a grid scheme at its nodes, and `gradient_fd` of `result.u` otherwise.
-`gradient_fd` evaluates `u` a small step past each point along each axis, so `u` must be defined there: a problem's exact solution and a network are, but a classical result's `u` interpolates its grid and is constant past the domain's bounding box, so at a boundary point of a `Box` the difference gives about half the derivative.
-For such a `u`, take the interior points only, `points[domain.interior(points)]`.
+`gradient_fd` evaluates `u` a small step past each point along each axis, so `u` must be the solution there: a problem's exact solution and a network are.
+A classical result's `u` is an interpolant of its grid values, and past the domain it is not the solution: the 2D box spline is constant there, the tensor spline in another dimension extends its end polynomials, and the Clough-Tocher interpolant of a curved domain extrapolates to first order.
+For such a `u`, take the interior points only, `points[domain.interior(points)]`, or pass the method's own gradient.
 
 ### Declare Transport support
 

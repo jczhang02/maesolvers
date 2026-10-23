@@ -27,8 +27,9 @@ from __future__ import annotations
 import numpy as np
 
 from maesolvers.core._params import integer, positive
+from maesolvers.core._params import points as _points
 from maesolvers.core.boundary import Transport
-from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field, _points
+from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field
 from maesolvers.core.problem import Problem
 
 _MAX_BISECTION_STEPS = 100

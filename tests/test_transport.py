@@ -462,8 +462,9 @@ def test_gradient_fd_with_a_given_step():
 
 
 def test_gradient_fd_of_a_grid_result_on_the_interior_points():
-    # A classical result's u is constant past the box, so the contract asks
-    # for interior points: there the error is the scheme's, 2.0e-3 at n = 16.
+    # Past the box a classical result's u (the 2D spline, constant there) is
+    # not the solution, so the contract asks for interior points: there the
+    # error is the scheme's, 2.0e-3 at n = 16.
     result = FDNewton(n=16).solve(T1)
     points = shared_grid(T1.domain)
     points = points[T1.domain.interior(points)]

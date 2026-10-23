@@ -28,8 +28,8 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical._grid import interior_mask, spline
-from maesolvers.classical.schemes import Scheme, difference_operators
+from maesolvers.classical.grid import BoxGrid, centred_hessian, reach
+from maesolvers.classical.schemes import Scheme
 from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, Field
@@ -152,16 +152,9 @@ def directional_difference(
     grid_i, grid_j = np.meshgrid(np.arange(1, n), np.arange(1, n), indexing="ij")
     i, j = grid_i.ravel(), grid_j.ravel()
 
-    def reach(sign: int) -> np.ndarray:
-        t = np.ones(i.size)
-        for index, step in ((i, sign * a), (j, sign * b)):
-            if step > 0:
-                t = np.minimum(t, (n - index) / step)
-            elif step < 0:
-                t = np.minimum(t, index / -step)
-        return t
-
-    forward, backward = reach(1), reach(-1)
+    index = np.stack([i, j], axis=-1)
+    forward = reach(index, n, (a, b))
+    backward = reach(index, n, (-a, -b))
     length2 = float(a * a + b * b) * h * h
     scale = 2.0 / (length2 * forward * backward * (forward + backward))
     m = (n - 1) ** 2
@@ -263,13 +256,9 @@ class MonotoneGrid:
 
     Attributes
     ----------
-    x, y
-        Node coordinates along each axis, ``n + 1`` each.
-    nodes
-        Shape ``((n + 1)^2, 2)``, node ``(i, j)`` at flat index
-        ``i * (n + 1) + j``.
-    interior
-        Shape ``((n + 1)^2,)``, boolean: the nodes that carry unknowns.
+    box_grid
+        The grid of ``n`` cells per side over the box; :attr:`nodes` and
+        :attr:`interior` are its own.
     f
         The right-hand side at the unknowns.
     boundary_values
@@ -292,10 +281,7 @@ class MonotoneGrid:
         Solves ``(D_xx + D_yy) v = rhs`` by a sparse LU factorisation.
     """
 
-    x: np.ndarray
-    y: np.ndarray
-    nodes: np.ndarray
-    interior: np.ndarray
+    box_grid: BoxGrid
     f: np.ndarray
     boundary_values: np.ndarray
     pairs: int
@@ -305,6 +291,16 @@ class MonotoneGrid:
     kappa: np.ndarray
     floor: float
     laplace: Callable[[np.ndarray], np.ndarray]
+
+    @property
+    def nodes(self) -> np.ndarray:
+        """Shape ``((n + 1)^2, 2)``: node ``(i, j)`` at flat index ``i (n + 1) + j``."""
+        return self.box_grid.nodes
+
+    @property
+    def interior(self) -> np.ndarray:
+        """Shape ``((n + 1)^2,)``, boolean: the nodes that carry unknowns."""
+        return self.box_grid.interior
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -451,10 +447,8 @@ class Monotone17(Scheme):
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         n, box, g = self.n, problem.domain.bbox, problem.boundary.g
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        interior = interior_mask(n).ravel()
+        box_grid = BoxGrid(box, n)
+        (x, y), nodes, interior = box_grid.axes, box_grid.nodes, box_grid.interior
         pairs = stencil_pairs(self.stencil)
         parts = [
             directional_difference(x, y, (int(a), int(b)), g)
@@ -473,13 +467,10 @@ class Monotone17(Scheme):
                 f"Monotone17 needs a finite f >= 0 at the interior nodes, and "
                 f"{problem.name} has f from {np.min(f)} to {np.max(f)} there"
             )
-        h = float(x[1] - x[0])
+        h = box_grid.h[0]
         floor = self.jacobian_floor / (2.0 * h * h)
         return MonotoneGrid(
-            x=x,
-            y=y,
-            nodes=nodes,
-            interior=interior,
+            box_grid=box_grid,
             f=f,
             boundary_values=g(nodes[~interior]),
             pairs=len(pairs),
@@ -613,19 +604,13 @@ class Monotone17(Scheme):
         values = np.empty(len(grid.nodes))
         values[grid.interior] = v
         values[~grid.interior] = grid.boundary_values
-        n = len(grid.x) - 1
-        h = float(grid.x[1] - grid.x[0])
-        dxx, dyy, dxy = difference_operators(n, h, h)
-        hess = np.full((len(grid.nodes), 2, 2), np.nan)
-        hess[grid.interior, 0, 0] = dxx @ values
-        hess[grid.interior, 1, 1] = dyy @ values
-        hess[grid.interior, 0, 1] = hess[grid.interior, 1, 0] = dxy @ values
+        n, h = grid.box_grid.n, grid.box_grid.h[0]
         return Solution(
             # a spline needs degree + 1 knots, so a coarse grid lowers the degree
-            u=spline(grid.x, grid.y, values, min(self.spline_degree, n)),
+            u=grid.box_grid.interpolant(values, min(self.spline_degree, n)),
             nodes=grid.nodes,
             values=values,
-            node_hessian=hess,
+            node_hessian=centred_hessian(grid.box_grid, values),
             interior=grid.interior,
             unknowns=int(v.size),
             info={
