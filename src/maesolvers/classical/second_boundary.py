@@ -56,7 +56,8 @@ from maesolvers.classical.monotone import (
     monotone_jacobian,
     monotone_kappa,
     monotone_operator,
-    stencil_pairs,
+    stencil_dimension,
+    stencil_frames,
 )
 from maesolvers.classical.schemes import Scheme, monge_ampere, monge_ampere_jacobian
 from maesolvers.core._params import integer, positive
@@ -288,7 +289,7 @@ class SecondBoundaryGrid:
     available
         Shape ``(pairs, m)``: where a pair enters the monotone minimum.
     kappa
-        The slope of :func:`~maesolvers.classical.monotone.pair_values`
+        The slope of :func:`~maesolvers.classical.monotone.frame_values`
         below zero, :func:`~maesolvers.classical.monotone.monotone_kappa` of
         ``f``, shape ``(m,)``.
     floor
@@ -418,7 +419,8 @@ class SecondBoundary(Scheme):
                 f"interior must be 'filtered' or 'monotone', got {self.interior!r}"
             )
         stencil = integer("stencil", self.stencil, 1)
-        stencil_pairs(stencil)  # raises for a size other than 9, 17 and 33
+        if stencil_dimension(stencil) != 2:  # raises for an unknown size
+            raise ValueError(f"stencil must be 9, 17 or 33 points, got {stencil}")
         object.__setattr__(self, "stencil", cast(Literal[9, 17, 33], stencil))
         if self.epsilon is not None:
             object.__setattr__(self, "epsilon", positive("epsilon", self.epsilon))
@@ -529,7 +531,7 @@ class SecondBoundary(Scheme):
         d = second_differences(box_grid.n, box_grid.h)
         parts = [
             directional_second_differences(box_grid, (int(a), int(b)))
-            for a, b in stencil_pairs(self.stencil).reshape(-1, 2)
+            for a, b in stencil_frames(self.stencil).reshape(-1, 2)
         ]
         pairs = len(parts) // 2
         full = np.array([part[1] for part in parts]).reshape(pairs, 2, -1)
@@ -653,7 +655,7 @@ class SecondBoundary(Scheme):
         mono, d, active = self._monotone(grid, v)
         rows = monotone_jacobian(d, active, grid.kappa, grid.floor, grid.directional)
         if grid.width is None:
-            return rows
+            return sp.csr_matrix(rows)
         uxx, uyy, uxy = grid.dxx @ v, grid.dyy @ v, grid.dxy @ v
         slope = filter_slope((monge_ampere(uxx, uyy, uxy) - mono) / grid.width)
         accurate = monge_ampere_jacobian(uxx, uyy, uxy, grid.dxx, grid.dyy, grid.dxy)

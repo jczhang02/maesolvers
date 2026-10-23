@@ -19,7 +19,7 @@ from maesolvers.classical import (
     FDTransport,
 )
 from maesolvers.core.solver import Solver
-from maesolvers.neural import DirichletICNN, PenaltyMLP
+from maesolvers.neural import DirichletICNN, PenaltyMLP, TransportICNN
 
 SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
     {
@@ -33,6 +33,7 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
             FDTransport,
             PenaltyMLP,
             DirichletICNN,
+            TransportICNN,
         )
     }
 )

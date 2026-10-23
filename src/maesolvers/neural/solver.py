@@ -132,7 +132,8 @@ class NeuralSolver(Solver[_Context, _Trained]):
     it: ``"converged"``, ``"stalled"``, ``"diverged"`` or
     ``"max_steps"``), ``loss_terms`` (the loss terms of the trained network,
     ``"loss"`` among them), ``collocation`` (``interior_points``,
-    ``boundary_points`` and :meth:`Collocation.fingerprint
+    ``boundary_points``, ``target_boundary_points`` and
+    :meth:`Collocation.fingerprint
     <maesolvers.neural.samplers.Collocation.fingerprint>`), ``device``,
     ``threads`` (torch's CPU threads, on which the rounding, and so the
     result, depends) and, when the network's module carries a ``report``
@@ -312,6 +313,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
             "collocation": {
                 "interior_points": len(collocation.interior),
                 "boundary_points": len(collocation.boundary),
+                "target_boundary_points": len(collocation.target_boundary),
                 "fingerprint": collocation.fingerprint(),
             },
             "device": state.device,
@@ -350,4 +352,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
             g=None if context.g is None else tensor(context.g),
             f_boundary=tensor(context.f_boundary),
             target=context.target,
+            target_boundary=(
+                tensor(points.target_boundary) if len(points.target_boundary) else None
+            ),
         )

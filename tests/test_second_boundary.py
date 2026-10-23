@@ -172,6 +172,7 @@ def test_directional_second_differences_are_exact_on_quadratics():
         ({"n": 1}, ValueError, "n must be at least 2"),
         ({"interior": "standard"}, ValueError, "interior"),
         ({"stencil": 13}, ValueError, "9, 17 or 33"),
+        ({"stencil": 19}, ValueError, "9, 17 or 33"),  # the 3D stencil
         ({"epsilon": 0.0}, ValueError, "epsilon"),
         ({"directions": 3}, ValueError, "directions must be at least 4"),
         ({"box": Box((0.0, 0.0), (2.0, 1.0))}, ValueError, "square"),

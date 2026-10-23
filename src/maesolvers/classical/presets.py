@@ -16,9 +16,10 @@ from typing import ClassVar, Generic, Literal, TypeVar
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Newton, PoissonIteration
-from maesolvers.classical.monotone import Monotone17
+from maesolvers.classical.monotone import Monotone17, stencil_dimension
 from maesolvers.classical.schemes import Standard9
 from maesolvers.classical.second_boundary import SecondBoundary
+from maesolvers.core._params import integer
 from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
@@ -124,7 +125,7 @@ class _SquareBoxCheck(Generic[_SquareSchemeT]):
     scheme: _SquareSchemeT
 
     def check(self, problem: Problem) -> None:
-        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
+        """Raise if the problem is not a box with equal sides and a Dirichlet boundary.
 
         Parameters
         ----------
@@ -135,19 +136,23 @@ class _SquareBoxCheck(Generic[_SquareSchemeT]):
         ------
         UnsupportedProblemError
             If the scheme does not support the problem; the message names the
-            equal sides when they are what is missing.
+            equal sides when the preset declares the problem's domain,
+            boundary and dimension.
         """
-        if (
-            isinstance(problem.domain, self.domains)
-            and isinstance(problem.boundary, self.boundaries)
-            and problem.dim in (self.dims or ())
-            and not self.scheme.supports(problem)
-        ):
+        if self._declares(problem) and not self.scheme.supports(problem):
             raise UnsupportedProblemError(
                 f"{type(self).__name__} does not support {problem.name}: "
                 f"{type(self.scheme).__name__} needs a Box with equal sides"
             )
         super().check(problem)  # type: ignore[misc]
+
+    def _declares(self, problem: Problem) -> bool:
+        """Whether the preset's class declares the problem's domain, boundary and dimension."""
+        return (
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in (self.dims or ())
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -164,7 +169,7 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
 
     scheme: Monotone17 = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 19, 33] = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     spline_degree: int = Monotone17.spline_degree
@@ -184,6 +189,28 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
         object.__setattr__(self, "spline_degree", scheme.spline_degree)
         super().__post_init__()  # type: ignore[misc]
 
+    def check(self, problem: Problem) -> None:
+        """Raise if the scheme does not support the problem.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            stencil's dimension when that is what is missing, as for a 3D
+            problem with the default 17-point stencil.
+        """
+        if self._declares(problem) and problem.dim != self.scheme.dim:
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: the "
+                f"{self.scheme.stencil}-point stencil is {self.scheme.dim}D"
+            )
+        super().check(problem)
+
 
 @dataclass(frozen=True, kw_only=True)
 class FDMonotone(_Monotone17Preset, Newton):
@@ -192,18 +219,20 @@ class FDMonotone(_Monotone17Preset, Newton):
     ``FDMonotone(n=n, stencil=s, ...)`` is
     ``Newton(scheme=Monotone17(n=n, stencil=s, ...), ...)``, the monotone
     columns of Froese-Oberman 2011, Table 3 (SIAM J. Numer. Anal. and
-    J. Comput. Phys.). Newton uses the scheme's generalised Jacobian, so it
-    is a semi-smooth Newton method; ``max_iter`` is higher than ``Newton``'s,
-    because T2 needs about 60 steps with the 9-point stencil
-    (``docs/methods/monotone17.md``).
+    J. Comput. Phys.), and with ``stencil=19`` the 3D scheme of the SIAM
+    paper's Table 4 (``FDMonotone(n=31, stencil=19).solve(T9)``). Newton
+    uses the scheme's generalised Jacobian, so it is a semi-smooth Newton
+    method; ``max_iter`` is higher than ``Newton``'s, because T2 needs about
+    60 steps with the 9-point stencil (``docs/methods/monotone17.md``).
 
     Parameters
     ----------
     n
-        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
-        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+        Cells per side (``h = 1/n`` on the unit box, ADR 0001), so
+        ``(n + 1)^d`` nodes and ``(n - 1)^d`` unknowns; at least 2.
     stencil
-        Points of the stencil: 9, 17 or 33.
+        Points of the stencil: 9, 17 or 33 for a 2D problem, 19 for a 3D
+        one.
     boundary
         ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
     jacobian_floor
@@ -246,6 +275,11 @@ class _HybridPreset(_SquareBoxCheck[Hybrid]):
     band: float = Hybrid.band
 
     def __post_init__(self) -> None:
+        if stencil_dimension(integer("stencil", self.stencil, 1)) != 2:
+            raise ValueError(
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
+                f"{self.stencil}: its standard scheme, Standard9, is 2D"
+            )
         scheme = Hybrid(
             n=self.n,
             stencil=self.stencil,
@@ -331,16 +365,16 @@ class _FilteredPreset(_SquareBoxCheck[Filtered]):
     Listed first among a preset's bases, so its ``__post_init__`` builds the
     scheme, :class:`Standard9` filtered with :class:`Monotone17` on one grid,
     from the flat fields before the iteration checks it. The support is
-    Monotone17's, which Standard9's contains.
+    Monotone17's in 2D, which Standard9's contains.
     """
 
     domains: ClassVar[tuple[type, ...]] = Monotone17.domains
     boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
-    dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
+    dims: ClassVar[tuple[int, ...] | None] = Standard9.dims
 
     scheme: Filtered = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 33] = 17  # Monotone17's default, a 2D stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     epsilon: float | None = None
@@ -354,6 +388,11 @@ class _FilteredPreset(_SquareBoxCheck[Filtered]):
             jacobian_floor=self.jacobian_floor,
             spline_degree=self.spline_degree,
         )
+        if monotone.dim != 2:
+            raise ValueError(
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
+                f"{monotone.stencil}: its accurate scheme, Standard9, is 2D"
+            )
         accurate = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
         scheme = Filtered(accurate=accurate, monotone=monotone, epsilon=self.epsilon)
         object.__setattr__(self, "scheme", scheme)

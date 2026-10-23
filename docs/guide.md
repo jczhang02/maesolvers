@@ -327,7 +327,7 @@ A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=T
 
 ### Grids in any dimension
 
-Every finite-difference scheme maesolvers ships is two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10), but the grid under them is not.
+`Standard9`, `Hybrid` and `Filtered` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
 `BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
 
 - `nodes`, shape `((n + 1)^d, d)`, in C order (the last axis fastest), so `values.reshape(grid.shape)` is the d-dimensional array; for even `n` the nodes of the grid with `n // 2` cells are the nodes with even indices;
@@ -562,11 +562,12 @@ What each part does:
   The solver calls it once per solve, with float64 as torch's default dtype and torch's CPU generator seeded from the solver's seed, so a module made there is float64 and reproducible; the parameters that require a gradient are the ones the optimizer trains.
   A network that fits something before training, like `HardDirichlet`, does it in `build`, where the collocation points are at hand, and may set an attribute `report` on the module, a dict of plain values, which the solver records as `result.info["network"]`.
 - A loss's `__call__(u, batch)` returns a dict of scalar tensors, with the total under `"loss"`; every entry is logged after each step under its name.
-  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, and `target`, the target set of a transport problem (None for another boundary condition); `maesolvers.neural.functional` holds the kernels: the autograd `gradient` and `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty`, `mean_squared_misfit` and, for transport problems, `signed_distance`.
+  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, `target`, the target set of a transport problem (None for another boundary condition), and `target_boundary`, points on the target's boundary (None when the sampler drew none); `maesolvers.neural.functional` holds the kernels: the autograd `gradient` and `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty`, `mean_squared_misfit` and, for transport problems, `signed_distance` and `nearest_squared_distances`.
 - A sampler's `sample(problem, rng)` returns a `Collocation` and must draw only from `rng`, so that the seed decides the points.
+  A `Collocation` has a third field, `target_boundary`, empty by default: a sampler for a transport loss that compares point sets fills it with points on the target's boundary, as `TransportSampler` does, and the solver passes them on as `batch.target_boundary`.
 - `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
   A loss supports the Dirichlet problems by default, because `batch.g` is Dirichlet data; `LaplacianPenaltyLoss` reads it and so keeps the default, and a loss for another boundary condition overrides `supports` and does not read `batch.g`.
-  `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
+  `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement; `Ellipse` implements `BoundarySampling` only.
 - `__post_init__` checks every parameter with `integer`, `positive`, `nonnegative` or `boolean`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
 - A loss term built on `functional.mean_squared_misfit` raises `ValueError` when its points are empty, so a boundary term cannot drop out because the sampler gave no boundary points.
 - An optimizer's `build(parameters)` returns a torch optimizer of the trainable parameters whose `step(closure)` makes one update (one iteration, with its line search if it has one): the training loop counts its steps by the calls of `step`, so `max_steps` and the step count in the result and in MLflow mean one update each.
@@ -781,3 +782,35 @@ print(evaluate(result)["max"])  # the error of u, after subtracting the means
 ```
 
 `functional.signed_distance` takes its nearest boundary points from the numpy function, outside the autograd graph, so its gradient in `grad u` is the outward normal there: the loss trains through it, with no NaN where `grad u` lies on the target's boundary.
+
+The shipped transport loss is `HausdorffLoss`, the loss of Caboussat-Peruso 2025: it compares the image `grad u` of the boundary points with points on the target's boundary, both ways, so it needs no target geometry beyond those points, which `TransportSampler` draws.
+The preset `TransportICNN` composes it with an input convex network fitted to `grad u = x` before the training, and Adam then L-BFGS; as a preset subclass it checks the mass balance in its own `check`, and its `supports` takes only the domains and targets whose mass that check computes (`Box`, `Disk`, `Ellipse`).
+`HausdorffLoss` supports every transport problem, but it needs both point sets: composed with a sampler that draws no target points, such as `UniformSampler`, the solver supports the problem and raises `ValueError` only at the first training step, after the network's `build` (for `IdentityStart`, after its fit to the identity map).
+
+```python
+from maesolvers import (
+    HausdorffLoss,
+    IdentityStart,
+    Switch,
+    TransportICNN,
+    TransportSampler,
+)
+from maesolvers.neural import Adam
+
+paper = NeuralSolver(
+    network=IdentityStart(network=ICNN(width=10, depth=4)),
+    loss=HausdorffLoss(boundary_weight=1.0),
+    sampler=TransportSampler(
+        interior_points=800, boundary_points=800, target_points=800
+    ),
+    optimizer=Switch(first=Adam(lr=1e-3), then=LBFGS(), after=200),
+    max_steps=2000,
+    tol=1e-7,
+)
+assert all(
+    getattr(paper, name) == getattr(TransportICNN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps", "tol")
+)
+```
+
+`TransportICNN(adam_steps=2000)` trains with Adam alone, the other row of the paper's Table 2; `docs/methods/icnn.md` gives the parameters and `benchmarks/icnn.md` the reproduction on T12.

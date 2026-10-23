@@ -180,6 +180,22 @@ class FilteredGrid:
     width: float
 
 
+def _dimensions(part: Any) -> tuple[int, ...] | None:
+    """Return the dimensions a part can discretise, or None if it does not say.
+
+    A scheme whose dimension is fixed per instance, such as
+    :class:`~maesolvers.classical.monotone.Monotone17` by its stencil, has
+    ``dim``; otherwise the class's ``dims``.
+    """
+    if hasattr(part, "dim"):
+        return (part.dim,)
+    return getattr(part, "dims", None)
+
+
+def _listing(dims: tuple[int, ...]) -> str:
+    return "/".join(f"{d}D" for d in dims)
+
+
 @dataclass(frozen=True, kw_only=True)
 class Filtered(Scheme):
     """The filtered combination of an accurate and a monotone scheme.
@@ -230,8 +246,9 @@ class Filtered(Scheme):
         method named above, or, with ``epsilon=None``, the monotone part has
         no ``n`` or ``angular_resolution``.
     ValueError
-        On construction, if ``epsilon`` is not positive, or both parts have
-        an ``n`` and they differ.
+        On construction, if ``epsilon`` is not positive, both parts have an
+        ``n`` and they differ, or the parts share no dimension (the 2D
+        ``Standard9`` with the 3D ``Monotone17(stencil=19)``).
     """
 
     accurate: Scheme
@@ -270,6 +287,18 @@ class Filtered(Scheme):
                 f"Filtered needs its parts on one grid, got n = {n_accurate} "
                 f"({type(self.accurate).__name__}) and n = {n_monotone} "
                 f"({type(self.monotone).__name__})"
+            )
+        dims_accurate = _dimensions(self.accurate)
+        dims_monotone = _dimensions(self.monotone)
+        if (
+            dims_accurate is not None
+            and dims_monotone is not None
+            and not set(dims_accurate) & set(dims_monotone)
+        ):
+            raise ValueError(
+                f"Filtered needs its parts in one dimension, got "
+                f"{type(self.accurate).__name__} in {_listing(dims_accurate)} and "
+                f"{type(self.monotone).__name__} in {_listing(dims_monotone)}"
             )
 
     def supports(self, problem: Problem) -> bool:

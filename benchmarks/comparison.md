@@ -6,12 +6,14 @@ README's section "Comparison" shows the tables; this file says how they were mad
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (117 runs and 22 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (127 runs and 28 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
+- The rows of `TransportICNN` (issue #29) came later, from the same script at commit 21970e5, clean checkout, merged into the receipt in 496 s of wall time with 10 worker processes of one CPU thread each: `just remote-bg comparison-transport-icnn env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers TransportICNN --workers 10`.
+  The merge replaces only that preset's rows, so every other row is the receipt of f15b98f.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
   A new preset, a preset whose support or defaults change, fails that test until `run_comparison.py` runs again.
@@ -22,14 +24,14 @@ README's section "Comparison" shows the tables; this file says how they were mad
   The error is taken at the preset's own nodes, the literature's practice.
 - Neural presets: seeds 0 to 9 with every other setting at the preset's default (ADR 0008); the error is taken on the shared evaluation grid (201 x 201 in 2D, 51^3 for T9, 21^4 for T10).
   A cell gives the median and the 5% to 95% band of the max error over the seeds, then the number of successful seeds.
-- Success threshold: a seed succeeds when its max error is below 1% of the exact solution's oscillation `max u - min u` on the shared grid (`RELATIVE_THRESHOLD` in `comparison.py`): 1.72e-2 on T1, 1.41e-2 on T2, 1.29e-3 on T20, 5.00e-3 on T8, 3.48e-2 on T9, 6.39e-2 on T10.
+- Success threshold: a seed succeeds when its max error is below 1% of the exact solution's oscillation `max u - min u` on the shared grid (`RELATIVE_THRESHOLD` in `comparison.py`): 1.72e-2 on T1, 1.41e-2 on T2, 1.29e-3 on T20, 5.00e-3 on T8, 6.93e-2 on T12, 3.48e-2 on T9, 6.39e-2 on T10.
   ADR 0007 leaves the threshold to the caller; a relative one gives the same meaning to every row, where the solutions' oscillations differ by a factor of 50 (0.129 on T20, 6.39 on T10).
   The oscillation does not change when a constant is added to `u`, which the test-set specification says no metric may see (T8's `g = 0` against `1/2`), and it is defined for T12, whose solution is unique only up to a constant; `max |u|` has neither property.
 - Failed runs: a run that raises, has a non-finite error, or (neural) stops as `"diverged"` is a failed run, with error `+inf` in the band (ADR 0007, and `summarize` since this change).
   No run of this receipt failed.
 - A classical run whose iteration stops before its tolerance (`converged` False) is kept at its last iterate and marked `\*`; a neural seed that stops at its step budget or stalls is a normal seed.
 - Unsupported pairs: `unsupported_reason` in `comparison.py` names the first of the boundary condition, the dimension and the domain that the preset does not declare.
-  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); in 0.2 the preset `FDTransport` (#28) takes it, and the other presets, finite-difference and neural, stay `Dirichlet only`.
+  No preset of 0.1 takes T12's transport boundary condition (`Dirichlet only`); in 0.2 two presets take only transport problems (`Transport only` on the other rows), `FDTransport` (#28) and `TransportICNN` (#29), and the other presets, finite-difference and neural, stay `Dirichlet only`.
   `FDTransport`'s rows were added from a run at 2ba8083 (`run_comparison.py --solvers FDTransport`), the other rows are unchanged; on T12 its monotone start stalls (no step decreases its residual; the `RuntimeWarning` "FDTransport.start did not converge on T12" in that run's log, `/jczhang02/maesolvers-data/logs/comparison-bfo2014.log` on a100server, as `comparison.csv` has no column for it) and its Newton iteration on the filtered scheme stops at step 142 of 200, where no step decreases the max residual, so the cell is marked `\*` (`bfo2014.md`, Finding 2, and #56); it supports no other problem of the set (`Transport only`).
 - Orientation: the problems are the rows and the presets the columns, as GLOSSARY (共用集) and the test-set specification say; the scope comment of #14 calls T12 a "column".
 
@@ -49,6 +51,9 @@ Every value the reproduction receipts share with this one agrees to all digits, 
 - `FDHybrid` on T1 (1.571050e-6), T2 (4.177276e-5) and T20 (2.970804e-5): `hybrid.csv`, `N = 361`, `h = 1/N`, narrow.
 - `FDFiltered` on T1 (9.677519e-5, 14 steps, `converged` False): `filtered.csv`, `N = 361`, `h = 1/N`, 17 points, narrow; its T2 and T20 rows there are at `h = 1/(N-1)` only.
 - `PenaltyMLP` and `DirichletICNN` on T1, seeds 0 to 9: `penalty_mlp_t1.csv` and `icnn_t1.csv`, every seed's shared-grid max error.
+
+One receipt differs by design: `icnn_t12.csv` trained `TransportICNN` on T12 on a GPU, and this table on the CPU, the preset's default.
+The two devices round differently, and 1800 L-BFGS steps carry the difference into the result: the CPU seeds' max error of `u` is 0.79 to 1.80 times the GPU seeds' (median 1.7e-3 here, 2.0e-3 there), the same distribution, not the same numbers.
 
 ## What the table shows
 

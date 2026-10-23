@@ -17,8 +17,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from maesolvers.core._params import boolean, nonnegative
-from maesolvers.core.boundary import Dirichlet
+from maesolvers.core._params import boolean, nonnegative, positive
+from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.domains import Domain
 from maesolvers.core.problem import Problem
 
@@ -55,6 +55,10 @@ class Batch:
         :func:`maesolvers.neural.functional.signed_distance`); None for
         another boundary condition. Not a tensor: :meth:`to` leaves it as it
         is.
+    target_boundary
+        Shape ``(J, d)``: points on the boundary of the target set, for a
+        loss that compares the image of the boundary with it
+        (:class:`HausdorffLoss`); None when the sampler drew none.
     """
 
     interior: "torch.Tensor"
@@ -63,6 +67,7 @@ class Batch:
     g: "torch.Tensor | None"
     f_boundary: "torch.Tensor"
     target: "Domain | None" = None
+    target_boundary: "torch.Tensor | None" = None
 
     def to(self, device: "torch.device | str") -> "Batch":
         """Return the batch with every tensor on ``device``; the other fields stay.
@@ -267,4 +272,111 @@ class PenaltyLoss(Loss):
                 u(batch.boundary), batch.g
             )
             loss = loss + self.boundary_weight * terms["boundary"]
+        return {"loss": loss, **terms}
+
+
+@dataclass(frozen=True, kw_only=True)
+class HausdorffLoss(Loss):
+    """The equation residual plus a Hausdorff-type distance between ``grad u(dX)`` and ``dY``.
+
+    The loss of Caboussat-Peruso 2025 (Section 3.3) for a
+    :class:`~maesolvers.core.boundary.Transport` problem, the map ``grad u``
+    of the domain ``X`` onto the target set ``Y``::
+
+        E = (1/M) sum_j (det D^2 u(x_j) - f(x_j))^2
+            + C [ (1/K) sum_k min_l |grad u(y_k) - t_l|^2
+                + (1/L) sum_l min_k |grad u(y_k) - t_l|^2 ]
+
+    over the interior points ``x_j``, the boundary points ``y_k`` of ``X``
+    and the points ``t_l`` on the boundary of ``Y``, with
+    ``C = boundary_weight``. The bracket is eq. (3.4), the discrete form of
+    the condition ``grad u(dX) = dY`` through the Hausdorff distance: its
+    first sum keeps the image of each boundary point near ``dY`` (the
+    paper's injectivity term), its second leaves no point of ``dY`` far
+    from the image (surjectivity). The paper's equation
+    ``det D^2 u = f / g(grad u)`` has the target density ``g``; a
+    ``Transport`` problem's target density is uniform 1, so the residual is
+    ``det D^2 u - f``. Both terms are means, as eq. (3.4) and the
+    equation term ``E_PDE`` of the paper print them. The terms are logged
+    as ``equation``, ``into`` (the first sum) and ``onto`` (the second);
+    the squared distances come from
+    :func:`~maesolvers.neural.functional.nearest_squared_distances`.
+
+    Parameters
+    ----------
+    boundary_weight
+        ``C``, positive (1 in the paper): with no other boundary condition,
+        this term alone imposes the transport condition.
+
+    Raises
+    ------
+    TypeError, ValueError
+        On construction, for a weight that is not a positive real.
+    ValueError
+        When called on a batch without boundary points or without target
+        boundary points (the sampler must draw both, as
+        :class:`~maesolvers.neural.samplers.TransportSampler` does), so at
+        the first training step.
+    """
+
+    boundary_weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "boundary_weight", positive("boundary_weight", self.boundary_weight)
+        )
+
+    def supports(self, problem: Problem) -> bool:
+        """Whether the problem is a transport problem.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        bool
+        """
+        return isinstance(problem.boundary, Transport)
+
+    def __call__(self, u: "torch.nn.Module", batch: Batch) -> "dict[str, torch.Tensor]":
+        """Return ``loss``, ``equation``, ``into`` and ``onto``.
+
+        Parameters
+        ----------
+        u
+            The module being trained.
+        batch
+            The collocation points, the data there and the target boundary
+            points.
+
+        Returns
+        -------
+        dict
+
+        Raises
+        ------
+        ValueError
+            If the batch has no boundary points or no target boundary points.
+        """
+        from maesolvers.neural import functional
+
+        target = batch.target_boundary
+        if batch.boundary.shape[0] == 0 or target is None:
+            raise ValueError(
+                "HausdorffLoss needs boundary points and target boundary points; "
+                "use a sampler that draws both, such as TransportSampler"
+            )
+        hess = functional.hessian(u, batch.interior)
+        image = functional.gradient(u, batch.boundary)
+        into, onto = functional.nearest_squared_distances(image, target)
+        terms = {
+            "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).mean(),
+            "into": into.mean(),
+            "onto": onto.mean(),
+        }
+        loss = terms["equation"] + self.boundary_weight * (
+            terms["into"] + terms["onto"]
+        )
         return {"loss": loss, **terms}
