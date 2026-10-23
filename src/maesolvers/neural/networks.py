@@ -17,11 +17,11 @@ configured, compared and recorded without the ``neural`` extra.
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
 
 import numpy as np
 
-from maesolvers.core._params import integer, nonnegative, positive
+from maesolvers.core._params import floats, integer, nonnegative, positive
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import BoundaryDistance
 from maesolvers.core.problem import Problem
@@ -33,6 +33,15 @@ if TYPE_CHECKING:
 
 Activation = Literal["sigmoid", "tanh", "softplus"]
 """The smooth activations :class:`MLP` offers; ReLU has no second derivative."""
+
+
+def _activation(value: object) -> Activation:
+    """Check an activation's name against :data:`Activation`; return it."""
+    if value not in get_args(Activation):
+        raise ValueError(
+            f"activation must be 'sigmoid', 'tanh' or 'softplus', got {value!r}"
+        )
+    return value  # type: ignore[return-value]
 
 
 class Network(ABC):
@@ -115,11 +124,7 @@ class MLP(Network):
     def __post_init__(self) -> None:
         object.__setattr__(self, "width", integer("width", self.width, 1))
         object.__setattr__(self, "depth", integer("depth", self.depth, 1))
-        if self.activation not in ("sigmoid", "tanh", "softplus"):
-            raise ValueError(
-                "activation must be 'sigmoid', 'tanh' or 'softplus', "
-                f"got {self.activation!r}"
-            )
+        object.__setattr__(self, "activation", _activation(self.activation))
 
     def build(self, problem: Problem, collocation: Collocation) -> "torch.nn.Module":
         """Make the network for the problem's dimension.
@@ -474,29 +479,34 @@ class QuadraticForm(Network):
 
     with ``Z(x)`` the ``d x d`` output of a plain network (``width``,
     ``depth``, ``activation``, standard normal start as :class:`MLP`, but
-    the output layer at 0), and ``alpha``, ``b`` and ``c`` trained
-    constants. Whatever the parameters, ``u`` lies above its tangent plane
-    ``c + b . x`` at the reference point ``x0``, where its Hessian is
-    ``2 A^T A`` (Proposition 3.3). ``|B|_op <= |B|_F < ratio < 1``, so
-    ``A`` is invertible at every point: the bound ``epsilon`` of eq. (9) is
-    ``ratio |alpha|``, below ``|alpha|`` for every trained ``alpha``, and
-    the Hessian at ``x0`` is positive definite, the condition on the
-    structure of the residual certificate (Corollary 5.1). ``ratio`` trades
+    the output layer at 0), ``alpha = alpha_start exp(s)`` with ``s`` a
+    trained scalar, and ``b`` and ``c`` trained constants. Whatever the
+    parameters, ``u`` lies above its tangent plane ``c + b . x`` at the
+    reference point ``x0``, where its Hessian is ``2 A^T A``
+    (Proposition 3.3). ``alpha`` is positive for every value of ``s`` and
+    ``|B|_op <= |B|_F < ratio < 1``, so ``A`` is invertible at every point:
+    the bound ``epsilon`` of eq. (9) is ``ratio alpha``, below ``alpha``,
+    and the Hessian at ``x0`` is positive definite, the condition on the
+    structure of the residual certificate (Corollary 5.1). ``alpha`` can
+    only approach 0, as ``s`` goes to minus infinity; the module's report
+    records its final value. ``ratio`` bounds ``|A / alpha - I|_F`` and so
     the spread of the singular values of ``A`` at a point, at most
     ``(1 + ratio) / (1 - ratio)``, against the margin
-    ``sigma_min(A) >= |alpha| (1 - ratio)`` (Proposition 4.4 (a)).
+    ``sigma_min(A) >= alpha (1 - ratio)`` (Proposition 4.4 (a)).
 
-    ``alpha`` starts at ``f(x0)^(1 / (2 d)) / sqrt(2)`` (Section 6), and
-    ``b``, ``c`` and ``B`` at 0, so the training starts from
-    ``u = |x - x0|^2 f(x0)^(1/d) / 2``, whose Hessian determinant is
+    ``alpha`` starts at ``alpha_start = f(x0)^(1 / (2 d)) / sqrt(2)``
+    (Section 6), and ``b``, ``c`` and ``B`` at 0, so the training starts
+    from ``u = |x - x0|^2 f(x0)^(1/d) / 2``, whose Hessian determinant is
     ``f(x0)`` and whose gradient map is ``f(x0)^(1/d) (x - x0)``, the
-    identity map when ``f(x0) = 1``. The module's ``report``
-    (``Result.info["network"]``) holds ``reference`` and ``alpha_start``.
+    identity map when ``f(x0) = 1`` and ``x0 = 0``. The module's ``report``
+    (``Result.info["network"]``) holds ``reference``, ``alpha_start`` and
+    ``alpha``, the value at the end of the training.
 
     The network supports a problem when ``x0`` lies inside its domain and
-    ``f(x0)`` is positive and finite: the form gives
-    ``det D^2 u(x0) = 2^d det(A^T A) > 0``, so it cannot meet
-    ``f(x0) = 0`` (T20 at the centre of its box).
+    ``f(x0)`` is positive and finite (:meth:`refusal` says which fails):
+    the form gives ``det D^2 u(x0) = 2^d det(A^T A) > 0``, so it cannot
+    meet ``f(x0) = 0`` (T4 and T20 at the centre of their box, where ``f``
+    vanishes on a disk); a ``reference`` elsewhere can.
 
     Parameters
     ----------
@@ -516,7 +526,7 @@ class QuadraticForm(Network):
     TypeError, ValueError
         On construction, for a size that is not an integer or is less than
         1, an unknown activation, a ``ratio`` outside ``(0, 1)``, or a
-        ``reference`` that is not a sequence of finite numbers.
+        ``reference`` that is not a sequence of one or more finite numbers.
     """
 
     width: int = 10
@@ -528,17 +538,13 @@ class QuadraticForm(Network):
     def __post_init__(self) -> None:
         object.__setattr__(self, "width", integer("width", self.width, 1))
         object.__setattr__(self, "depth", integer("depth", self.depth, 1))
-        if self.activation not in ("sigmoid", "tanh", "softplus"):
-            raise ValueError(
-                "activation must be 'sigmoid', 'tanh' or 'softplus', "
-                f"got {self.activation!r}"
-            )
+        object.__setattr__(self, "activation", _activation(self.activation))
         ratio = positive("ratio", self.ratio)
         if not ratio < 1.0:
             raise ValueError(f"ratio must be less than 1, got {ratio}")
         object.__setattr__(self, "ratio", ratio)
         if self.reference is not None:
-            object.__setattr__(self, "reference", _point("reference", self.reference))
+            object.__setattr__(self, "reference", floats("reference", self.reference))
 
     def point(self, problem: Problem) -> np.ndarray:
         """Return the reference point ``x0`` for the problem.
@@ -558,6 +564,34 @@ class QuadraticForm(Network):
         box = problem.domain.bbox
         return (np.array(box.lo) + np.array(box.hi)) / 2.0
 
+    def refusal(self, problem: Problem) -> str | None:
+        """Say why the network does not support the problem; None if it does.
+
+        Parameters
+        ----------
+        problem
+            Any problem.
+
+        Returns
+        -------
+        str or None
+            ``"reference dim"`` if ``reference`` has not ``d`` numbers,
+            ``"x0 outside"`` if ``x0`` is not inside the domain,
+            ``"f(x0) not finite"`` or ``"f(x0) <= 0"`` for ``f`` at ``x0``;
+            None if none of these holds.
+        """
+        x0 = self.point(problem)
+        if len(x0) != problem.dim:
+            return "reference dim"
+        if not problem.domain.interior(x0[None])[0]:
+            return "x0 outside"
+        f0 = float(problem.f(x0[None])[0])
+        if not np.isfinite(f0):
+            return "f(x0) not finite"
+        if not f0 > 0.0:
+            return "f(x0) <= 0"
+        return None
+
     def supports(self, problem: Problem) -> bool:
         """Whether ``x0`` lies inside the domain and ``f(x0)`` is positive and finite.
 
@@ -569,15 +603,12 @@ class QuadraticForm(Network):
         Returns
         -------
         bool
+            Whether :meth:`refusal` is None.
         """
-        x0 = self.point(problem)
-        if len(x0) != problem.dim or not problem.domain.interior(x0[None])[0]:
-            return False
-        f0 = float(problem.f(x0[None])[0])
-        return bool(np.isfinite(f0) and f0 > 0.0)
+        return self.refusal(problem) is None
 
     def build(self, problem: Problem, collocation: Collocation) -> "torch.nn.Module":
-        """Make the form for the problem, with ``alpha`` from ``f(x0)``.
+        """Make the form for the problem, with ``alpha_start`` from ``f(x0)``.
 
         Parameters
         ----------
@@ -589,37 +620,24 @@ class QuadraticForm(Network):
         Returns
         -------
         torch.nn.Module
-            Its trainable parameters are those of the plain network,
-            ``alpha``, ``b`` and ``c``; its ``report`` holds ``reference``
-            and ``alpha_start``.
+            Its trainable parameters are those of the plain network, ``s``,
+            ``b`` and ``c``; its ``report`` holds ``reference``,
+            ``alpha_start`` and the current ``alpha``.
         """
         from maesolvers.neural import _torch
 
         x0 = self.point(problem)
         dim = problem.dim
-        alpha = float(problem.f(x0[None])[0]) ** (1.0 / (2 * dim)) / math.sqrt(2.0)
+        start = float(problem.f(x0[None])[0]) ** (1.0 / (2 * dim)) / math.sqrt(2.0)
         reference = [float(v) for v in x0]
-        report = {"reference": reference, "alpha_start": alpha}
-        return _torch.QuadraticStructure(
+        report = {"reference": reference, "alpha_start": start}
+        return _torch.QuadraticForm(
             dim,
             self.width,
             self.depth,
             self.activation,
             self.ratio,
             reference,
-            alpha,
+            start,
             report,
         )
-
-
-def _point(name: str, value: object) -> tuple[float, ...]:
-    """Check a point given as a sequence of finite numbers; return it as floats."""
-    try:
-        point = tuple(float(v) for v in value)  # type: ignore[union-attr]
-    except TypeError:
-        raise TypeError(
-            f"{name} must be a sequence of numbers, got {value!r}"
-        ) from None
-    if len(point) == 0 or not all(np.isfinite(point)):
-        raise ValueError(f"{name} must be one or more finite numbers, got {point}")
-    return point

@@ -11,6 +11,7 @@ like every preset they declare their support on the class.
 # No `from __future__ import annotations` here: jsonargparse reads the field
 # types (ADR 0005); see maesolvers.classical.iterations.
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -18,6 +19,7 @@ from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Ellipse
 from maesolvers.core.problem import Problem
+from maesolvers.core.solver import UnsupportedProblemError
 from maesolvers.core.transport import check_mass_balance
 from maesolvers.neural.losses import HausdorffLoss, Loss, PenaltyLoss
 from maesolvers.neural.networks import (
@@ -392,16 +394,43 @@ class TransportICNN(_TransportPreset):
         super().__post_init__()
 
 
+def _check_naming_the_reference(
+    network: Network, check: Callable[[Problem], None], problem: Problem
+) -> None:
+    """Run ``check``; if it refuses the problem for the QS form's reference point, say so.
+
+    The message of :meth:`~maesolvers.core.solver.Solver.check` names the
+    domain and the boundary condition; when the reason is the reference
+    point (:meth:`QuadraticForm.refusal
+    <maesolvers.neural.networks.QuadraticForm.refusal>`), it is added, with
+    the parameter that moves the point.
+    """
+    try:
+        check(problem)
+    except UnsupportedProblemError as error:
+        assert isinstance(network, QuadraticForm)
+        reason = network.refusal(problem)
+        if reason is None:
+            raise
+        x0 = tuple(float(v) for v in network.point(problem))
+        raise UnsupportedProblemError(
+            f"{error}: at the reference point x0 = {x0}, {reason}; "
+            "pass reference= a point inside the domain where f > 0"
+        ) from None
+
+
 @dataclass(frozen=True, kw_only=True)
 class DirichletQSPINN(NeuralSolver):
     """QS-PINN on a Dirichlet problem: :class:`DirichletICNN` with the QS form as its network.
 
-    ``DirichletQSPINN(width=w, depth=k, ratio=r, boundary_weight=C,
-    interior_points=M, boundary_points=K, ...)`` is ``NeuralSolver`` with
+    ``DirichletQSPINN(width=w, depth=k, ratio=r, reference=p,
+    boundary_weight=C, interior_points=M, boundary_points=K, ...)`` is
+    ``NeuralSolver`` with
 
-    - ``network=QuadraticForm(width=w, depth=k, ratio=r)``: ``u = (x -
-      x0)^T A^T A (x - x0) + b . x + c`` with ``A = alpha (I + B)`` from a
-      tanh network, ``x0`` the centre of the domain's bounding box;
+    - ``network=QuadraticForm(width=w, depth=k, ratio=r, reference=p)``:
+      ``u = (x - x0)^T A^T A (x - x0) + b . x + c`` with
+      ``A = alpha (I + B)`` from a tanh network, ``x0`` the point ``p`` or,
+      by default, the centre of the domain's bounding box;
     - ``loss=PenaltyLoss(convexity_weight=0, boundary_weight=C,
       equation_at_boundary=True)``, ``sampler=UniformSampler(
       interior_points=M, boundary_points=K)`` and ``optimizer=BFGS()``:
@@ -413,11 +442,13 @@ class DirichletQSPINN(NeuralSolver):
     400 points), and 5 x 10 hidden units give 518 trained parameters in
     2D, near the ICNN's 563 (``docs/methods/qs_pinn.md``, Parameters).
     The preset takes a Dirichlet problem in any dimension on a domain that
-    samples its boundary, whose bounding box has its centre ``x0`` inside
-    the domain with ``f(x0) > 0`` (:meth:`QuadraticForm.supports
-    <maesolvers.neural.networks.QuadraticForm.supports>`): not T20, whose
-    ``f`` vanishes at the centre. The training runs on the CPU unless
-    ``accelerator`` says otherwise.
+    samples its boundary, with ``x0`` inside the domain and ``f(x0) > 0``
+    (:meth:`QuadraticForm.supports
+    <maesolvers.neural.networks.QuadraticForm.supports>`). With the default
+    reference it refuses T4 and T20, whose ``f`` vanishes on a disk around
+    the centre of their box, and :meth:`check` says so;
+    ``reference=(0.1, 0.1)`` takes them. The training runs on the CPU
+    unless ``accelerator`` says otherwise.
 
     Parameters
     ----------
@@ -426,6 +457,9 @@ class DirichletQSPINN(NeuralSolver):
         ``B``, each at least 1.
     ratio
         ``epsilon / alpha``, the bound on ``|B|_F``, in ``(0, 1)``.
+    reference
+        The reference point ``x0``, ``d`` finite numbers; None (the default)
+        for the centre of the domain's bounding box.
     boundary_weight
         ``C``, the weight of the boundary misfit, positive.
     interior_points, boundary_points
@@ -452,6 +486,7 @@ class DirichletQSPINN(NeuralSolver):
     width: int = QuadraticForm.width
     depth: int = QuadraticForm.depth
     ratio: float = QuadraticForm.ratio
+    reference: tuple[float, ...] | None = None
     boundary_weight: float = DirichletICNN.boundary_weight
     interior_points: int = UniformSampler.interior_points
     boundary_points: int = UniformSampler.boundary_points
@@ -459,7 +494,12 @@ class DirichletQSPINN(NeuralSolver):
 
     def __post_init__(self) -> None:
         boundary_points = integer("boundary_points", self.boundary_points, 1)
-        network = QuadraticForm(width=self.width, depth=self.depth, ratio=self.ratio)
+        network = QuadraticForm(
+            width=self.width,
+            depth=self.depth,
+            ratio=self.ratio,
+            reference=self.reference,
+        )
         loss = PenaltyLoss(
             convexity_weight=0.0,
             boundary_weight=positive("boundary_weight", self.boundary_weight),
@@ -475,22 +515,43 @@ class DirichletQSPINN(NeuralSolver):
         object.__setattr__(self, "width", network.width)
         object.__setattr__(self, "depth", network.depth)
         object.__setattr__(self, "ratio", network.ratio)
+        object.__setattr__(self, "reference", network.reference)
         object.__setattr__(self, "boundary_weight", loss.boundary_weight)
         object.__setattr__(self, "interior_points", sampler.interior_points)
         object.__setattr__(self, "boundary_points", sampler.boundary_points)
         super().__post_init__()
+
+    def check(self, problem: Problem) -> None:
+        """Raise if a part does not support the problem, naming the reference point.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If :meth:`supports` is False; when the reason is the reference
+            point, the message says so.
+        ImportError
+            Without torch or lightning.
+        """
+        _check_naming_the_reference(self.network, super().check, problem)
 
 
 @dataclass(frozen=True, kw_only=True)
 class TransportQSPINN(_TransportPreset):
     """QS-PINN on a transport problem: :class:`TransportICNN` with the QS form as its network.
 
-    ``TransportQSPINN(width=w, depth=k, ratio=r, boundary_weight=C,
-    interior_points=M, boundary_points=K, target_points=L, adam_lr=a,
-    adam_steps=s, ...)`` is ``NeuralSolver`` with
+    ``TransportQSPINN(width=w, depth=k, ratio=r, reference=p,
+    boundary_weight=C, interior_points=M, boundary_points=K,
+    target_points=L, adam_lr=a, adam_steps=s, ...)`` is ``NeuralSolver``
+    with
 
-    - ``network=QuadraticForm(width=w, depth=k, ratio=r)``, ``x0`` the
-      centre of the domain's bounding box;
+    - ``network=QuadraticForm(width=w, depth=k, ratio=r, reference=p)``,
+      ``x0`` the point ``p`` or, by default, the centre of the domain's
+      bounding box;
     - ``loss=HausdorffLoss(boundary_weight=C)``, ``sampler=TransportSampler(
       interior_points=M, boundary_points=K, target_points=L)`` and
       ``optimizer=Switch(first=Adam(lr=a), then=LBFGS(), after=s)``: the
@@ -499,15 +560,19 @@ class TransportQSPINN(_TransportPreset):
 
     The network needs no fit to the identity map: it starts from
     ``u = |x - x0|^2 f(x0)^(1/d) / 2``, whose gradient map is ``x - x0``
-    when ``f(x0) = 1``, as on T12. The defaults are
+    when ``f(x0) = 1``. That is :class:`TransportICNN`'s start, the
+    identity map, only when ``x0 = 0``, as on T12, whose domain is the unit
+    disk; on a domain centred elsewhere the two presets start from
+    different maps. The defaults are
     :class:`TransportICNN`'s, with 4 hidden layers of 10 units (408 trained
     parameters in 2D; ``docs/methods/qs_pinn.md``, Parameters). Like it,
     the preset takes a transport problem in any dimension whose domain and
     target are each a ``Box``, a ``Disk`` or an ``Ellipse``, and its
     :meth:`check` raises ``ValueError`` when the source mass differs from
-    the target's volume; the network also needs ``f`` positive at the
-    centre of the domain's bounding box, inside the domain. The training
-    runs on the CPU unless ``accelerator`` says otherwise.
+    the target's volume; the network also needs ``x0`` inside the domain
+    and ``f(x0) > 0``, and :meth:`check` names the reference point when
+    that fails. The training runs on the CPU unless ``accelerator`` says
+    otherwise.
 
     Parameters
     ----------
@@ -516,6 +581,9 @@ class TransportQSPINN(_TransportPreset):
         ``B``, each at least 1.
     ratio
         ``epsilon / alpha``, the bound on ``|B|_F``, in ``(0, 1)``.
+    reference
+        The reference point ``x0``, ``d`` finite numbers; None (the default)
+        for the centre of the domain's bounding box.
     boundary_weight
         ``C``, the weight of the transport term, positive.
     interior_points, boundary_points, target_points
@@ -542,6 +610,7 @@ class TransportQSPINN(_TransportPreset):
     width: int = QuadraticForm.width
     depth: int = TransportICNN.depth
     ratio: float = QuadraticForm.ratio
+    reference: tuple[float, ...] | None = None
     boundary_weight: float = HausdorffLoss.boundary_weight
     interior_points: int = TransportSampler.interior_points
     boundary_points: int = TransportSampler.boundary_points
@@ -552,7 +621,12 @@ class TransportQSPINN(_TransportPreset):
     tol: float = TransportICNN.tol
 
     def __post_init__(self) -> None:
-        network = QuadraticForm(width=self.width, depth=self.depth, ratio=self.ratio)
+        network = QuadraticForm(
+            width=self.width,
+            depth=self.depth,
+            ratio=self.ratio,
+            reference=self.reference,
+        )
         loss = HausdorffLoss(boundary_weight=self.boundary_weight)
         sampler = TransportSampler(
             interior_points=self.interior_points,
@@ -568,6 +642,7 @@ class TransportQSPINN(_TransportPreset):
         object.__setattr__(self, "width", network.width)
         object.__setattr__(self, "depth", network.depth)
         object.__setattr__(self, "ratio", network.ratio)
+        object.__setattr__(self, "reference", network.reference)
         object.__setattr__(self, "boundary_weight", loss.boundary_weight)
         object.__setattr__(self, "interior_points", sampler.interior_points)
         object.__setattr__(self, "boundary_points", sampler.boundary_points)
@@ -575,3 +650,24 @@ class TransportQSPINN(_TransportPreset):
         object.__setattr__(self, "adam_lr", adam.lr)
         object.__setattr__(self, "adam_steps", optimizer.after)
         super().__post_init__()
+
+    def check(self, problem: Problem) -> None:
+        """Raise if a part does not support the problem, naming the reference point.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If :meth:`supports` is False; when the reason is the reference
+            point, the message says so.
+        ValueError
+            If the source mass differs from the target's volume
+            (:meth:`_TransportPreset.check`).
+        ImportError
+            Without torch or lightning.
+        """
+        _check_naming_the_reference(self.network, super().check, problem)

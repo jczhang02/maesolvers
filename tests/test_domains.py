@@ -41,7 +41,7 @@ def test_box_is_d_dimensional_and_stores_floats():
     ("lo", "hi", "message"),
     [
         ((0, 0), (1,), "same length"),
-        ((), (), "same length"),
+        ((), (), "one or more"),
         ((0, 1), (1, 1), "lo < hi"),
         ((0, np.inf), (1, 2), "finite"),
     ],
@@ -51,9 +51,10 @@ def test_box_rejects_bad_corners(lo, hi, message):
         Box(lo, hi)
 
 
-def test_box_rejects_non_numbers():
+@pytest.mark.parametrize("lo", [0.0, "01", (0, True), (0, "1")])
+def test_box_rejects_non_numbers(lo):
     with pytest.raises(TypeError, match="sequence of numbers"):
-        Box(0.0, 1.0)
+        Box(lo, (1.0, 1.0))
 
 
 def test_box_membership_closed_and_open():

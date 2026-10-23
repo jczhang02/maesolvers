@@ -452,7 +452,7 @@ assert all(
 )
 ```
 
-`QuadraticForm(reference=(0.1, 0.1))` puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `f(x0) > 0`.
+`QuadraticForm(reference=(0.1, 0.1))`, or `DirichletQSPINN(reference=(0.1, 0.1))`, puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `x0` inside the domain and `f(x0) > 0`, so with the default it refuses T4 and T20, whose `f` vanishes around the centre.
 `ICNN(alpha=0.25)` is the input convex network plus `0.25 |x|^2 / 2`, whose Hessian is at least `0.25 I`.
 
 The collocation points are drawn from the seed by the sampler, so every solver with an equal sampler and the same seed trains on the same points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
@@ -460,7 +460,7 @@ The collocation points are drawn from the seed by the sampler, so every solver w
 ### Write your own network, loss, sampler or optimizer
 
 A part is a frozen dataclass, like a solver: it subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, and its fields are its hyperparameters, which `Result.hparams` records and configurations set.
-The four parts below are a network that adds a convex quadratic to any other network (for the input convex network, `ICNN(alpha=...)` does it already), a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
+The four parts below are a network that adds a convex quadratic to any other network, the MLP, the QS form or one of your own (`ICNN(alpha=...)` is the same for the input convex network alone), a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
 Put them in a module of your own, here `my_parts.py`.
 
 ```python

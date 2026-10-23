@@ -12,7 +12,11 @@ Section 7), on its problems P1 and P3 (Table 2):
 - ``T8``: the catalogue's T8, the same with ``g = 0``, solutions
   ``(|x|^2 - 1) / 2`` and ``(1 - |x|^2) / 2``, where the QS form starts
   1/2 above the solution;
-- ``T12``: the note's P3, the transport of the unit disk onto the ellipse.
+- ``T12``: the note's P3, the transport of the unit disk onto the ellipse;
+- ``T10``: the catalogue's ``exp(|x|^2 / 2)`` on ``(0, 1)^4``, QS-PINN only,
+  with its default ``ratio = 0.6`` and with ``ratio = 0.9``: a diagnostic of
+  whether the bound on ``|B|_F`` or the training sets the error there
+  (``qs_pinn.md``, Finding 5), not a tuning of ``ratio``.
 
 The methods (:data:`METHODS`) on each problem, with the same seed giving the
 same collocation points to every method that shares a sampler:
@@ -24,7 +28,8 @@ same collocation points to every method that shares a sampler:
 - ``penalty_mlp``: ``PenaltyMLP`` (not on T12: its ansatz is Dirichlet);
 - ``icnn``: ``DirichletICNN`` on P1 and T8, ``TransportICNN`` on T12;
 - ``icnn_quadratic``: the ICNN presets with ``ICNN(alpha=ALPHA)``, the ICNN
-  plus ``ALPHA |x|^2 / 2``.
+  plus ``ALPHA |x|^2 / 2``;
+- ``qs_ratio_0.9``: ``DirichletQSPINN(ratio=0.9)``, on T10 only.
 
 Each row holds :func:`~maesolvers.metrics.evaluate` (``max``, ``rms``,
 ``nonconvex_fraction``, ``eigmin``), measured on the shared evaluation grid,
@@ -46,8 +51,9 @@ counts as failed (a run that stopped as ``"diverged"`` or a non-finite error),
 ``ok`` otherwise.
 
 Each seed is one MLflow run in ``maesolvers-qs_pinn-T8`` (P1 and T8,
-tagged with their ``g``) or ``maesolvers-qs_pinn-T12``, named by its method
-and seed after the prefix --name if given, with the parameter ``method``. --workers seeds train at a
+tagged with their ``g``), ``maesolvers-qs_pinn-T12`` or
+``maesolvers-qs_pinn-T10``, named by its method and seed after the prefix
+--name if given, with the parameter ``method``. --workers seeds train at a
 time, each in its own process with one CPU thread, on the CPU. Run it on
 a100server from the repository root, writing outside the checkout so that
 the runs do not see it dirty, then copy the CSV back::
@@ -57,7 +63,9 @@ the runs do not see it dirty, then copy the CSV back::
     python benchmarks/run_qs_pinn.py --summary   # the cells of qs_pinn.md
 
 A run with --max-steps, --seeds, --problems or --methods differs from the
-receipt and needs --out.
+receipt and needs --out. Its rows replace the rows of the same problems and
+methods in the CSV at --out, if there is one, and keep the others, so one
+method can be rerun into a copy of the receipt.
 """
 
 from __future__ import annotations
@@ -78,6 +86,7 @@ from maesolvers import (
     ICNN,
     MLP,
     T8,
+    T10,
     T12,
     Dirichlet,
     DirichletICNN,
@@ -132,7 +141,7 @@ P1 = Problem(
     ),
 )
 
-PROBLEMS: dict[str, Problem] = {"P1": P1, "T8": T8, "T12": T12}
+PROBLEMS: dict[str, Problem] = {"P1": P1, "T8": T8, "T12": T12, "T10": T10}
 """The problems by the id their rows carry."""
 
 CONCAVE = {
@@ -141,13 +150,14 @@ CONCAVE = {
 }
 """The concave solutions of the Dirichlet problems."""
 
-EXPERIMENTS = {"P1": "T8", "T8": "T8", "T12": "T12"}
+EXPERIMENTS = {"P1": "T8", "T8": "T8", "T12": "T12", "T10": "T10"}
 """The T id in the name of each problem's MLflow experiment."""
 
 METHODS: dict[str, tuple[str, ...]] = {
     "P1": ("qs", "mlp", "penalty_mlp", "icnn", "icnn_quadratic"),
     "T8": ("qs", "mlp", "penalty_mlp", "icnn", "icnn_quadratic"),
     "T12": ("qs", "mlp", "icnn", "icnn_quadratic"),
+    "T10": ("qs", "qs_ratio_0.9"),
 }
 """The methods on each problem, in the order of the tables."""
 
@@ -179,6 +189,8 @@ FIELDS = (
 def solver(problem_id: str, method: str, seed: int, max_steps: int | None) -> Any:
     """The solver of a method on a problem, for one seed."""
     steps = {} if max_steps is None else {"max_steps": max_steps}
+    if method == "qs_ratio_0.9":
+        return DirichletQSPINN(ratio=0.9, seed=seed, **steps)
     if problem_id != "T12":
         if method == "penalty_mlp":
             return PenaltyMLP(seed=seed, **steps)
@@ -226,7 +238,7 @@ def measures(problem_id: str, result) -> dict[str, float]:
         out["concave_max"] = float(np.max(np.abs(u - CONCAVE[problem_id](grid))))
         misfit = result.u(edge) - problem.boundary.g(edge)
         out["boundary_max"] = float(np.max(np.abs(misfit)))
-    else:
+    elif problem_id == "T12":
         error = gradient_map_error(
             gradient_fd(result.u, grid), gradient_fd(T12.exact, grid)
         )
@@ -282,15 +294,34 @@ def band(values: list[float]) -> str:
     return f"{s.median:.2e} [{s.q05:.2e}, {s.q95:.2e}]"
 
 
+def merge(old: list[dict[str, str]], new: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The rows of ``new``, and those of ``old`` whose problem and method ``new`` lacks.
+
+    In the order of :data:`PROBLEMS` and :data:`METHODS`, then by seed.
+    """
+    ran = {(r["problem"], r["method"]) for r in new}
+    rows = [r for r in old if (r["problem"], r["method"]) not in ran] + new
+    problems = list(PROBLEMS)
+
+    def key(row: dict[str, str]) -> tuple[int, int, int]:
+        problem = row["problem"]
+        method = METHODS[problem].index(row["method"])
+        return problems.index(problem), method, int(row["seed"])
+
+    return sorted(rows, key=key)
+
+
 def summary(path: Path) -> None:
     """Print the cells of qs_pinn.md from a receipt, one line per problem and method.
 
     The max error as the comparison table gives it (median [5%, 95%], the
     successes below 1% of the exact oscillation, the failed seeds by
     number), then the medians [5%, 95%] of the other measures over the
-    seeds that did not fail, and the seeds that are not convex on the grid,
-    that pass the residual certificate on the grid, and on P1 and T8 that are
-    nearer the concave solution than the convex one.
+    seeds that did not fail, the smallest ``eigmin`` over them, the seeds
+    that are not convex on the grid, that pass the residual certificate on
+    the grid, and on P1 and T8 that lie on the concave solution (its max
+    distance below the threshold), then the stops with the seeds and the
+    range of the iterations of each.
     """
     rows = read(path)
     for problem_id, methods in METHODS.items():
@@ -311,7 +342,6 @@ def summary(path: Path) -> None:
             certified = [
                 r["seed"] for r in ok if float(r["residual_max"]) < float(r["f_min"])
             ]
-            stops = [r["stop"] for r in mine]
             line = (
                 f"{problem_id} {method}: max {s.median:.2e} [{s.q05:.2e}, {s.q95:.2e}], "
                 f"{round(s.success_rate * s.seeds)}/{s.seeds} below the threshold, "
@@ -325,23 +355,31 @@ def summary(path: Path) -> None:
                 "loss",
                 "time",
             ]
-            keys += (
-                ["concave_max", "boundary_max"]
-                if problem_id in CONCAVE
-                else ["gradient_rms", "gradient_max"]
-            )
+            if problem_id in CONCAVE:
+                keys += ["concave_max", "boundary_max"]
+            elif problem_id == "T12":
+                keys += ["gradient_rms", "gradient_max", "into", "onto"]
             line += "; ".join(
                 f"{k} {band([float(r[k]) for r in ok])}" for k in keys if ok
             )
+            if ok:
+                line += f"; smallest eigmin {min(float(r['eigmin']) for r in ok):.2e}"
             line += f"; non-convex seeds {nonconvex or 'none'}"
             line += f"; certified seeds {certified or 'none'}"
             if problem_id in CONCAVE:
-                concave = [
-                    r["seed"] for r in ok if float(r["concave_max"]) < float(r["max"])
-                ]
-                line += f"; nearer the concave solution {concave or 'none'}"
-            counts = {stop: stops.count(stop) for stop in sorted(set(stops))}
-            print(line + f"; stops {counts}")
+                limit = threshold(problem)
+                concave = [r["seed"] for r in ok if float(r["concave_max"]) < limit]
+                line += f"; on the concave solution {concave or 'none'}"
+            stops = []
+            for stop in sorted({r["stop"] for r in mine}):
+                these = [r for r in mine if r["stop"] == stop]
+                steps = [int(r["iterations"]) for r in these]
+                seeds = ", ".join(r["seed"] for r in these)
+                stops.append(
+                    f"{stop} {len(these)} (seeds {seeds}; "
+                    f"steps {min(steps)} to {max(steps)})"
+                )
+            print(line + "; stops " + ", ".join(stops))
 
 
 def main() -> None:
@@ -383,14 +421,16 @@ def main() -> None:
     with ProcessPoolExecutor(args.workers, mp_context=get_context("spawn")) as pool:
         rows = list(pool.map(run_seed, tasks))
     out = args.out or CSV
+    new = [
+        {k: f"{v:.6e}" if isinstance(v, float) else str(v) for k, v in row.items()}
+        for row in rows
+    ]
+    rows = merge(read(out) if out.exists() else [], new)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS, lineterminator="\n")
         writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {k: f"{v:.6e}" if isinstance(v, float) else v for k, v in row.items()}
-            )
+        writer.writerows(rows)
     summary(out)
     print(f"wrote {out} in {time.time() - start:.0f} s")
 

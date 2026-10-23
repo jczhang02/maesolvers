@@ -244,16 +244,18 @@ class InputConvex(torch.nn.Module):
         return u
 
 
-class QuadraticStructure(torch.nn.Module):
+class QuadraticForm(torch.nn.Module):
     """The QS form ``(x - x0)^T A^T A (x - x0) + b . x + c`` with ``A = alpha (I + B)``.
 
     ``B = smooth_scaling(Z, ratio)`` for the output ``Z`` of a plain
-    network, reshaped to ``d x d``, so ``|B|_op < ratio < 1`` and ``A`` is
-    invertible at every point, with singular values in
-    ``|alpha| (1 - ratio, 1 + ratio)``. ``alpha``, ``b`` and ``c`` are
-    trained constants; ``alpha`` starts at ``alpha``, ``b`` and ``c`` at 0.
-    The output layer of the plain network starts at 0, so the training
-    starts from ``A = alpha I`` everywhere, ``u = alpha^2 |x - x0|^2``.
+    network, reshaped to ``d x d``, so ``|B|_op < ratio < 1``.
+    ``alpha = alpha_start exp(s)`` with ``s`` a trained scalar that starts
+    at 0, so ``alpha`` is positive for every value of the parameters and
+    ``A`` is invertible at every point, with singular values in
+    ``alpha (1 - ratio, 1 + ratio)``. ``b`` and ``c`` are trained
+    constants that start at 0. The output layer of the plain network starts
+    at 0, so the training starts from ``A = alpha_start I`` everywhere,
+    ``u = alpha_start^2 |x - x0|^2``.
 
     Parameters
     ----------
@@ -265,10 +267,11 @@ class QuadraticStructure(torch.nn.Module):
         ``epsilon / alpha``, in ``(0, 1)``.
     reference
         The reference point ``x0``, ``d`` numbers.
-    alpha
+    alpha_start
         The start of ``alpha``, positive.
     report
-        Plain values the solver records as ``Result.info["network"]``.
+        Plain values the solver records as ``Result.info["network"]``;
+        :attr:`report` adds the current ``alpha`` to them.
     """
 
     reference: torch.Tensor
@@ -281,7 +284,7 @@ class QuadraticStructure(torch.nn.Module):
         activation: str,
         ratio: float,
         reference: Sequence[float],
-        alpha: float,
+        alpha_start: float,
         report: dict,
     ) -> None:
         super().__init__()
@@ -291,11 +294,26 @@ class QuadraticStructure(torch.nn.Module):
         with torch.no_grad():
             output.weight.zero_()
             output.bias.zero_()
-        self.alpha = torch.nn.Parameter(torch.tensor(float(alpha)))
+        self.log_scale = torch.nn.Parameter(torch.zeros(()))
         self.b = torch.nn.Parameter(torch.zeros(dim))
         self.c = torch.nn.Parameter(torch.zeros(()))
         self.register_buffer("reference", torch.tensor([float(v) for v in reference]))
-        self.dim, self.ratio, self.report = dim, ratio, report
+        self.dim, self.ratio, self.alpha_start = dim, ratio, alpha_start
+        self.report = report
+
+    @property
+    def alpha(self) -> torch.Tensor:
+        """``alpha = alpha_start exp(s)``, a positive scalar tensor."""
+        return self.alpha_start * torch.exp(self.log_scale)
+
+    @property
+    def report(self) -> dict:
+        """The report given, with ``alpha``, its current value, added."""
+        return {**self._report, "alpha": float(self.alpha.detach())}
+
+    @report.setter
+    def report(self, value: dict) -> None:
+        self._report = {key: v for key, v in value.items() if key != "alpha"}
 
     def matrix(self, x: torch.Tensor) -> torch.Tensor:
         """Return ``A`` at points of shape ``(M, d)``: shape ``(M, d, d)``."""

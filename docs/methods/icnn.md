@@ -55,6 +55,7 @@ The other ICNN of the roadmap, Caboussat and Peruso (2025), trains an ICNN on th
 |---|---|---|---|
 | `DirichletICNN` | `width`, `depth` | 10, 5 | units per hidden layer and hidden layers of the network (`ICNN`) |
 | `DirichletICNN` | `init_std` | 1 | standard deviation of every initial parameter of the network (`ICNN`) |
+| `ICNN` | `alpha` | 0 | coefficient of `alpha |x|^2 / 2` added to the network, whose Hessian is then at least `alpha I`; not in the paper, not a field of the presets: compose `NeuralSolver(network=ICNN(alpha=0.25), ...)`, the baseline of the QS-PINN note (`qs_pinn.md`) |
 | `DirichletICNN` | `boundary_weight` | 100 | `C`, the weight of the boundary misfit (`PenaltyLoss`), positive: without the ansatz, this term alone imposes `g` |
 | `DirichletICNN` | `interior_points`, `boundary_points` | 3000, 400 | collocation points inside and on the boundary (`UniformSampler`) |
 | `NeuralSolver` | `max_steps` | 10000 (preset), 1000 | most training steps |
@@ -138,6 +139,7 @@ Sections 4.3 to 4.5 (an ellipse onto a rotated ellipse, Gaussian densities on th
 |---|---|---|---|
 | `ICNN` | `width`, `depth` | 10, 4 | Section 4.1 |
 | `ICNN` | `init_std` | 1 | not given; as `DirichletICNN` |
+| `ICNN` | `alpha` | 0 | not in the paper; as above |
 | `IdentityStart` | `fit_steps`, `fit_tol` | 1000, 1e-6 | not given |
 | `HausdorffLoss` | `boundary_weight` | 1 | `C = 1`, Section 4.1 |
 | `TransportSampler` | `interior_points`, `boundary_points` | 800, 800 | `N_c = N_b = 800`, Section 4.1 |

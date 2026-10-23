@@ -19,6 +19,7 @@ from maesolvers import (  # noqa: E402
     ICNN,
     LBFGS,
     T1,
+    T4,
     T8,
     T9,
     T12,
@@ -137,6 +138,7 @@ def test_the_form_starts_from_alpha_squared_times_the_distance_squared():
     assert module.report == {
         "reference": [0.0, 0.0],
         "alpha_start": pytest.approx(2**-0.5, rel=1e-15),
+        "alpha": pytest.approx(2**-0.5, rel=1e-15),
     }
 
 
@@ -160,7 +162,7 @@ def test_the_paper_size_network_has_518_parameters_all_trainable():
     assert sum(p.numel() for p in module.parameters()) == 518
     assert all(p.requires_grad for p in module.parameters())
     # d (w + 1) + (depth - 1)(w + 1) w + (w + 1) d^2 for the plain network,
-    # then alpha, b and c.
+    # then s (alpha = alpha_start exp(s)), b and c.
     module3 = _module(QuadraticForm(width=4, depth=2), problem=T9)
     assert sum(p.numel() for p in module3.parameters()) == 16 + 20 + 45 + 1 + 3 + 1
 
@@ -188,8 +190,68 @@ def test_the_matrix_is_invertible_with_singular_values_near_alpha():
     x = _points(1000, 2, 4, scale=3.0)
     with torch.no_grad():
         singular = torch.linalg.svdvals(module.matrix(x))
-    alpha = abs(float(module.alpha))
+    alpha = float(module.alpha)
+    assert alpha > 0
     assert (singular > alpha * 0.7).all() and (singular < alpha * 1.3).all()
+
+
+@pytest.mark.parametrize("s", [-50.0, -3.0, 0.0, 4.0])
+def test_alpha_is_positive_for_every_value_of_its_parameter(s):
+    # u depends on alpha through alpha^2 only, so alpha = 0 (u = b . x + c, a
+    # zero Hessian) would be a stationary point of every loss: the
+    # parametrisation alpha = alpha_start exp(s) never reaches it.
+    module = _scramble(_module(problem=T1), seed=5)
+    with torch.no_grad():
+        module.log_scale.fill_(s)
+    alpha = float(module.alpha)
+    assert alpha == pytest.approx(module.alpha_start * np.exp(s), rel=1e-14)
+    assert alpha > 0
+    assert module.report["alpha"] == alpha
+    x0 = module.reference[None]
+    a = module.matrix(x0)[0]
+    assert float(torch.linalg.svdvals(a)[-1]) > 0.4 * alpha  # ratio 0.6
+
+
+def test_the_report_keeps_alpha_current_when_a_wrapper_sets_it():
+    module = _module()
+    module.report = {**module.report, "identity_fit": {"steps": 0}, "alpha": -1.0}
+    with torch.no_grad():
+        module.log_scale.fill_(np.log(2.0))
+    assert module.report == {
+        "reference": [0.0, 0.0],
+        "alpha_start": pytest.approx(2**-0.5, rel=1e-15),
+        "identity_fit": {"steps": 0},
+        "alpha": pytest.approx(2**0.5, rel=1e-15),
+    }
+
+
+def _f_at_the_centre(value):
+    return Problem(
+        "local",
+        Box((0.0, 0.0), (1.0, 1.0)),
+        lambda x: np.where(np.all(x == 0.5, axis=-1), value, 1.0),
+        Dirichlet(lambda x: 0.0 * x[..., 0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("network", "problem", "reason"),
+    [
+        (QuadraticForm(), T8, None),
+        (QuadraticForm(), T20, "f(x0) <= 0"),  # f = 0 on a disk around (1/2, 1/2)
+        (QuadraticForm(), T4, "f(x0) <= 0"),
+        (QuadraticForm(), _f_at_the_centre(-1.0), "f(x0) <= 0"),
+        (QuadraticForm(), _f_at_the_centre(np.inf), "f(x0) not finite"),
+        (QuadraticForm(), _f_at_the_centre(np.nan), "f(x0) not finite"),
+        (QuadraticForm(reference=(1.5, 0.0)), T8, "x0 outside"),
+        (QuadraticForm(reference=(0.0, 0.0, 0.0)), T8, "reference dim"),
+    ],
+)
+def test_the_refusal_says_which_condition_on_the_reference_fails(
+    network, problem, reason
+):
+    assert network.refusal(problem) == reason
+    assert network.supports(problem) == (reason is None)
 
 
 def test_supports_needs_the_reference_inside_with_positive_f():
@@ -197,6 +259,7 @@ def test_supports_needs_the_reference_inside_with_positive_f():
     assert QuadraticForm().supports(T9)
     assert not QuadraticForm().supports(T20)  # f = 0 at (1/2, 1/2)
     assert QuadraticForm(reference=(0.1, 0.1)).supports(T20)
+    assert QuadraticForm(reference=(0.1, 0.1)).supports(T4)
     assert not QuadraticForm(reference=(1.5, 0.0)).supports(T8)
     assert not QuadraticForm(reference=(1.0, 0.0)).supports(T8)  # on the boundary
     assert not QuadraticForm(reference=(0.0, 0.0, 0.0)).supports(T8)
@@ -221,6 +284,9 @@ def test_a_given_reference_is_where_the_form_is_centred():
         ({"depth": 1.5}, TypeError),
         ({"activation": "relu"}, ValueError),
         ({"reference": 3.0}, TypeError),
+        ({"reference": "12"}, TypeError),
+        ({"reference": b"12"}, TypeError),
+        ({"reference": (0.0, True)}, TypeError),
         ({"reference": ()}, ValueError),
         ({"reference": (0.0, float("nan"))}, ValueError),
     ],
@@ -267,6 +333,7 @@ def test_the_icnn_alpha_must_be_nonnegative():
 def test_the_dirichlet_preset_is_the_icnn_preset_with_the_qs_form():
     preset, icnn = DirichletQSPINN(), DirichletICNN()
     assert preset.network == QuadraticForm(width=10, depth=5, ratio=0.6)
+    assert preset.reference is None
     assert (
         preset.loss
         == icnn.loss
@@ -307,9 +374,25 @@ def test_support_of_the_presets():
     dirichlet, transport = DirichletQSPINN(), TransportQSPINN()
     assert dirichlet.supports(T8) and dirichlet.supports(T9)
     assert not dirichlet.supports(T12) and not dirichlet.supports(T20)
+    assert not dirichlet.supports(T4)
     assert transport.supports(T12) and not transport.supports(T8)
-    with pytest.raises(UnsupportedProblemError):
-        dirichlet.solve(T20)
+    with pytest.raises(UnsupportedProblemError, match=r"Transport boundary$"):
+        dirichlet.solve(T12)  # not the reference point: the message is the usual one
+
+
+@pytest.mark.parametrize("problem", [T4, T20])
+def test_the_presets_name_the_reference_point_when_it_fails(problem):
+    message = r"reference point x0 = \(0.5, 0.5\), f\(x0\) <= 0; pass reference="
+    with pytest.raises(UnsupportedProblemError, match=message):
+        DirichletQSPINN().solve(problem)
+    moved = DirichletQSPINN(reference=(0.1, 0.1))
+    assert moved.network == QuadraticForm(reference=(0.1, 0.1))
+    assert moved.reference == (0.1, 0.1) and moved.supports(problem)
+
+
+def test_the_transport_preset_names_the_reference_point_when_it_fails():
+    with pytest.raises(UnsupportedProblemError, match="x0 outside"):
+        TransportQSPINN(reference=(2.0, 0.0)).solve(T12)
 
 
 def test_the_transport_preset_checks_the_mass():
@@ -325,10 +408,9 @@ def test_the_qs_preset_trains_on_the_icnn_presets_points():
     icnn = DirichletICNN(max_steps=1, seed=4, **SMALL).solve(T8)
     fingerprint = qs.info["collocation"]["fingerprint"]
     assert fingerprint == icnn.info["collocation"]["fingerprint"]
-    assert qs.info["network"] == {
-        "reference": [0.0, 0.0],
-        "alpha_start": pytest.approx(2**-0.5, rel=1e-15),
-    }
+    assert qs.info["network"]["reference"] == [0.0, 0.0]
+    assert qs.info["network"]["alpha_start"] == pytest.approx(2**-0.5, rel=1e-15)
+    assert qs.info["network"]["alpha"] > 0  # the value after the training
     assert qs.info["unknowns"] == 518
     assert np.isfinite(evaluate(qs)["max"])  # convex only under the note's conditions
 

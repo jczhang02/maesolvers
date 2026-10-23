@@ -123,7 +123,7 @@ RECTANGLE = Problem("RECT", Box((0.0, 0.0), (1.0, 2.0)), T1.f, T1.boundary)
         ("FDMonotone", T10, "2D/3D only"),
         ("FDMonotone", T8, "not on a Disk"),
         ("FDMonotone", RECTANGLE, "unsupported"),
-        ("DirichletQSPINN", T20, "f(x0) = 0"),
+        ("DirichletQSPINN", T20, "f(x0) <= 0"),
         ("TransportQSPINN", T8, "Transport only"),
     ],
 )
@@ -131,6 +131,20 @@ def test_unsupported_reason_says_why(solver, problem, reason):
     instance = SOLVERS[solver]()
     assert not instance.supports(problem)
     assert comparison.unsupported_reason(instance, problem) == reason
+
+
+@pytest.mark.parametrize(
+    ("reference", "problem", "reason"),
+    [
+        ((5.0, 5.0), T1, "x0 outside"),
+        ((0.5, 0.5, 0.5), T1, "reference dim"),
+        ((0.5, 0.5), T20, "f(x0) <= 0"),
+    ],
+)
+def test_unsupported_reason_names_the_reference_point(reference, problem, reason):
+    solver = SOLVERS["DirichletQSPINN"](reference=reference)
+    assert not solver.supports(problem)
+    assert comparison.unsupported_reason(solver, problem) == reason
 
 
 def test_preset_options_go_to_the_presets_that_take_them():

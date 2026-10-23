@@ -149,10 +149,10 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     the solver does not declare; then, for a solver on :class:`Monotone17`,
     the stencils of the problem's dimension when the scheme's stencil is of
     another (``3D: stencil=19`` for ``FDMonotone``'s default 17-point stencil
-    on a 3D problem); for a solver on :class:`QuadraticForm`, ``f(x0) = 0``
-    or ``x0 outside`` when its reference point fails (T20 for
-    ``DirichletQSPINN``); ``unsupported`` if none of these is the reason
-    (unequal sides of a box, say).
+    on a 3D problem); for a solver on :class:`QuadraticForm`, the reason
+    :meth:`QuadraticForm.refusal` gives for its reference point (``f(x0) <=
+    0`` for ``DirichletQSPINN`` on T20); ``unsupported`` if none of these is
+    the reason (unequal sides of a box, say).
     """
     if not isinstance(problem.boundary, solver.boundaries):
         return "/".join(kind.__name__ for kind in solver.boundaries) + " only"
@@ -167,10 +167,8 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
             str(s) for s in stencils if stencil_dimension(s) == problem.dim
         )
     network = getattr(solver, "network", None)
-    if isinstance(network, QuadraticForm) and not network.supports(problem):
-        x0 = network.point(problem)
-        inside = len(x0) == problem.dim and problem.domain.interior(x0[None])[0]
-        return "f(x0) = 0" if inside else "x0 outside"
+    if isinstance(network, QuadraticForm):
+        return network.refusal(problem) or "unsupported"
     return "unsupported"
 
 
