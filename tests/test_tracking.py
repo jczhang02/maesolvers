@@ -94,6 +94,7 @@ class FakeMLflow(types.ModuleType):
 
     def set_experiment(self, name):
         self.calls.append(("experiment", name))
+        return types.SimpleNamespace(experiment_id=f"id-{name}")
 
     @contextmanager
     def start_run(self, **kwargs):
@@ -205,7 +206,7 @@ def test_run_sets_the_experiment_tags_and_params(monkeypatch):
     assert fake.calls == [
         ("uri", "file:/nowhere"),
         ("experiment", "maesolvers-x-T1"),
-        ("start", {"run_name": "r"}),
+        ("start", {"experiment_id": "id-maesolvers-x-T1", "run_name": "r"}),
         ("tags", ["git.branch", "git.dirty", "mlflow.source.git.commit"]),
         ("params", {"seed": 0}),
         ("end",),
@@ -223,6 +224,22 @@ def test_logger_against_a_real_mlflow_store(tmp_path, monkeypatch):
     assert "git.dirty" in data.tags
     history = mlflow.MlflowClient().get_metric_history(active.info.run_id, "residual")
     assert [m.step for m in history] == list(range(1, len(history) + 1))
+
+
+def test_run_logs_to_its_experiment_when_another_process_created_it(
+    tmp_path, monkeypatch
+):
+    # mlflow.set_experiment, when its create loses the race to another process,
+    # returns the experiment without making it active (#54); simulate the loss.
+    mlflow = pytest.importorskip("mlflow")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/mlflow.db")
+    mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
+    created = mlflow.MlflowClient().create_experiment("maesolvers-race-T1")
+    lost_race = mlflow.MlflowClient().get_experiment(created)
+    monkeypatch.setattr(mlflow, "set_experiment", lambda name: lost_race)
+    with tracking.run("maesolvers-race-T1") as active:
+        pass
+    assert mlflow.get_run(active.info.run_id).info.experiment_id == created
 
 
 def test_importing_the_library_loads_no_extra():

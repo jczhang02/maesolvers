@@ -91,12 +91,20 @@ def run(
     Yields
     ------
     mlflow.ActiveRun
+
+    Notes
+    -----
+    The run names its experiment by id, so worker processes that open runs
+    in the same new experiment at the same time all log there: when
+    ``mlflow.set_experiment`` loses the race to create the experiment, it
+    returns the experiment but leaves the active one unset, and a bare
+    ``mlflow.start_run`` would log to ``Default`` (issue #54).
     """
     import mlflow
 
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_URI))
-    mlflow.set_experiment(experiment)
-    with mlflow.start_run(**kwargs) as active:
+    experiment_id = mlflow.set_experiment(experiment).experiment_id
+    with mlflow.start_run(experiment_id=experiment_id, **kwargs) as active:
         mlflow.set_tags(git_tags())
         if params:
             mlflow.log_params(dict(params))

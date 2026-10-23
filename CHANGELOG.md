@@ -81,6 +81,10 @@ Every change to the public interface is listed here; 0.x may break the interface
 - CI's `test` job installs the `neural-cpu` group and runs the neural tests on CPU; it fails if a CUDA wheel is installed.
 - The development Python is 3.12 (`.python-version`): torch 2.7.1 has no wheel for 3.14.
 
+### Fixed
+
+- `tracking.run` starts its run in the experiment it names, by id: worker processes that opened runs in the same new experiment at once could log to `Default`, because `mlflow.set_experiment` does not make the experiment active when it loses the race to create it (#54).
+
 ## 0.0.2 (2026-10-22)
 
 ### Added

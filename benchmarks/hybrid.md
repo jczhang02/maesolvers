@@ -8,7 +8,7 @@ Every run of `hybrid.csv` converged.
 Error: max over all grid nodes of `|u_h - u|`, `h = 1/N` (ADR 0001) unless a column says otherwise.
 T21 is not in the catalogue; `run_hybrid.py` builds it per grid with `cone(n)` of `run_monotone17.py` (`f = 4/h^2` at the nodes within `h/2` of `x0`), with `n = N - 1` so that `x0` is a node.
 Raw data: `hybrid.csv` and `hybrid_checks.csv`, written on a100server by `run_hybrid.py` at commit dd03dd0, one after the other (`just remote-bg hybrid-r1 env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python benchmarks/run_hybrid.py --processes 8`, then `hybrid-checks-r1` with `--checks --processes 16`).
-Every solve of these two files is one run in the MLflow experiment `maesolvers-hybrid-<problem>` (T1, T2, T20, T21), tagged with commit dd03dd0 and a clean checkout; `run_hybrid.py` creates the experiments before its worker processes start (issue #54).
+Every solve of these two files is one run in the MLflow experiment `maesolvers-hybrid-<problem>` (T1, T2, T20, T21), tagged with commit dd03dd0 and a clean checkout; at that commit `run_hybrid.py` created the experiments before its worker processes started; since then `tracking.run` names its experiment by id, which settles the race of issue #54 for every script.
 Earlier generations are in the same experiments: `hybrid.csv` at 9f6df9d and the checks at 9f6df9d, 9c1db06 and ad53e5b, with the same values in every row they share with the current files.
 Four solves of the 9f6df9d generation went to the experiment `Default` instead, through a race between the worker processes that created the experiments: the runs `N=31 h=1/N interpolate` of T1, T2 and T20, and `N=31 h=1/(N-1) narrow` of T2.
 
