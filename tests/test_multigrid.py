@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from maesolvers import (
+    SOLVERS,
     T1,
     T2,
     T8,
@@ -295,6 +296,7 @@ def test_the_preset_is_multigrid_on_standard_box():
     for name in ("scheme", "ordering", "pre_sweeps", "post_sweeps", "max_iter", "tol"):
         assert getattr(preset, name) == getattr(composed, name)
     np.testing.assert_array_equal(preset.solve(T1).values, composed.solve(T1).values)
+    assert SOLVERS["FDMultigrid"] is FDMultigrid
 
 
 def test_the_preset_records_flat_parameters():
