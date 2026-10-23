@@ -32,6 +32,7 @@ a100server from the repository root::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import math
 from multiprocessing import Pool
 from pathlib import Path
@@ -59,6 +60,7 @@ from maesolvers import (
 HERE = Path(__file__).parent
 NS = (32, 64, 128, 256, 512)
 HALF = Box((-0.5, -0.5), (0.5, 0.5))
+KRYLOV_TOL = 1e-12
 SEVEN_POINT_CONE_MASS = 4.0 * math.sqrt(2.0) - 2.0
 """The mass at which the exact cone solves the 7-point equation at its tip (Finding 3)."""
 
@@ -262,14 +264,35 @@ TABLE5 = {
 }
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ExactStart(PolicyIteration):
+    """Policy iteration from the exact solution at the unknowns (Finding 5)."""
+
+    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
+        """The exact solution at the scheme's unknowns."""
+        assert problem.exact is not None
+        return problem.exact(context.nodes[context.interior])
+
+
 def solver_for(scheme: str, n: int, **options: Any) -> Solver:
-    """The solver of a column: "mixed", "wide only", "everywhere" or "standard"."""
-    if scheme == "mixed":
-        return FDMixed(n=n, **options)
+    """The solver of a column: "mixed", "wide only", "everywhere", "exact start"
+    or "standard".
+
+    Policy iteration solves each policy's system by sparse LU up to n = 256
+    and by BiCGSTAB to a relative residual of 1e-12 at n = 512, where the LU
+    of the wide stencil fills in to tens of GB and does not finish in hours.
+    """
     if scheme == "standard":
         return FDPoisson(n=n)
+    iteration = {"krylov_tol": KRYLOV_TOL} if n >= 512 else {}
+    if scheme == "mixed":
+        return FDMixed(n=n, **options, **iteration)
+    if scheme == "exact start":
+        return ExactStart(scheme=MixedHJB(n=n, **options), **iteration)
     wide_search = "only" if scheme == "wide only" else scheme
-    return PolicyIteration(scheme=MixedHJB(n=n, wide_search=wide_search, **options))
+    return PolicyIteration(
+        scheme=MixedHJB(n=n, wide_search=wide_search, **options), **iteration
+    )
 
 
 def paper_norms(result: Result) -> tuple[float, float]:
@@ -402,8 +425,8 @@ def check_row(task: tuple[str, str, int, dict[str, Any], bool]) -> dict[str, Any
     """One row of chen_wan_lin2018_checks.csv.
 
     ``task`` is (check, problem, N, variant, log). For "grid" the variant
-    holds n_cells; for "search" the column; for "mass" the Dirac mass of
-    the cone; for "angles" the column and the number of angles.
+    holds n_cells; for "search" and "start" the column; for "mass" the
+    Dirac mass of the cone; for "angles" the column and the number of angles.
     """
     check, name, N, variant, log = task
     n = variant.get("n_cells", N)
@@ -432,6 +455,7 @@ def check_row(task: tuple[str, str, int, dict[str, Any], bool]) -> dict[str, Any
         "iterations": info["iterations"],
         "converged": info["converged"],
         "wide_fraction": info["wide_fraction"],
+        "history": " ".join(f"{r:.3e}" for r in info["history"]),
         "time_s": f"{info['time']:.2f}",
     }
     print(f"check {check} {name} N={N} {label}: linf {linf:.4e}", flush=True)
@@ -461,13 +485,18 @@ CHECK_TASKS: list[tuple[str, str, int, dict[str, Any]]] = [
         for N in (32, 64)
         for angles in (N // 2, N - 1, N + 1, 2 * N)
     ),
+    *(
+        ("start", name, N, {"scheme": "exact start"})
+        for name in ("T2", "T20c")
+        for N in NS
+    ),
 ]
 """(check, problem, N, variant) of every row of chen_wan_lin2018_checks.csv."""
 
 
 def _cost(name: str, scheme: str, N: int) -> int:
     """Rough cost of a solve, to start the longest first: a wide search costs N more."""
-    wide = scheme in ("wide only", "everywhere") or name == "T21"
+    wide = scheme in ("wide only", "everywhere") or name in ("T21", "T20c")
     return N * N * (N if wide else 1)
 
 
