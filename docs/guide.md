@@ -645,6 +645,80 @@ Pass the method's own gradient where it has one, such as the differences of a gr
 A classical result's `u` is an interpolant of its grid values, and past the domain it is not the solution: the 2D box spline is constant there, the tensor spline in another dimension extends its end polynomials, and the Clough-Tocher interpolant of a curved domain extrapolates to first order.
 For such a `u`, take the interior points only, `points[domain.interior(points)]`, or pass the method's own gradient.
 
+### Solve one
+
+`FDTransport` solves a transport problem by the finite-difference method of Benamou-Froese-Oberman 2014 (`docs/methods/bfo2014.md`).
+Its grid covers a square: the domain's bounding box, or `box` for a domain whose bounding box is not a square, with `f` zero outside the domain.
+The paper measures the map by centred differences at the grid nodes; `gradient_fd` of `result.u` with the step `h` gives them at the interior nodes, since the spline through the node values interpolates them.
+
+```python
+from maesolvers import T16, FDTransport
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
+
+result = FDTransport(n=32).solve(T16)
+h = result.info["h"][0]
+points = result.nodes[result.interior]
+errors = gradient_map_error(
+    gradient_fd(result.u, points, step=h), gradient_fd(T16.exact, points)
+)
+# gradient_max 0.0214, gradient_rms 0.0126; the paper prints 0.0220, 0.0127
+print(errors)
+print(evaluate(result)["max"])  # the error of u, after subtracting the means
+```
+
+The scheme needs only the target's support function, `H*(n) = sup_{y in Y} y . n`.
+A target of a type the helpers do not know, such as a rotated ellipse, gets one through the method of the `SupportFunction` protocol.
+`FDTransport` solves such a problem in one line.
+Its `check` runs `check_mass_balance` where `can_check_mass_balance(problem)` is True, a `Box`, `Disk` or `Ellipse` domain and target; for a domain or target of your own `volume` or `integrate` cannot run, so it warns that the balance is unchecked and solves.
+Check the balance yourself, as the comment below does, or read `result.info["u_anchor"]`, the constant `u(x_0)` that absorbs an imbalance and is of the order of the discretisation error when the data balance.
+
+```python
+from dataclasses import dataclass
+
+import numpy as np
+
+from maesolvers import Box, Ellipse, Problem, Transport
+
+
+@dataclass(frozen=True)
+class RotatedEllipse:
+    """The ellipse M B_1, M symmetric positive definite."""
+
+    matrix: tuple = ((0.6, 0.2), (0.2, 0.8))
+    dim = 2
+
+    @property
+    def bbox(self):
+        r = np.linalg.norm(np.asarray(self.matrix), axis=1)
+        return Box(tuple(-r), tuple(r))
+
+    def _level(self, x):
+        z = np.asarray(x) @ np.linalg.inv(np.asarray(self.matrix)).T
+        return np.sum(z**2, axis=-1)
+
+    def contains(self, x):
+        return self._level(x) <= 1.0
+
+    def interior(self, x):
+        return self._level(x) < 1.0
+
+    def support_function(self, n):  # SupportFunction: |M n|
+        return np.linalg.norm(np.asarray(n) @ np.asarray(self.matrix).T, axis=-1)
+
+
+# Uniform densities: f is the target's area, pi det M = 0.44 pi, over the
+# domain's, pi 0.8 0.4 = 0.32 pi, so the masses balance.
+problem = Problem(
+    "ellipses",
+    Ellipse((0.0, 0.0), (0.8, 0.4)),
+    lambda x: np.full(np.shape(x)[:-1], 0.44 / 0.32),
+    Transport(RotatedEllipse()),
+)
+solver = FDTransport(n=32, directions=64, box=Box((-1.0, -1.0), (1.0, 1.0)))
+result = solver.solve(problem)  # UserWarning: the mass balance is unchecked
+print(result.info["converged"], result.info["u_anchor"])
+```
+
 ### Declare Transport support
 
 A solver supports transport problems as it supports any other.
