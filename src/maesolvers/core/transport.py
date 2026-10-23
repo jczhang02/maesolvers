@@ -14,8 +14,11 @@ of the mass balance that every transport problem needs.
 
 Each function dispatches on the type of the target (or domain), so a target
 set of another type, such as a rotated ellipse or a polygon, raises
-``TypeError``; an optional protocol for a user's own target geometry is left
-to the first solver that needs one (issue #28).
+``TypeError``, with one exception: :func:`support_function` also takes a
+target of your own that has the method of the
+:class:`~maesolvers.core.domains.SupportFunction` protocol, all that a
+solver needs that represents the target by its support function
+(:class:`~maesolvers.classical.SecondBoundary`).
 
 Everything here takes and returns numpy arrays; the torch version of
 :func:`signed_distance` for a neural loss is
@@ -29,7 +32,7 @@ import numpy as np
 from maesolvers.core._params import integer, positive
 from maesolvers.core._params import points as _points
 from maesolvers.core.boundary import Transport
-from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field
+from maesolvers.core.domains import Box, Disk, Domain, Ellipse, Field, SupportFunction
 from maesolvers.core.problem import Problem
 
 _MAX_BISECTION_STEPS = 100
@@ -54,7 +57,10 @@ def support_function(target: Domain, n: np.ndarray) -> np.ndarray:
     Parameters
     ----------
     target
-        A :class:`Box` of any dimension, a :class:`Disk` or an :class:`Ellipse`.
+        A :class:`Box` of any dimension, a :class:`Disk`, an :class:`Ellipse`,
+        or a target of another type that has the method of
+        :class:`~maesolvers.core.domains.SupportFunction`, which is then
+        called.
     n
         Directions of shape ``(..., d)``.
 
@@ -67,6 +73,8 @@ def support_function(target: Domain, n: np.ndarray) -> np.ndarray:
     ------
     TypeError
         For another kind of target.
+    ValueError
+        If a target's own ``support_function`` returns another shape.
     """
     n = _points(n, target.dim)
     if isinstance(target, Box):
@@ -79,6 +87,14 @@ def support_function(target: Domain, n: np.ndarray) -> np.ndarray:
     if isinstance(target, Ellipse):
         stretched = np.asarray(target.semi_axes) * n
         return n @ np.asarray(target.center) + np.linalg.norm(stretched, axis=-1)
+    if isinstance(target, SupportFunction):
+        out = np.asarray(target.support_function(n), dtype=float)
+        if out.shape != n.shape[:-1]:
+            raise ValueError(
+                f"{type(target).__name__}.support_function returned shape "
+                f"{out.shape} for directions of shape {n.shape}"
+            )
+        return out
     raise _unsupported("support_function", target)
 
 

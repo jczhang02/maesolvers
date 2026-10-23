@@ -107,6 +107,35 @@ class BoundaryDistance(Protocol):
         ...
 
 
+@runtime_checkable
+class SupportFunction(Protocol):
+    """A convex transport target that knows its own support function.
+
+    A capability beside :class:`Domain` (ADR 0007) for a target set that
+    :func:`~maesolvers.core.transport.support_function` does not know, such
+    as a rotated ellipse or a polygon: that function calls this method for
+    such a target, so a solver that represents the target by its support
+    function, such as :class:`~maesolvers.classical.SecondBoundary`, accepts
+    it. :class:`Box`, :class:`Disk` and :class:`Ellipse` need no method;
+    :func:`~maesolvers.core.transport.support_function` knows them.
+    """
+
+    def support_function(self, n: np.ndarray) -> np.ndarray:
+        """Return ``sup_{y in Y} y . n`` for each direction.
+
+        Parameters
+        ----------
+        n
+            Directions of shape ``(..., d)``, not necessarily unit vectors.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(...)``, positively homogeneous in ``n``.
+        """
+        ...
+
+
 def _allocate(n: int, sizes: np.ndarray) -> np.ndarray:
     """Split ``n`` points among pieces in proportion to their sizes.
 

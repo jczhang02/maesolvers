@@ -7,7 +7,9 @@ check constructor parameters, and :func:`check_part` a part passed to a
 solver or to another part, for solvers and parts of your own as for the
 shipped ones. :func:`signed_distance`, :func:`support_function`,
 :func:`closest_boundary_point`, :func:`volume`, :func:`integrate` and
-:func:`check_mass_balance` serve the solvers of transport problems.
+:func:`check_mass_balance` serve the solvers of transport problems, and
+:class:`SupportFunction` lets :func:`support_function` take a target of
+your own.
 """
 
 from maesolvers.core._params import boolean, integer, nonnegative, positive
@@ -23,6 +25,7 @@ from maesolvers.core.domains import (
     Ellipse,
     Field,
     HessianField,
+    SupportFunction,
 )
 from maesolvers.core.problem import Observable, Problem
 from maesolvers.core.result import Result
@@ -62,6 +65,7 @@ __all__ = [
     "Result",
     "Solution",
     "Solver",
+    "SupportFunction",
     "Trace",
     "Transport",
     "UnsupportedProblemError",
