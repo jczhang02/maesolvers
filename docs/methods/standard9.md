@@ -29,6 +29,7 @@ Which root a solve reaches is decided by the iteration (branch selection).
 
 Off the nodes, the solution is a tensor spline of degree `spline_degree` through the node values (degree `n` on a grid with fewer cells per side; `Result.info["interpolant"]` names it); `Result.node_hessian` holds `D_xx`, `D_yy` and `D_xy` at the interior nodes and NaN at the boundary nodes.
 The difference operators are the pure functions `difference_operators`, `monge_ampere` and `monge_ampere_jacobian` in `maesolvers.classical.schemes`.
+On a box the grid is `BoxGrid(problem.domain, n)` and `difference_operators` is the 2D case of `second_differences` in `maesolvers.classical.grid`, which builds the centred differences on a box of any dimension.
 
 ## Curved boundaries (Shortley-Weller)
 
@@ -118,6 +119,8 @@ The presets take the scheme's parameters flat: `FDPoisson(n=128, tol=1e-10)` is 
 ## Known limits
 
 - Only 2D Dirichlet problems on a `Box`, `Disk`, `Ellipse` or `CutQuarterDisk`: `solve` raises `UnsupportedProblemError` for a transport boundary (T12) or a box in 3D or 4D (T9, T10).
+  Which schemes support which dimensions: `Standard9`, `Monotone17`, `Hybrid` and `Filtered` are all 2D only (`dims = (2,)`).
+  The grid under them (`BoxGrid`: nodes, boundary ring, Dirichlet data, the centred Hessian and the tensor spline onto the shared evaluation grid) works in any dimension (issue #25, `docs/guide.md`, "Grids in any dimension"); the determinant of a 3 by 3 or 4 by 4 Hessian and its Jacobian, the 3D scheme itself, are not written, and the 3D schemes come with the 19-point monotone scheme (#27) and multigrid (#30).
 - On a curved domain the crossings are looked for only on the segment from a node to an outside neighbour, so a boundary that crosses one grid segment twice (a non-convex domain with features finer than the grid) is not resolved; the domains `Standard9` declares are convex.
 - On a curved domain the interpolant's error on the shared grid (`max_grid`) falls at the rate of the node error, corners off the grid included, but is 7 to 10 times it on a disk and on T6 and up to 18 times on a stretched grid, against about the same on a box with the cubic spline: the Clough-Tocher interpolant estimates its gradients to `O(h)` only (`benchmarks/shortley_weller.md`).
 - `FDNewton` reaches a non-convex discrete solution on T2 at every `n` and on T7 from `n = 40` on: its residual converges, but its error does not decrease with `n` (Finding 2 of `benchmarks/standard_fd.md`).

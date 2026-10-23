@@ -112,7 +112,7 @@ Its `max_iter` is higher than `Newton`'s because T2 with the 9-point stencil nee
 
 ## Known limits
 
-- Only a 2D `Box` with equal sides and a `Dirichlet` boundary: `solve` raises `UnsupportedProblemError` for a rectangle, a disk (T8), a transport boundary (T12) or a box in 3D (T9; the 19-point 3D stencil is planned for 0.2).
+- Only a 2D `Box` with equal sides and a `Dirichlet` boundary: `solve` raises `UnsupportedProblemError` for a rectangle, a disk (T8), a transport boundary (T12) or a box in 3D (T9; the 19-point 3D stencil is planned for 0.2, #27, on the n-dimensional `BoxGrid`, whose `reach` gives the arms of a wide stencil in any dimension).
 - The accuracy is limited by the stencil's angular resolution: on T1 the error stays near `1.6e-3` with 9 points, `4.4e-4` with 17 and `1.5e-4` with 33 however fine the grid, against `5.3e-7` for the standard scheme at `n = 361`.
   On smooth problems report the standard scheme (`FDPoisson`); the monotone scheme is for singular ones.
 - `Result.node_hessian` is the centred 9-point Hessian of the node values, not a quantity of the scheme.

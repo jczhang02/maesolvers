@@ -46,6 +46,7 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | Term (zh) | Term (en) | Meaning | Not |
 |---|---|---|---|
 | 节点 | nodes | The points where a classical method itself defines its solution: its grid points, and for a grid cut by a curved boundary the points where grid lines meet the boundary, which carry the Dirichlet data. | |
+| 边界环 | boundary ring | The nodes of a box grid that lie on the faces of the box, those with some index 0 or `n`; a finite-difference scheme imposes the Dirichlet data there, and the other nodes carry the unknowns. A ring in 2D, a shell in 3D; the name is the same in every dimension. | 边界层 (that is a layer of the solution) |
 | 共用评估网格 | shared evaluation grid | The uniform grid over the bounding box of a problem's domain, points in the domain only. Never the training points of a neural method. | test grid |
 | 主误差 | primary error | The error at the method's nodes for a classical method, on the shared evaluation grid for a neural method. The only error used to rank methods. | |
 | 次要值 | secondary value | The error of a classical method on the shared evaluation grid, through its interpolant. Reported, never used for ranking. | |
