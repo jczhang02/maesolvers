@@ -278,13 +278,14 @@ def solver_for(scheme: str, n: int, **options: Any) -> Solver:
     """The solver of a column: "mixed", "wide only", "everywhere", "exact start"
     or "standard".
 
-    Policy iteration solves each policy's system by sparse LU up to n = 256
-    and by BiCGSTAB to a relative residual of 1e-12 at n = 512, where the LU
-    of the wide stencil fills in to tens of GB and does not finish in hours.
+    Policy iteration solves each policy's system by sparse LU up to n = 128
+    and by BiCGSTAB with an incomplete LU to a relative residual of 1e-12
+    from n = 256 on, where the LU of the wide stencil fills in: tens of GB,
+    and hours per policy at n = 512.
     """
     if scheme == "standard":
         return FDPoisson(n=n)
-    iteration = {"krylov_tol": KRYLOV_TOL} if n >= 512 else {}
+    iteration = {"krylov_tol": KRYLOV_TOL} if n >= 256 else {}
     if scheme == "mixed":
         return FDMixed(n=n, **options, **iteration)
     if scheme == "exact start":
