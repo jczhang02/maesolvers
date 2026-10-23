@@ -1,9 +1,10 @@
 """Pure torch kernels of the neural solvers: derivatives and loss terms.
 
-Every function here takes tensors and returns tensors, with no state, so a
-loss of your own builds on them and a test checks them without a solver
-(ADR 0004). Points are tensors of shape ``(M, d)`` and a network maps them to
-values of shape ``(M,)``. This module imports torch.
+Every function here takes tensors (and, for :func:`signed_distance`, the
+target set) and returns tensors, with no state, so a loss of your own builds
+on them and a test checks them without a solver (ADR 0004). Points are
+tensors of shape ``(M, d)`` and a network maps them to values of shape
+``(M,)``. This module imports torch.
 """
 
 from __future__ import annotations
@@ -12,8 +13,87 @@ from collections.abc import Callable
 
 import torch
 
+from maesolvers.core.domains import Domain
+from maesolvers.core.transport import closest_boundary_point
+
 Function = Callable[[torch.Tensor], torch.Tensor]
 """Maps points of shape ``(M, d)`` to values of shape ``(M,)``, such as a network."""
+
+
+def gradient(u: Function, x: torch.Tensor, create_graph: bool = True) -> torch.Tensor:
+    """Gradient of ``u`` at each point, by automatic differentiation.
+
+    The transport map ``grad u`` of a transport problem, for a loss on the
+    transport condition or for :func:`maesolvers.metrics.gradient_map_error`.
+
+    Parameters
+    ----------
+    u
+        A differentiable function of the points, such as a network.
+    x
+        Points of shape ``(M, d)``; not changed.
+    create_graph
+        Keep the graph, so that a loss built on the gradient can be
+        differentiated with respect to the network's parameters. False for
+        evaluation only.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(M, d)``; zero for a ``u`` that depends on its parameters
+        but not on ``x``.
+    """
+    x = x.detach().requires_grad_(True)
+    with torch.enable_grad():
+        (grad,) = torch.autograd.grad(
+            u(x).sum(), x, create_graph=create_graph, allow_unused=True
+        )
+    return torch.zeros_like(x) if grad is None else grad
+
+
+def signed_distance(target: Domain, y: torch.Tensor) -> torch.Tensor:
+    """Signed distance to the target's boundary, differentiable in ``y``.
+
+    The torch form of :func:`maesolvers.core.transport.signed_distance`, with
+    its sign (positive outside the target) and its targets (``Box``,
+    ``Disk``, ``Ellipse``), for a loss on the transport condition
+    ``signed_distance(target, grad u) = 0`` on the boundary. The nearest
+    boundary point ``p`` and the outward unit normal ``nu`` there come from
+    the numpy function, outside the graph, and the result is
+    ``(y - p) . nu``: its value is the signed distance, and its gradient in
+    ``y`` is ``nu``, the gradient of the signed distance wherever the
+    nearest point is unique, so a loss trains through it with no NaN on the
+    boundary. Its second derivatives in ``y`` are zero, not the curvature.
+
+    Each call copies ``y`` to the CPU and the nearest points back, so on a
+    GPU it waits for the device once per loss evaluation; the ellipse takes
+    up to 64 bisection steps in numpy. Torch closed forms for ``Box`` and
+    ``Disk``, which would avoid the copy, are left to the first loss that
+    needs the speed.
+
+    Parameters
+    ----------
+    target
+        A :class:`~maesolvers.core.domains.Box`,
+        :class:`~maesolvers.core.domains.Disk` or
+        :class:`~maesolvers.core.domains.Ellipse`.
+    y
+        Points of shape ``(M, d)``, on any device.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(M,)``, on the device and in the dtype of ``y``.
+
+    Raises
+    ------
+    TypeError
+        For another kind of target.
+    """
+    foot, normal = closest_boundary_point(target, y.detach().cpu().double().numpy())
+    foot_t = torch.as_tensor(foot, dtype=y.dtype, device=y.device)
+    normal_t = torch.as_tensor(normal, dtype=y.dtype, device=y.device)
+    return ((y - foot_t) * normal_t).sum(dim=-1)
 
 
 def hessian(u: Function, x: torch.Tensor, create_graph: bool = True) -> torch.Tensor:

@@ -5,13 +5,15 @@ at random, negative roots included, and check it on the module; training
 runs a handful of steps on a few points, as in test_neural.py.
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
-from maesolvers import BFGS, ICNN, T1, T6, T9, DirichletICNN, PenaltyLoss  # noqa: E402
+from maesolvers import BFGS, ICNN, T1, T6, T9, Box, DirichletICNN, PenaltyLoss  # noqa: E402
 from maesolvers.metrics import evaluate  # noqa: E402
 from maesolvers.neural import Batch, UniformSampler, _bfgs  # noqa: E402
 from maesolvers.neural import functional as F  # noqa: E402
@@ -160,12 +162,14 @@ def test_the_preset_trains_in_3d_with_a_convex_network():
     assert evaluate(result)["nonconvex_fraction"] == 0.0
 
 
-def test_a_batch_moves_its_tensors_and_keeps_g_none():
+def test_a_batch_moves_its_tensors_and_keeps_g_none_and_the_target():
     batch = _batch(
         torch.zeros((2, 2)), torch.zeros((1, 2)), torch.ones(2), torch.ones(1), None
     )
     moved = batch.to("meta")
-    assert moved.g is None
+    assert moved.g is None and moved.target is None
+    target = Box((0.0, 0.0), (1.0, 1.0))
+    assert dataclasses.replace(batch, target=target).to("meta").target is target
     assert all(
         getattr(moved, name).device.type == "meta"
         for name in ("interior", "f", "boundary", "f_boundary")
@@ -178,6 +182,7 @@ def test_the_solver_passes_f_at_the_boundary_points():
     context = solver.setup(T6)
     boundary = context.collocation.boundary
     np.testing.assert_array_equal(context.f_boundary, T6.f(boundary))
+    assert context.target is None  # a Dirichlet problem has no transport target
     batch = solver._batch(context)
     assert batch.f_boundary.shape == (24,) and batch.f_boundary.dtype == torch.float64
 
