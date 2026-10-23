@@ -162,8 +162,8 @@ In 3D, against Froese-Oberman 2011, SIAM, Table 4 (19 points), with `h = 1/N` (A
 | Problem | Level |
 |---|---|
 | T9 | order of magnitude; the printed digits at `N = 21` and 31 |
-| `C^1` example (15), no T id | order of magnitude |
-| T22 | mismatch (orders, from `N = 7` alone) |
+| `C^1` example (15), no T id | order of magnitude, only through `N = 7` (without it, a mismatch: orders 0.11 published, 0.37 ours) |
+| T22 | mismatch (orders), only through `N = 7` (without it, order of magnitude: 0.29 and 0.21) |
 
 The paper does not say whether its `N` counts cells or nodes; with `h = 1/(N - 1)` T9 matches the printed digits at `N = 11`, 15 and 21 and T22 is order of magnitude, while no convention matches every cell (`benchmarks/monotone19.md`, Finding 1).
 On the `C^1` example our error is 1.3 to 1.9 times the published one at every `N`, and the bare scheme's non-convex roots are further off, not closer.

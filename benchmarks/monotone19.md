@@ -22,10 +22,10 @@ The level of each problem is the one with `h = 1/N`, the grid convention of ADR 
 | Problem | Level (`h = 1/N`) |
 |---|---|
 | T9 | order of magnitude; the printed digits at `N = 21` and 31 |
-| `C^1` example (15) | order of magnitude (Finding 3) |
-| T22 | mismatch: orders differ by 0.24, from `N = 7` alone (Finding 2) |
+| `C^1` example (15) | order of magnitude, only through `N = 7`: without it the orders are 0.11 published and 0.37 ours, a mismatch (Findings 2 and 3) |
+| T22 | mismatch: orders differ by 0.24, only through `N = 7`: without it they are 0.29 and 0.21 (Finding 2) |
 
-The paper does not say whether its `N` counts cells or nodes, and `h = 1/(N - 1)` fits some cells better (Finding 1); the coarsest grid `N = 7` agrees with no convention (Finding 2).
+The paper does not say whether its `N` counts cells or nodes, and `h = 1/(N - 1)` fits some cells better (Finding 1); the coarsest grid `N = 7` agrees with no convention and decides the level of both the `C^1` example and T22 (Finding 2).
 `tests/test_reproduction.py` pins the one cell that agrees to the printed digits with `h = 1/N` and solves in seconds, T9 at `N = 21`; `N = 31` agrees too but takes a minute.
 
 The 3D hybrid of Froese-Oberman, J. Comput. Phys. 230 (2011), Table 4 (`sources.md`) is not reproduced: maesolvers has no 3D standard scheme yet (`Standard9` is 2D; a 3D centred scheme comes with the multigrid of #30), so `Hybrid` stays 2D.
@@ -58,6 +58,8 @@ The steps are ours from our start (`laplace u = 3 f^(1/3)`), recorded, not judge
 
 Ratio 1.34 to 1.70 (`h = 1/N`) and 1.34 to 1.85 (`h = 1/(N - 1)`); orders: published 0.36, ours 0.45 and 0.58.
 Level: order of magnitude with `h = 1/N`; mismatch with `h = 1/(N - 1)`, whose order differs by 0.22.
+The level with `h = 1/N` holds only through `N = 7`: without it the orders are 0.11 published and 0.37 ours (0.43 with `h = 1/(N - 1)`), a mismatch (Finding 2).
+From `N = 15` on the published column is nearly flat (0.0019, 0.0020, 0.0019), with 1 or 2 Newton steps at every `N`.
 Our error is above the published one at every `N` (Finding 3).
 Newton converges slowly here, 87 steps at `N = 31` (122 with `h = 1/(N - 1)`), about 12 minutes on one core, where T9 and T22 take 6 to 10.
 In the ball where `f = 0` two factors of a triple can vanish together, and the Jacobian's coefficient is then the square of the floor.
@@ -86,7 +88,7 @@ In units of `1e-3`:
 
 Ratio 0.69 to 1.03 (`h = 1/N`) and 0.74 to 1.03 (`h = 1/(N - 1)`); orders: published 0.57, ours 0.33 and 0.38.
 Level: mismatch with `h = 1/N`, by the order rule alone (0.24 apart, the threshold is 0.2); order of magnitude with `h = 1/(N - 1)` (0.19 apart).
-From `N = 11` on the ratio is 0.95 to 1.03 under either convention; the gap in the orders comes from `N = 7` (Finding 2).
+From `N = 11` on the ratio is 0.95 to 1.03 under either convention; the gap in the orders comes from `N = 7` (Finding 2), as the passing order of the `C^1` example does.
 The centred Hessian of our node values has a negative eigenvalue at a few nodes next to the corner from `N = 15` on (`nonconvex_fraction` 1e-4 to 5e-4), where it sees the blow-up, as on T2 in 2D.
 
 ## 2D unchanged
@@ -109,7 +111,10 @@ At `N = 7`, the coarsest grid (5 or 6 interior nodes per side), the published er
 The paper reports 1 or 2 Newton steps there, so its values may be early iterates, as on the coarse 2D grids (`monotone17.md`, Finding 2); the JCP 2011 hybrid table prints the same three errors at `N = 7` from separate runs (its CPU times differ), as expected where the hybrid scheme is the monotone one.
 `monotone19_iterates.csv` runs Newton from the paper's start, `laplace u = (6 f)^(1/3)` (SINUM eq. (8)), solved on the grid itself, for 1 to 8 steps: its iterates are far from the published values (on T22 at `N = 7` the first step has error `1.4e-2` under either convention, the second `0.70e-2` or `0.91e-2`), and it needs more steps than the paper reports at every `N`.
 The paper solves its start on a coarse grid, takes its convex envelope where needed and interpolates it (Section 5.2); it states no grid, no envelope solver and no stopping rule, so its iterates cannot be rebuilt, and the early-stop explanation stays unproven.
-T22's order mismatch with `h = 1/N` rests on this one grid: without `N = 7` the orders are 0.29 published, 0.21 ours with `h = 1/N` and 0.27 with `h = 1/(N - 1)`.
+Both non-smooth levels rest on this one grid, in opposite directions.
+T22's order mismatch with `h = 1/N`: without `N = 7` the orders are 0.29 published, 0.21 ours with `h = 1/N` and 0.27 with `h = 1/(N - 1)`, order of magnitude.
+The `C^1` example's passing order with `h = 1/N`: without `N = 7` the orders are 0.11 published, 0.37 ours with `h = 1/N` and 0.43 with `h = 1/(N - 1)`, a mismatch.
+T9 does not depend on it: without `N = 7` the orders are 0.11 published and 0.09 ours.
 
 ## Finding 3: on the `C^1` example the published errors stay below the convex discrete solution's
 
