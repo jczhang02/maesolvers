@@ -340,8 +340,8 @@ class UndampedNewton(Newton):
         return (candidate, new_norm) if math.isfinite(new_norm) else None
 
 
-UNDAMPED_MAX_ITER = 600
-"""Most steps of UndampedNewton; it converges linearly where it converges."""
+UNDAMPED_MAX_ITER = 2000
+"""Most steps of UndampedNewton; on T2 it converges linearly, in hundreds of steps."""
 
 JCP_FLOOR = 1e-8
 """The Jacobian floor of FO 2011 (JCP, Section 7.2), times 1 / (2 h^2)."""

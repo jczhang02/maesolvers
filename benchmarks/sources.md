@@ -370,7 +370,8 @@ Method (Section 4.1): the filtered scheme `F_H = F_M + eps S((F_A - F_M) / eps)`
 maesolvers takes the full gap (`pi/4`, `atan(1/2)`, `atan(1/3)`), which the T2 filtered columns of Table 4.1 fit (`filtered.md`, Finding 3).
 Solved by Newton, `u^{n+1} = u^n - (grad F_H[u^n])^{-1} F_H[u^n]`, with the Jacobian approximated by `(1 - S') grad F_M + max{S', 0} grad F_A` "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
 "We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
-No start, damping or stopping rule is stated.
+[FO11b] is the JCP 2011 hybrid paper (section 3 above; the reference list, and p. 424, "In [FO11b] a hybrid solver was built"), not the SINUM paper [FO11a]; its Section 7.2 replaces `u_vv` by `max{u_vv, eps}` in the Jacobian, `eps = 10^-8 / (2 dx^2)`, which leaves the scheme and its roots unchanged.
+The Newton iteration is printed with the full step, no damping; no start or stopping rule is stated.
 Section 4.2: "All computations are performed on the domain [0, 1] x [0, 1], which is discretized on an N x N grid."
 No definition of `h` in terms of `N`; the values match `h = 1/(N - 1)`, `N` nodes per side (`filtered.md`, Finding 1).
 
