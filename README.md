@@ -200,6 +200,7 @@ The `seed` fixes the collocation points and the initial network, and `evaluate` 
 
 The comparison table runs every preset of `SOLVERS` with its defaults on the shared test set, measured by `evaluate` (ADR 0007); it carries no published numbers, which belong to the reproduction tables below.
 The max error is the one that ranks methods; the non-convex fraction is the share of points with a negative smallest Hessian eigenvalue (the interior nodes for a classical preset, the shared grid for a neural one).
+For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differences, which can be indefinite where the solution is convex along every stencil direction, so its non-convex cells measure the fit ([`benchmarks/comparison.md`](benchmarks/comparison.md), Finding 3; #73).
 [`benchmarks/comparison.md`](benchmarks/comparison.md) states how the runs were made and what the table shows; `benchmarks/run_comparison.py` writes [`benchmarks/comparison.csv`](benchmarks/comparison.csv) on a100server, one row per run, and `just comparison-table` writes the tables below from it (a test checks that they are current).
 
 <!-- comparison table: written by benchmarks/comparison.py, do not edit -->
