@@ -242,13 +242,10 @@ class _TransportPreset(NeuralSolver):
         -------
         bool
         """
-        return super().supports(problem) and self._known_sets(problem)
-
-    def _known_sets(self, problem: Problem) -> bool:
-        """Whether the problem is a transport problem between two of ``domains``."""
         boundary = problem.boundary
         return (
-            isinstance(boundary, Transport)
+            super().supports(problem)
+            and isinstance(boundary, Transport)
             and isinstance(problem.domain, self.domains)
             and isinstance(boundary.target, self.domains)
         )
@@ -398,33 +395,29 @@ class TransportICNN(_TransportPreset):
 
 
 def _check_naming_the_reference(
-    network: Network,
-    check: Callable[[Problem], None],
-    problem: Problem,
-    *,
-    others: bool,
+    network: Network, check: Callable[[Problem], None], problem: Problem
 ) -> None:
-    """Run ``check``; if only the QS form's reference point refuses the problem, say so.
+    """Run ``check``; if the QS form refuses the problem, add why to the message.
 
     The message of :meth:`~maesolvers.core.solver.Solver.check` names the
-    domain and the boundary condition; when the network refuses the problem
+    domain and the boundary condition. When the network refuses the problem
     for its reference point (:meth:`QuadraticForm.refusal
-    <maesolvers.neural.networks.QuadraticForm.refusal>`) and everything else
-    the solver tests supports it (``others``, given by the caller), so that
-    another point would make the solver support it, the reason is added,
-    with the parameter that moves the point.
+    <maesolvers.neural.networks.QuadraticForm.refusal>`), the reason and
+    ``x0`` are added as a fact, with no claim that another point would do:
+    another part, or a subclass that narrows ``supports``, may refuse the
+    problem as well.
     """
     try:
         check(problem)
     except UnsupportedProblemError as error:
         assert isinstance(network, QuadraticForm)
         reason = network.refusal(problem)
-        if reason is None or not others:
+        if reason is None:
             raise
         x0 = tuple(float(v) for v in network.point(problem))
         raise UnsupportedProblemError(
-            f"{error}: at the reference point x0 = {x0}, {reason}; "
-            "pass reference= a point inside the domain where f > 0"
+            f"{error}; the QS form refuses it at the reference point x0 = {x0}: "
+            f"{reason} (reference= sets x0)"
         ) from None
 
 
@@ -541,13 +534,12 @@ class DirichletQSPINN(NeuralSolver):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reference point is the
-            only reason, the message says so.
+            If :meth:`supports` is False; when the QS form refuses the
+            problem at its reference point, the message says why.
         ImportError
             Without torch or lightning.
         """
-        others = self.loss.supports(problem) and self.sampler.supports(problem)
-        _check_naming_the_reference(self.network, super().check, problem, others=others)
+        _check_naming_the_reference(self.network, super().check, problem)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -672,17 +664,12 @@ class TransportQSPINN(_TransportPreset):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reference point is the
-            only reason, the message says so.
+            If :meth:`supports` is False; when the QS form refuses the
+            problem at its reference point, the message says why.
         ValueError
             If the source mass differs from the target's volume
             (:meth:`_TransportPreset.check`).
         ImportError
             Without torch or lightning.
         """
-        others = (
-            self.loss.supports(problem)
-            and self.sampler.supports(problem)
-            and self._known_sets(problem)
-        )
-        _check_naming_the_reference(self.network, super().check, problem, others=others)
+        _check_naming_the_reference(self.network, super().check, problem)

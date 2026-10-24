@@ -7,6 +7,7 @@ in test_icnn.py.
 """
 
 import json
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
@@ -387,7 +388,7 @@ def test_support_of_the_presets():
 
 @pytest.mark.parametrize("problem", [T4, T20])
 def test_the_presets_name_the_reference_point_when_it_fails(problem):
-    message = r"reference point x0 = \(0.5, 0.5\), f\(x0\) <= 0; pass reference="
+    message = r"reference point x0 = \(0.5, 0.5\): f\(x0\) <= 0 \(reference= sets x0\)$"
     with pytest.raises(UnsupportedProblemError, match=message):
         DirichletQSPINN().solve(problem)
     moved = DirichletQSPINN(reference=(0.1, 0.1))
@@ -396,14 +397,29 @@ def test_the_presets_name_the_reference_point_when_it_fails(problem):
 
 
 @pytest.mark.parametrize("reference", [None, (0.5, 0.5)])
-def test_no_reference_hint_when_another_part_refuses(reference):
-    # f(0, 0) = 0 on T39, but the sampler refuses its DiskUnionSquare (#74)
-    # wherever x0 is, so moving x0 would not help.
+def test_the_reference_is_named_only_when_the_qs_form_refuses(reference):
+    # the sampler refuses T39's DiskUnionSquare (#74) wherever x0 is; the
+    # QS form refuses it too only at the default x0 = (0, 0), where f = 0
     solver = DirichletQSPINN(reference=reference)
-    assert (solver.network.refusal(T39) is None) == (reference is not None)
+    refused = solver.network.refusal(T39) is not None
+    assert refused == (reference is None)
     with pytest.raises(UnsupportedProblemError) as error:
         solver.check(T39)
-    assert "reference" not in str(error.value)
+    assert ("reference point" in str(error.value)) == refused
+
+
+def test_the_reference_is_a_fact_not_a_fix_when_a_subclass_narrows_support():
+    @dataclass(frozen=True, kw_only=True)
+    class Only3D(DirichletQSPINN):
+        def supports(self, problem):
+            return problem.dim == 3 and super().supports(problem)
+
+    with pytest.raises(UnsupportedProblemError) as error:
+        Only3D().check(T4)
+    message = str(error.value)
+    assert message.startswith("Only3D does not support T4")
+    assert "x0 = (0.5, 0.5): f(x0) <= 0" in message
+    assert "pass reference=" not in message
 
 
 def test_the_transport_preset_names_the_reference_point_when_it_fails():
@@ -412,14 +428,17 @@ def test_the_transport_preset_names_the_reference_point_when_it_fails():
 
 
 @pytest.mark.parametrize("reference", [(5.0, 5.0), None])
-def test_the_transport_preset_does_not_blame_the_reference_for_its_domains(reference):
-    # the parts take a CutQuarterDisk, but the preset cannot compute its mass
+def test_the_transport_preset_refuses_domains_whose_mass_it_cannot_compute(reference):
+    # the parts take a CutQuarterDisk, but the preset cannot compute its mass;
+    # the QS form adds its reason only where x0 lies outside the domain
     problem = Problem(
         "cut", CutQuarterDisk(), lambda x: 1.0 + 0.0 * x[..., 0], T12.boundary
     )
+    solver = TransportQSPINN(reference=reference)
+    assert solver.loss.supports(problem) and solver.sampler.supports(problem)
     with pytest.raises(UnsupportedProblemError) as error:
-        TransportQSPINN(reference=reference).solve(problem)
-    assert "reference" not in str(error.value)
+        solver.solve(problem)
+    assert ("x0 outside" in str(error.value)) == (reference is not None)
 
 
 def test_the_transport_preset_checks_the_mass():
