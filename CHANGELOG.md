@@ -115,6 +115,7 @@ The fields of `evaluate` are those of 0.1 (ADR 0007): the quantities some papers
 - `SOLVERS` lists `DirichletQSPINN` and `TransportQSPINN` after `TransportICNN`, so the comparison table gains their columns.
 - The comparison table comes from one run of every preset of `SOLVERS` at one commit (issue #34), in place of the rows that each preset's branch merged into it; every value but the times is what those rows held, and the notes under the table no longer name a roadmap release, as 0.2 leaves `FDNewton`, `FDPoisson`, `FDHybrid`, `FDFiltered`, `FDMixed` and `FDSemiLagrangian` 2D only.
 - `Box`, `Disk` and `Ellipse` check their corners, centre and semi-axes with `floats`: a str (`Box("01", ...)` was `(0.0, 1.0)`) or a bool element now raises `TypeError`, and an empty `Box` raises `ValueError` "must hold one or more numbers" in place of "need the same length >= 1".
+- `maesolvers.metrics` defines `__all__`: `evaluate`, `summarize`, `summarize_errors`, `seed_error`, `shared_grid`, `SHARED_GRID_SIZE`, `Summary`, `gradient_fd` and `gradient_map_error`; `from maesolvers.metrics import *` no longer brings in the names it imports, such as `np` and `positive`.
 - `UniformSampler`, and so `DirichletICNN`, supports a problem on an `Ellipse` with boundary points, since an `Ellipse` now samples its boundary; `PenaltyMLP` still does not, as its ansatz needs the boundary distance. `DirichletICNN.domains` lists `Ellipse` to match: its support comes from its parts, and the class variable only documents it.
 
 ## 0.1.0 (2026-10-23)

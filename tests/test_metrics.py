@@ -16,6 +16,23 @@ from maesolvers.metrics import (
 )
 
 
+def test_the_module_exports_the_protocol_and_its_helpers_only():
+    import maesolvers.metrics
+
+    assert set(maesolvers.metrics.__all__) == {
+        "SHARED_GRID_SIZE",
+        "Summary",
+        "evaluate",
+        "gradient_fd",
+        "gradient_map_error",
+        "seed_error",
+        "shared_grid",
+        "summarize",
+        "summarize_errors",
+    }
+    assert all(hasattr(maesolvers.metrics, k) for k in maesolvers.metrics.__all__)
+
+
 def _shifted(problem, shift):
     return lambda x: problem.exact(x) + shift
 

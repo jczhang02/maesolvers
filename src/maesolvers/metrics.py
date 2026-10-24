@@ -21,6 +21,18 @@ from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import Box, Domain, Field
 from maesolvers.core.result import Result
 
+__all__ = [
+    "SHARED_GRID_SIZE",
+    "Summary",
+    "evaluate",
+    "gradient_fd",
+    "gradient_map_error",
+    "seed_error",
+    "shared_grid",
+    "summarize",
+    "summarize_errors",
+]
+
 SHARED_GRID_SIZE: Mapping[int, int] = MappingProxyType({2: 201, 3: 51, 4: 21})
 """Points per axis of the shared evaluation grid, by dimension (3D, 4D provisional)."""
 
