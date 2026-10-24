@@ -628,13 +628,13 @@ They are transcribed, checked against rendered images of pp. 118-120, in `bfo201
 Y. Chen, J. W. L. Wan, J. Lin, "Monotone mixed finite difference scheme for Monge-Ampere equation", J. Sci. Comput. 76 (2018) 1839-1867, DOI 10.1007/s10915-018-0685-y.
 Read: local journal PDF (Zotero attachments 3XWEWWT6, 9WII8MMM; the survey calls the paper "Chen-Wan-Wang 2018").
 
-The HJB form, each control on the standard 7-point stencil where it is monotone and on the semi-Lagrangian wide stencil elsewhere, solved by policy iteration; grid `h = 1/N`.
+The HJB form, each control on the standard 7-point stencil where it is monotone and on the semi-Lagrangian wide stencil elsewhere, solved by policy iteration; grid: `N` cells per side (ADR 0001), so `h = 1/N` except on Table 1's `[-1, 1]^2`, where `h = 2/N` (Finding 1 there).
 Tables 1 to 4 print the L2 and max errors, their orders and the policy iterations against `N`, for the mixed scheme and, in Tables 1 to 3, the pure semi-Lagrangian scheme: Table 1 on T1 moved to `[-1, 1]^2`, Table 2 on T2, Table 3 on T20c, Table 4 on the cone T21; Table 5 prints `u_h(0, 0)` for `f = 1`, `g = 0` on `(-0.5, 0.5)^2`, monotone against non-monotone.
 They are transcribed, checked against the PDF's page images, in `chen_wan_lin2018.md`, next to our values.
 
 ## What a reproduction must match
 
-The only published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper.
+For the standard 9-point, 17-point monotone and hybrid schemes, the published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper; sections 5, 6 and 9 add the tables of other schemes on T1 and T2.
 They report the max norm of u minus the exact solution at the grid points, on an N x N grid with N in {31, 45, 63, 89, 127, 181, 255, 361} (SIAM uses the subset 31, 63, 127, 255, 361).
 For the standard 9-point scheme, solved to its fixed point by Gauss-Seidel, Poisson or any other convergent iteration, the targets are:
 for (a), from 7.14 x 10^-5 at N = 31 down to 0.05 x 10^-5 at N = 361, order O(h^2);
