@@ -42,7 +42,7 @@ from typing import ClassVar
 import numpy as np
 import scipy.sparse as sp
 from scipy.interpolate import LinearNDInterpolator
-from scipy.spatial import Delaunay
+from scipy.spatial import ConvexHull, Delaunay
 
 from maesolvers.classical._linear import solve_m_matrix
 from maesolvers.classical.schemes import (
@@ -310,8 +310,7 @@ class SemiLagrangianGrid:
         The grid spacing ``(hx, hy)``.
     nodes
         Shape ``(m + b, 2)``, from :meth:`SemiLagrangian.place_nodes`: by
-        default the ``m`` nodes with unknowns, then the ``b`` boundary
-        points.
+        default the grid nodes in the open domain, then the boundary points.
     interior
         Shape ``(m + b,)``, boolean: True at the ``m`` nodes with unknowns.
     f
@@ -441,10 +440,17 @@ class SemiLagrangian(Scheme):
         """Place the nodes and mark those that carry unknowns.
 
         By default the nodes of
-        :func:`~maesolvers.classical.schemes.shortley_weller_nodes`. A
-        subclass that overrides it changes the nodes and keeps the rest of
-        the scheme. The stencil size still uses the spacing of the grid
-        of ``n`` cells per side over ``domain.bbox``.
+        :func:`~maesolvers.classical.schemes.shortley_weller_nodes`, but a
+        grid node closer than ``1e-3 h`` (``h`` the larger spacing) to the
+        boundary of the convex hull of all nodes carries the Dirichlet data
+        at its position instead of an unknown (:func:`clear_of_hull`): its
+        stencil, cut to that distance, would have second differences of
+        order ``1 / k^2`` that rounding swamps. On a curved boundary a grid
+        node can come arbitrarily close to the hull: on T6 at ``n = 100``
+        one lies ``3.6e-6 h`` from it. A subclass that overrides this method
+        changes the nodes and keeps the rest of the scheme. The stencil
+        size still uses the spacing of the grid of ``n`` cells per side over
+        ``domain.bbox``.
 
         Parameters
         ----------
@@ -461,7 +467,9 @@ class SemiLagrangian(Scheme):
             the unknowns must lie strictly inside their convex hull, or
             :meth:`discretize` raises ``ValueError``.
         """
-        return shortley_weller_nodes(domain, self.n)
+        nodes, interior = shortley_weller_nodes(domain, self.n)
+        floor = _MIN_REACH * max(_spacing(domain, self.n))
+        return nodes, clear_of_hull(nodes, interior, floor)
 
     def discretize(self, problem: Problem) -> SemiLagrangianGrid:
         """Place the nodes, triangulate them and build the second differences.
@@ -480,9 +488,10 @@ class SemiLagrangian(Scheme):
         UnsupportedProblemError
             If :meth:`supports` is False.
         ValueError
-            If :meth:`place_nodes` marks an unknown on the boundary of the
-            convex hull of the nodes (within ``1e-9`` times their extent), or
-            if ``f`` is negative or not finite at an unknown.
+            If an override of :meth:`place_nodes` marks an unknown on the
+            boundary of the convex hull of the nodes (within ``1e-9`` times
+            their extent; the default nodes keep ``1e-3 h`` from it), or if
+            ``f`` is negative or not finite at an unknown.
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
@@ -492,23 +501,20 @@ class SemiLagrangian(Scheme):
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         nodes, interior = self.place_nodes(problem.domain)
-        box = problem.domain.bbox
-        h = (
-            (box.hi[0] - box.lo[0]) / self.n,
-            (box.hi[1] - box.lo[1]) / self.n,
-        )
+        h = _spacing(problem.domain, self.n)
         tri = Delaunay(nodes)
         unknown = np.flatnonzero(interior)
-        inside = _hull_distance(tri, nodes[unknown])
+        inside = _hull_distance(tri.points, tri.convex_hull, nodes[unknown])
         # A node on the hull has distance 0 up to rounding; a stencil of that
-        # size has no second difference.
+        # size has no second difference. The default nodes keep _MIN_REACH h
+        # from the hull, so only an override of place_nodes gets here.
         on_hull = ~(inside > _ROUNDING * np.max(np.ptp(nodes, axis=0)))
         if np.any(on_hull):
             raise ValueError(
-                f"{type(self).__name__}.place_nodes marks "
-                f"{np.count_nonzero(on_hull)} unknowns on the boundary of the "
-                f"triangulation of {problem.name}; it must mark only nodes "
-                "strictly inside the convex hull of all nodes"
+                f"{np.count_nonzero(on_hull)} of the unknowns that "
+                f"{type(self).__name__}.place_nodes marks on {problem.name} lie "
+                "on the boundary of the convex hull of all nodes, where the "
+                "stencil has no room; an unknown must lie strictly inside it"
             )
         reach = np.minimum(self.stencil_factor * max(h), inside)
         f = problem.f(nodes[unknown])
@@ -697,6 +703,59 @@ class SemiLagrangian(Scheme):
         )
 
 
+def clear_of_hull(nodes: np.ndarray, interior: np.ndarray, floor: float) -> np.ndarray:
+    """Unmark the unknowns closer than ``floor`` to the hull of all nodes.
+
+    The stencil of an unknown is cut to its distance from the boundary of
+    the convex hull of the nodes, so an unknown very close to it has second
+    differences of order ``1 / distance^2``, which rounding swamps. Such a
+    node carries the Dirichlet data at its position instead, as
+    :func:`~maesolvers.classical.schemes.shortley_weller_nodes` does with a
+    grid node within ``1e-6`` steps of the boundary along a grid line.
+
+    Parameters
+    ----------
+    nodes
+        Shape ``(N, 2)``, all the nodes.
+    interior
+        Shape ``(N,)``, boolean: True at the nodes that carry unknowns.
+    floor
+        The least distance, nonnegative, from an unknown to the boundary of
+        the convex hull of ``nodes``.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``interior``, False at the unknowns closer than ``floor``; a copy
+        if any changes.
+
+    Raises
+    ------
+    ValueError
+        If no unknown is left.
+    """
+    unknown = np.flatnonzero(interior)
+    close = _hull_distance(nodes, ConvexHull(nodes).simplices, nodes[unknown]) < floor
+    if not np.any(close):
+        return interior
+    if np.all(close):
+        raise ValueError(f"no unknown lies {floor} or farther from the hull")
+    interior = interior.copy()
+    interior[unknown[close]] = False
+    return interior
+
+
+_MIN_REACH = 1e-3
+"""The least distance, in steps of the larger grid spacing, from an unknown of
+the default nodes to the boundary of their convex hull (:func:`clear_of_hull`)."""
+
+
+def _spacing(domain: Domain, n: int) -> tuple[float, float]:
+    """Return the spacing ``(hx, hy)`` of ``n`` cells per side over the bbox."""
+    box = domain.bbox
+    return ((box.hi[0] - box.lo[0]) / n, (box.hi[1] - box.lo[1]) / n)
+
+
 def _frames(d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Split ``(D, m)`` second differences into the frames' two directions."""
     half = d.shape[0] // 2
@@ -707,21 +766,23 @@ _PAIRS_PER_BLOCK = 2**22
 """Point-edge pairs per block of :func:`_hull_distance`: some 32 MB of temporaries."""
 
 
-def _hull_distance(tri: Delaunay, points: np.ndarray) -> np.ndarray:
-    """Distance from each point inside the triangulation's convex hull to its boundary.
+def _hull_distance(
+    nodes: np.ndarray, hull: np.ndarray, points: np.ndarray
+) -> np.ndarray:
+    """Distance from each point inside the convex hull of ``nodes`` to its boundary.
 
-    Inside a convex polygon the nearest boundary point lies on the line of
-    the nearest edge, so the distance is the least distance to the lines of
-    the hull's edges. The points go through in blocks, so memory stays
-    bounded however many there are.
+    ``hull`` holds the hull's edges, pairs of indices into ``nodes``. Inside
+    a convex polygon the nearest boundary point lies on the line of the
+    nearest edge, so the distance is the least distance to the lines of the
+    hull's edges. The points go through in blocks, so memory stays bounded
+    however many there are.
     """
-    hull = tri.convex_hull
-    a, b = tri.points[hull[:, 0]], tri.points[hull[:, 1]]
+    a, b = nodes[hull[:, 0]], nodes[hull[:, 1]]
     normal = np.stack([b[:, 1] - a[:, 1], a[:, 0] - b[:, 0]], axis=-1)
     normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
     offset = np.sum(normal * a, axis=-1)
     # Orient every normal outwards: the mean of the nodes lies inside.
-    outward = np.where(normal @ tri.points.mean(axis=0) < offset, 1.0, -1.0)
+    outward = np.where(normal @ nodes.mean(axis=0) < offset, 1.0, -1.0)
     normal, offset = normal * outward[:, None], offset * outward
     distance = np.empty(len(points))
     size = max(1, _PAIRS_PER_BLOCK // len(offset))

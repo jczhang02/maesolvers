@@ -14,6 +14,7 @@ from scipy.spatial import Delaunay
 from maesolvers import (
     SOLVERS,
     T1,
+    T6,
     T8,
     T9,
     T12,
@@ -34,8 +35,10 @@ from maesolvers import (
     from_config,
 )
 from maesolvers.classical import _linear
+from maesolvers.classical.schemes import shortley_weller_nodes
 from maesolvers.classical.semilagrangian import (
     _hull_distance,
+    clear_of_hull,
     fit_hessian,
     frame_values,
     frame_weights,
@@ -222,7 +225,9 @@ def test_the_hull_distance_is_the_distance_to_the_nearest_hull_edge(problem):
     s = np.clip(np.sum((p - a) * (b - a), -1) / np.sum((b - a) ** 2, -1), 0, 1)
     nearest = a + s[..., None] * (b - a)
     brute = np.min(np.linalg.norm(p - nearest, axis=-1), axis=1)
-    np.testing.assert_allclose(_hull_distance(tri, unknowns), brute, atol=1e-14)
+    np.testing.assert_allclose(
+        _hull_distance(tri.points, tri.convex_hull, unknowns), brute, atol=1e-14
+    )
 
 
 @pytest.mark.parametrize("problem", [QUADRATIC, T1, T39, T8])
@@ -286,9 +291,47 @@ def test_an_unknown_on_the_hull_is_an_error_naming_the_count_and_the_problem(pro
             return nodes, interior
 
     with pytest.raises(
-        ValueError, match=rf"OnHull\.place_nodes marks 1 .*{problem.name}"
+        ValueError,
+        match=rf"1 of the unknowns that OnHull\.place_nodes marks on {problem.name}",
     ):
         OnHull(n=8).discretize(problem)
+
+
+def test_clear_of_hull_unmarks_the_unknowns_closer_than_the_floor():
+    corners = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    nodes = np.array([*corners, [0.5, 0.5], [0.5, 1e-12], [0.25, 0.75]])
+    interior = np.array([False] * 4 + [True] * 3)
+    cleared = clear_of_hull(nodes, interior, 1e-3)
+    np.testing.assert_array_equal(cleared, [False] * 4 + [True, False, True])
+    assert interior[5]  # the input is not changed
+    assert clear_of_hull(nodes, interior, 0.0) is interior
+    with pytest.raises(ValueError, match="no unknown"):
+        clear_of_hull(nodes, interior, 0.6)
+
+
+@pytest.mark.parametrize("n", [44, 100])
+def test_t6_grid_nodes_next_to_the_hull_carry_the_data(n):
+    """On CutQuarterDisk the x spacing is irrational, and at n = 44 and 100 a
+    grid node lies within 1e-5 h of the hull; it carries the data, so every
+    stencil is at least 1e-3 h."""
+    grid_nodes, grid_interior = shortley_weller_nodes(T6.domain, n)
+    nodes, interior = SemiLagrangian(n=n).place_nodes(T6.domain)
+    np.testing.assert_array_equal(nodes, grid_nodes)
+    assert np.count_nonzero(grid_interior & ~interior) == 1
+    assert not np.any(interior & ~grid_interior)
+    grid = SemiLagrangian(n=n, directions=4).discretize(T6)
+    assert np.min(grid.reach) >= 1e-3 * max(grid.h)
+
+
+def test_t6_at_n_100_has_no_stencil_that_rounding_swamps():
+    """Before the floor, a stencil of 3.6e-6 h here left a residual of 1.8e-4
+    and a fitted Hessian with eigmin -1.4e4, against 4.2e-7 and -1.6 at
+    n = 99; with it, 8.1e-8 and -4.4."""
+    result = FDSemiLagrangian(n=100).solve(T6)
+    assert result.info["converged"]
+    assert result.info["min_reach"] >= 1e-3
+    assert result.info["residual_max"] < 1e-6
+    assert evaluate(result)["eigmin"] > -10.0
 
 
 def test_second_differences_of_a_quadratic_are_accurate_where_the_stencil_is_full():
