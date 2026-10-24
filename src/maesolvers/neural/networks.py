@@ -505,8 +505,8 @@ class QuadraticForm(Network):
     The network supports a problem when ``x0`` lies inside its domain and
     ``f(x0)`` is positive and finite (:meth:`refusal` says which fails):
     the form gives ``det D^2 u(x0) = 2^d det(A^T A) > 0``, so it cannot
-    meet ``f(x0) = 0`` (T4 and T20 at the centre of their box, where ``f``
-    vanishes on a disk); a ``reference`` elsewhere can.
+    meet ``f(x0) = 0`` (T4, T20 and T20c at the centre of their box, where
+    ``f`` vanishes on a disk); a ``reference`` elsewhere can.
 
     Parameters
     ----------

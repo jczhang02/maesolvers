@@ -7,6 +7,7 @@ in test_icnn.py.
 """
 
 import json
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
@@ -24,8 +25,10 @@ from maesolvers import (  # noqa: E402
     T9,
     T12,
     T20,
+    T39,
     Adam,
     Box,
+    CutQuarterDisk,
     Dirichlet,
     DirichletICNN,
     DirichletQSPINN,
@@ -36,6 +39,7 @@ from maesolvers import (  # noqa: E402
     Problem,
     QuadraticForm,
     Switch,
+    T20c,
     TransportICNN,
     TransportQSPINN,
     TransportSampler,
@@ -240,6 +244,7 @@ def _f_at_the_centre(value):
         (QuadraticForm(), T8, None),
         (QuadraticForm(), T20, "f(x0) <= 0"),  # f = 0 on a disk around (1/2, 1/2)
         (QuadraticForm(), T4, "f(x0) <= 0"),
+        (QuadraticForm(), T20c, "f(x0) <= 0"),  # f = 0 on a disk around (0, 0)
         (QuadraticForm(), _f_at_the_centre(-1.0), "f(x0) <= 0"),
         (QuadraticForm(), _f_at_the_centre(np.inf), "f(x0) not finite"),
         (QuadraticForm(), _f_at_the_centre(np.nan), "f(x0) not finite"),
@@ -374,7 +379,8 @@ def test_support_of_the_presets():
     dirichlet, transport = DirichletQSPINN(), TransportQSPINN()
     assert dirichlet.supports(T8) and dirichlet.supports(T9)
     assert not dirichlet.supports(T12) and not dirichlet.supports(T20)
-    assert not dirichlet.supports(T4)
+    assert not dirichlet.supports(T4) and not dirichlet.supports(T20c)
+    assert DirichletQSPINN(reference=(0.1, 0.1)).supports(T20c)
     assert transport.supports(T12) and not transport.supports(T8)
     with pytest.raises(UnsupportedProblemError, match=r"Transport boundary$"):
         dirichlet.solve(T12)  # not the reference point: the message is the usual one
@@ -382,7 +388,7 @@ def test_support_of_the_presets():
 
 @pytest.mark.parametrize("problem", [T4, T20])
 def test_the_presets_name_the_reference_point_when_it_fails(problem):
-    message = r"reference point x0 = \(0.5, 0.5\), f\(x0\) <= 0; pass reference="
+    message = r"reference point x0 = \(0.5, 0.5\): f\(x0\) <= 0 \(reference= sets x0\)$"
     with pytest.raises(UnsupportedProblemError, match=message):
         DirichletQSPINN().solve(problem)
     moved = DirichletQSPINN(reference=(0.1, 0.1))
@@ -390,9 +396,49 @@ def test_the_presets_name_the_reference_point_when_it_fails(problem):
     assert moved.reference == (0.1, 0.1) and moved.supports(problem)
 
 
+@pytest.mark.parametrize("reference", [None, (0.5, 0.5)])
+def test_the_reference_is_named_only_when_the_qs_form_refuses(reference):
+    # the sampler refuses T39's DiskUnionSquare (#74) wherever x0 is; the
+    # QS form refuses it too only at the default x0 = (0, 0), where f = 0
+    solver = DirichletQSPINN(reference=reference)
+    refused = solver.network.refusal(T39) is not None
+    assert refused == (reference is None)
+    with pytest.raises(UnsupportedProblemError) as error:
+        solver.check(T39)
+    assert ("reference point" in str(error.value)) == refused
+
+
+def test_the_reference_is_a_fact_not_a_fix_when_a_subclass_narrows_support():
+    @dataclass(frozen=True, kw_only=True)
+    class Only3D(DirichletQSPINN):
+        def supports(self, problem):
+            return problem.dim == 3 and super().supports(problem)
+
+    with pytest.raises(UnsupportedProblemError) as error:
+        Only3D().check(T4)
+    message = str(error.value)
+    assert message.startswith("Only3D does not support T4")
+    assert "x0 = (0.5, 0.5): f(x0) <= 0" in message
+    assert "pass reference=" not in message
+
+
 def test_the_transport_preset_names_the_reference_point_when_it_fails():
     with pytest.raises(UnsupportedProblemError, match="x0 outside"):
         TransportQSPINN(reference=(2.0, 0.0)).solve(T12)
+
+
+@pytest.mark.parametrize("reference", [(5.0, 5.0), None])
+def test_the_transport_preset_refuses_domains_whose_mass_it_cannot_compute(reference):
+    # the parts take a CutQuarterDisk, but the preset cannot compute its mass;
+    # the QS form adds its reason only where x0 lies outside the domain
+    problem = Problem(
+        "cut", CutQuarterDisk(), lambda x: 1.0 + 0.0 * x[..., 0], T12.boundary
+    )
+    solver = TransportQSPINN(reference=reference)
+    assert solver.loss.supports(problem) and solver.sampler.supports(problem)
+    with pytest.raises(UnsupportedProblemError) as error:
+        solver.solve(problem)
+    assert ("x0 outside" in str(error.value)) == (reference is not None)
 
 
 def test_the_transport_preset_checks_the_mass():

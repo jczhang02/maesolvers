@@ -397,13 +397,15 @@ class TransportICNN(_TransportPreset):
 def _check_naming_the_reference(
     network: Network, check: Callable[[Problem], None], problem: Problem
 ) -> None:
-    """Run ``check``; if it refuses the problem for the QS form's reference point, say so.
+    """Run ``check``; if the QS form refuses the problem, add why to the message.
 
     The message of :meth:`~maesolvers.core.solver.Solver.check` names the
-    domain and the boundary condition; when the reason is the reference
-    point (:meth:`QuadraticForm.refusal
-    <maesolvers.neural.networks.QuadraticForm.refusal>`), it is added, with
-    the parameter that moves the point.
+    domain and the boundary condition. When the network refuses the problem
+    for its reference point (:meth:`QuadraticForm.refusal
+    <maesolvers.neural.networks.QuadraticForm.refusal>`), the reason and
+    ``x0`` are added as a fact, with no claim that another point would do:
+    another part, or a subclass that narrows ``supports``, may refuse the
+    problem as well.
     """
     try:
         check(problem)
@@ -414,8 +416,8 @@ def _check_naming_the_reference(
             raise
         x0 = tuple(float(v) for v in network.point(problem))
         raise UnsupportedProblemError(
-            f"{error}: at the reference point x0 = {x0}, {reason}; "
-            "pass reference= a point inside the domain where f > 0"
+            f"{error}; the QS form refuses it at the reference point x0 = {x0}: "
+            f"{reason} (reference= sets x0)"
         ) from None
 
 
@@ -445,8 +447,8 @@ class DirichletQSPINN(NeuralSolver):
     samples its boundary, with ``x0`` inside the domain and ``f(x0) > 0``
     (:meth:`QuadraticForm.supports
     <maesolvers.neural.networks.QuadraticForm.supports>`). With the default
-    reference it refuses T4 and T20, whose ``f`` vanishes on a disk around
-    the centre of their box, and :meth:`check` says so;
+    reference it refuses T4, T20 and T20c, whose ``f`` vanishes on a disk
+    around the centre of their box, and :meth:`check` says so;
     ``reference=(0.1, 0.1)`` takes them. The training runs on the CPU
     unless ``accelerator`` says otherwise.
 
@@ -532,8 +534,8 @@ class DirichletQSPINN(NeuralSolver):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reason is the reference
-            point, the message says so.
+            If :meth:`supports` is False; when the QS form refuses the
+            problem at its reference point, the message says why.
         ImportError
             Without torch or lightning.
         """
@@ -662,8 +664,8 @@ class TransportQSPINN(_TransportPreset):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reason is the reference
-            point, the message says so.
+            If :meth:`supports` is False; when the QS form refuses the
+            problem at its reference point, the message says why.
         ValueError
             If the source mass differs from the target's volume
             (:meth:`_TransportPreset.check`).

@@ -6,6 +6,7 @@ is the reproduction's business (benchmarks/penalty_mlp.md).
 """
 
 import itertools
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,6 +44,16 @@ from maesolvers.neural import functional as F  # noqa: E402
 pytestmark = pytest.mark.neural
 
 SMALL = {"interior_points": 60, "boundary_points": 24, "accelerator": "cpu"}
+
+
+def test_a_cpu_solve_on_a_gpu_host_does_not_advise_the_gpu(monkeypatch):
+    from lightning.pytorch.accelerators import CUDAAccelerator
+
+    monkeypatch.setattr(CUDAAccelerator, "is_available", staticmethod(lambda: True))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        PenaltyMLP(max_steps=2, **SMALL).solve(T1)
+    assert not [w for w in caught if "GPU available" in str(w.message)]
 
 
 class Recorder(Callback):

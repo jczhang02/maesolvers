@@ -328,7 +328,7 @@ A scheme in HJB form, a maximum over policies of linear operators, runs under `P
 
 ### Grids in any dimension
 
-`Standard9`, `Hybrid`, `Filtered` and `MixedHJB` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
+`Standard9`, `Hybrid`, `Filtered`, `MixedHJB`, `SemiLagrangian` and `SecondBoundary` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
 `StandardBox`, the standard scheme on a box, runs in 2D and 3D under `Newton` and `Multigrid` (`docs/methods/multigrid.md`); a scheme of your own on a box runs under `Multigrid` if it has a field `n` and provides `values` (the node values with its boundary data on the ring) and `relax` (the pointwise Gauss-Seidel solve) besides `residual`.
 `BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
 
@@ -454,7 +454,7 @@ assert all(
 )
 ```
 
-`QuadraticForm(reference=(0.1, 0.1))`, or `DirichletQSPINN(reference=(0.1, 0.1))`, puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `x0` inside the domain and `f(x0) > 0`, so with the default it refuses T4 and T20, whose `f` vanishes around the centre.
+`QuadraticForm(reference=(0.1, 0.1))`, or `DirichletQSPINN(reference=(0.1, 0.1))`, puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `x0` inside the domain and `f(x0) > 0`, so with the default it refuses T4, T20 and T20c, whose `f` vanishes around the centre.
 `ICNN(alpha=0.25)` is the input convex network plus `0.25 |x|^2 / 2`, whose Hessian is at least `0.25 I`.
 
 The collocation points are drawn from the seed by the sampler, so every solver with an equal sampler and the same seed trains on the same points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
