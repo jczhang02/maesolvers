@@ -89,18 +89,6 @@ oscillation ``max u - min u`` of the exact solution on the shared evaluation
 grid, which a constant added to ``u`` does not change."""
 
 
-PLANNED = {
-    "2D only": "n-dimensional boxes",
-}
-"""The unsupported reasons that the roadmap's 0.2 still removes for the
-finite-difference presets, by the feature that removes them (README, Roadmap;
-the scope of issue #14). Transport boundary conditions came to them as one
-preset of its own, ``FDTransport``, so the other presets keep ``Dirichlet
-only``. The neural presets keep their reasons: 0.2 plans no neural transport
-preset, and ``PenaltyMLP`` stays 2D only, as its penalty makes the network
-convex only in 2D."""
-
-
 def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
     """Those of ``options`` that the constructor of the preset ``name`` takes.
 
@@ -351,11 +339,6 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
             problems = reasons.setdefault(rows[0]["reason"], [])
             if problem not in problems:
                 problems.append(problem)
-    planned = [
-        f"{PLANNED[reason]} ({_listing(problems)})"
-        for reason, problems in reasons.items()
-        if reason in PLANNED
-    ]
     return [
         "A classical cell is one run on the grid `n` in parentheses, the largest "
         "`N` of the papers, with "
@@ -374,11 +357,7 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
         "A cell with a reason marks a preset that does not support the problem: "
         + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
         + ".",
-    ] + (
-        [f"The roadmap's 0.2 gives the finite-difference presets {_listing(planned)}."]
-        if planned
-        else []
-    )
+    ]
 
 
 def replace_block(text: str, block: str) -> str:

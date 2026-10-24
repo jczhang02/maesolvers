@@ -272,11 +272,7 @@ def test_notes_derive_from_the_rows():
     assert notes[4].endswith(
         ": `r` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10."
     )
-    assert notes[5] == (
-        "The roadmap's 0.2 gives the finite-difference presets n-dimensional boxes "
-        "(T9 and T10)."
-    )
-    assert len(comparison.notes(comparison.group(map(_machine, rows[:-4])))) == 5
+    assert len(notes) == 5
 
 
 def test_notes_need_one_machine():
