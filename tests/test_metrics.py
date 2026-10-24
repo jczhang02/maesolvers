@@ -19,7 +19,14 @@ from maesolvers.metrics import (
 def test_the_module_exports_the_protocol_and_its_helpers_only():
     import maesolvers.metrics
 
-    assert set(maesolvers.metrics.__all__) == {
+    defined = {
+        name
+        for name, value in vars(maesolvers.metrics).items()
+        if not name.startswith("_")
+        and getattr(value, "__module__", None) == "maesolvers.metrics"
+    }
+    assert set(maesolvers.metrics.__all__) == defined | {"SHARED_GRID_SIZE"}
+    assert set(maesolvers.metrics.__all__) == {  # the surface of ADR 0007 and #25
         "SHARED_GRID_SIZE",
         "Summary",
         "evaluate",
