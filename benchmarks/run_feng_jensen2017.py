@@ -31,10 +31,12 @@ the best k, end to end as the paper takes them and by least squares.
 
 The sweep (``sweep``) leaves out the solves in EXCLUDED: T40 at n = 1280,
 m = 2, and T40 turned at n = 1280, m = 2 and 4. At these narrow stencils on
-the finest grid Howard's Krylov solves need millions of steps before the LU
-fallback (T40 turned at m = 2 ran for more than 13 hours unfinished), and
-none of them can be the best m at its level (feng_jensen2017.md, Receipt),
-so ``--levels 8`` ends and writes the receipt's 141 rows.
+the finest grid Howard's Krylov solves take thousands of steps, and their
+budget of 10 N steps keeps the LU fallback out of reach (#72): a run at
+dde1578 took 2.5 hours for T40 at m = 2 and 3.6 hours for T40 turned at
+m = 4, and T40 turned at m = 2 was still running after 13 hours. None of
+them can be the best m at its level (feng_jensen2017.md, Receipt), so
+``--levels 8`` ends and writes the receipt's 141 rows.
 
 Every solve is one MLflow run in maesolvers-feng_jensen2017-<problem>
 unless --no-mlflow is given. The solves run in --processes worker processes
