@@ -45,7 +45,7 @@ def solve_m_matrix(matrix: sp.spmatrix, rhs: np.ndarray) -> np.ndarray:
         The solution.
     """
     matrix = sp.csr_matrix(matrix)
-    scale = 1.0 / matrix.diagonal()
+    scale = 1.0 / np.asarray(matrix.diagonal(), dtype=float)
     scaled, b = sp.csr_matrix(sp.diags(scale) @ matrix), scale * rhs
     target = _ACCEPT * np.linalg.norm(b)
     budget = 10 * len(b)
