@@ -147,14 +147,14 @@ The cycling is not confined to fine grids or small residuals: on Table 5's probl
 Level for Table 2: a mismatch (ADR 0002 level 5), since the paper's method from the paper's start misses `N = 256` and 512 by 10 to 65 times.
 The agreement at `N = 32` to 128, and the exact 7-point root from the exact solution, which is not the paper's start, are the evidence for this finding, not a reproduction.
 
-## Finding 6: on Table 5 the published values are roots of the monotone maximum, not of the default rule at `N = 256`
+## Finding 6: on Table 5 the published values are roots of the monotone maximum; the default rule finds none at `N = 256`
 
 `wide_search="everywhere"`, the maximum over all controls of Section 5.2, converges at every `N` of Table 5 in 8 to 26 policy iterations to residuals below `1e-6`, and its `u_h(0, 0)` is the published value at `N = 256` and 512 and within `1.0e-4` at the coarser grids (the "everywhere" rows of `chen_wan_lin2018_table5.csv`).
 At `N = 32`, 64, 128 and 512 the default rule reaches the same `u_h(0, 0)` to 6 digits; at `N = 256` it cycles from the paper's start (Table 5 above).
 The default rule started from the converged root of the maximum at `N = 256` (row `everywhere start` of `chen_wan_lin2018_cycling.csv`) measures a residual of `4.66e-2` there, so that root is not a root of the default scheme: at some nodes the default skips the wide-stencil search that the maximum takes.
 From there policy iteration cycles again, between residuals of `7.34e-2` and `2.04e-2`, and stops after 100 steps with `u_h(0, 0) = -0.184855`, which prints the published value.
 So the failure at `N = 256` is not only the path from the paper's start, as on T2 (Finding 5): from both starts the default rule finds no root, and whether its scheme has one at `N = 256` is open.
-The "everywhere" column is evidence that the published `u_h(0, 0)` is the root of the monotone maximum at every `N`, not a reproduction: Tables 2 and 4 rule that rule out for the paper's tables (Finding 2), and choosing it for Table 5 alone would choose the rule per table; the level of Table 5's mixed column stays a mismatch.
+The "everywhere" column is evidence that the published `u_h(0, 0)` is the root of the monotone maximum at every `N`, not a reproduction: Tables 2 and 4 exclude that rule for the paper's tables (Finding 2), and choosing it for Table 5 alone would choose the rule per table; the level of Table 5's mixed column stays a mismatch.
 
 ## Finding 7: on T4 the default rule cycles from `n = 48` on
 
@@ -171,7 +171,7 @@ The catalogue's T4, `f` equal to 1 outside a disk and 0 inside (Benamou-Froese-O
 
 From `n = 48` on the default rule stops after 100 policy iterations with a residual of 1.5 to 7.9, against residuals near `0.07` to `0.09` where it cycles on Table 5 and T2; its last iterate's max error lies within 5% of the root of the maximum, but it is not a root, and its smallest Hessian eigenvalue at `n = 64` is `-7.9` against `-1.7`.
 `wide_search="everywhere"` converges at every `n` in 6 to 13 policy iterations.
-Which steps the cycle takes depends on the rounding of the sparse LU: on a laptop at the PR head the default converged at `n = 48` in 19 steps and stopped at `n = 64` with a residual of `5.35`, against `7.89` on a100server; from `n = 64` on it cycles on both.
+Which steps the cycle takes depends on the rounding of the sparse LU: a local run at the PR head (review round 3, not logged) converged at `n = 48` and stopped unconverged at `n = 64` with another residual; from `n = 64` on both runs cycle.
 `tests/test_mixed.py` (`test_policy_iteration_cycles_on_t4_under_the_default_rule_only`) asserts the pattern at `n = 64`: the default unconverged after 100 steps with a residual above 1, the maximum converged in fewer than 20.
 The comparison set (T1, T2, T20) does not include T4, so the comparison table does not show this.
 

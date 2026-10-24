@@ -38,7 +38,7 @@ it without the wide-stencil search; its tables match only this rule
 (``benchmarks/chen_wan_lin2018.md``, Finding 2). The rule makes the set of
 competing controls depend on ``u``, so the scheme is no longer a maximum of
 monotone operators: it can have a second root, and policy iteration can
-cycle (Finding 5).
+cycle (Findings 5 to 7).
 :class:`MixedHJB` composes these into a
 :class:`~maesolvers.classical.schemes.Scheme` that
 :class:`~maesolvers.classical.iterations.PolicyIteration` (Howard's
