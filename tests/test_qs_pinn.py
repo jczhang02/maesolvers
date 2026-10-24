@@ -27,6 +27,7 @@ from maesolvers import (  # noqa: E402
     T39,
     Adam,
     Box,
+    CutQuarterDisk,
     Dirichlet,
     DirichletICNN,
     DirichletQSPINN,
@@ -408,6 +409,17 @@ def test_no_reference_hint_when_another_part_refuses(reference):
 def test_the_transport_preset_names_the_reference_point_when_it_fails():
     with pytest.raises(UnsupportedProblemError, match="x0 outside"):
         TransportQSPINN(reference=(2.0, 0.0)).solve(T12)
+
+
+@pytest.mark.parametrize("reference", [(5.0, 5.0), None])
+def test_the_transport_preset_does_not_blame_the_reference_for_its_domains(reference):
+    # the parts take a CutQuarterDisk, but the preset cannot compute its mass
+    problem = Problem(
+        "cut", CutQuarterDisk(), lambda x: 1.0 + 0.0 * x[..., 0], T12.boundary
+    )
+    with pytest.raises(UnsupportedProblemError) as error:
+        TransportQSPINN(reference=reference).solve(problem)
+    assert "reference" not in str(error.value)
 
 
 def test_the_transport_preset_checks_the_mass():
