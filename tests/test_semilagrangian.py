@@ -273,6 +273,24 @@ def test_a_subclass_places_other_nodes_and_keeps_the_scheme():
     assert np.max(np.abs(result.values - _quadratic(result.nodes))) < 0.02
 
 
+@pytest.mark.parametrize("problem", [T1, T8])
+def test_an_unknown_on_the_hull_is_an_error_naming_the_count_and_the_problem(problem):
+    @dataclasses.dataclass(frozen=True, kw_only=True)
+    class OnHull(SemiLagrangian):
+        """The default nodes, with one boundary node marked as an unknown."""
+
+        def place_nodes(self, domain):
+            nodes, interior = super().place_nodes(domain)
+            interior = interior.copy()
+            interior[np.flatnonzero(~interior)[1]] = True
+            return nodes, interior
+
+    with pytest.raises(
+        ValueError, match=rf"OnHull\.place_nodes marks 1 .*{problem.name}"
+    ):
+        OnHull(n=8).discretize(problem)
+
+
 def test_second_differences_of_a_quadratic_are_accurate_where_the_stencil_is_full():
     scheme = SemiLagrangian(n=32, stencil_factor=4.0)
     grid = scheme.discretize(QUADRATIC)

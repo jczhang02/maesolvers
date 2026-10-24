@@ -457,7 +457,9 @@ class SemiLagrangian(Scheme):
             ``nodes``, shape ``(N, 2)``, and ``interior``, shape ``(N,)``,
             True at the nodes that carry unknowns; the others carry the
             Dirichlet data. The nodes must span the domain, since the
-            triangulation of all of them is where the stencil ends go.
+            triangulation of all of them is where the stencil ends go, and
+            the unknowns must lie strictly inside their convex hull, or
+            :meth:`discretize` raises ``ValueError``.
         """
         return shortley_weller_nodes(domain, self.n)
 
@@ -478,7 +480,9 @@ class SemiLagrangian(Scheme):
         UnsupportedProblemError
             If :meth:`supports` is False.
         ValueError
-            If ``f`` is negative or not finite at an unknown.
+            If :meth:`place_nodes` marks an unknown on the boundary of the
+            convex hull of the nodes (within ``1e-9`` times their extent), or
+            if ``f`` is negative or not finite at an unknown.
         """
         if not self.supports(problem):
             raise UnsupportedProblemError(
@@ -495,9 +499,18 @@ class SemiLagrangian(Scheme):
         )
         tri = Delaunay(nodes)
         unknown = np.flatnonzero(interior)
-        reach = np.minimum(
-            self.stencil_factor * max(h), _hull_distance(tri, nodes[unknown])
-        )
+        inside = _hull_distance(tri, nodes[unknown])
+        # A node on the hull has distance 0 up to rounding; a stencil of that
+        # size has no second difference.
+        on_hull = ~(inside > _ROUNDING * np.max(np.ptp(nodes, axis=0)))
+        if np.any(on_hull):
+            raise ValueError(
+                f"{type(self).__name__}.place_nodes marks "
+                f"{np.count_nonzero(on_hull)} unknowns on the boundary of the "
+                f"triangulation of {problem.name}; it must mark only nodes "
+                "strictly inside the convex hull of all nodes"
+            )
+        reach = np.minimum(self.stencil_factor * max(h), inside)
         f = problem.f(nodes[unknown])
         if not np.all(np.isfinite(f)) or np.any(f < 0):
             raise ValueError(

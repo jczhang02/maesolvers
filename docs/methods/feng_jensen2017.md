@@ -60,7 +60,7 @@ and at a root `d1 d2 >= f`, `d1 >= 0`, `d2 >= 0` in every frame: the discrete so
 
 The paper works on a quasi-uniform unstructured triangulation.
 `SemiLagrangian` uses the nodes of the finite-difference family instead: a uniform grid with `n` cells per side over the domain's bounding box (`h = 1/n` on the unit square, ADR 0001), the grid nodes in the open domain carrying the unknowns, and as boundary points the grid nodes on the boundary and the points where grid lines and diagonals cross it, as `shortley_weller_nodes` places them; the Dirichlet data are imposed there.
-The method `place_nodes(domain)` returns them, so a subclass that overrides it puts the scheme on other nodes, as long as their triangulation spans the domain.
+The method `place_nodes(domain)` returns them, so a subclass that overrides it puts the scheme on other nodes, as long as their triangulation spans the domain and the nodes it marks as unknowns lie strictly inside its convex hull (`discretize` raises `ValueError` otherwise).
 The interpolant lives on the Delaunay triangulation of these nodes, whose union is a polygon `Omega_h` inscribed in the domain; every supported domain is convex, so `Omega_h` is their convex hull.
 
 The stencil size is `k = stencil_factor * h` (the paper's `k = m h`, with `h` the larger spacing), reduced near the boundary to the distance from the node to the boundary of `Omega_h`, so that both ends stay in the triangulation (the paper's Remark 4.1 and Section 8).
