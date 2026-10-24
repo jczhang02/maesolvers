@@ -9,6 +9,21 @@ about as many nodes as the paper's levels of refinement. Each row is one
 solve: the error at the nodes relative to max |u| over the domain, the
 paper's measure, and Howard's steps.
 
+With --checks it writes feng_jensen2017_checks.csv (or --out) instead, the
+evidence for the known limits of the method page, one solve at a time in
+this process. ``fit`` rows solve FDSemiLagrangian and compare, at the root,
+the second differences along the stencil directions with the least-squares
+Hessian that ``node_hessian`` reports: the share of unknowns where every
+second difference is at least ``-NONNEGATIVE_TOL``, the share of those
+where the fitted Hessian still has an eigenvalue below ``-FIT_TOL``, and
+the smallest such eigenvalue, beside ``evaluate``'s ``nonconvex_fraction``
+and ``eigmin``; and the smallest eigenvalue of the Hessian of the
+maximising frame, ``d1 s1 s1^T + d2 s2 s2^T``, whose eigenvalues are
+``d1`` and ``d2``. ``newton`` and ``howard`` rows time
+``Newton(scheme=SemiLagrangian(...))``, which factorises by LU, against
+the preset, which solves by Krylov methods first. Run it with the thread
+count fixed, as below.
+
 With --summary it reads the CSV instead and prints the tables of
 feng_jensen2017.md: the smallest relative error over m at each grid, with
 its m, next to the paper's Figure 6, and the convergence rates in h and in
@@ -33,19 +48,34 @@ it dirty, then copy the CSV back::
     just remote-bg feng-jensen env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
         python benchmarks/run_feng_jensen2017.py \\
         --levels 8 --out /jczhang02/maesolvers-data/data/feng_jensen2017.csv
+    just remote env OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 \\
+        python benchmarks/run_feng_jensen2017.py --checks \\
+        --out /jczhang02/maesolvers-data/data/feng_jensen2017_checks.csv
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+from contextlib import nullcontext
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from maesolvers import T39, T40, Dirichlet, FDSemiLagrangian, Problem, tracking
+from maesolvers import (
+    T20,
+    T39,
+    T40,
+    Dirichlet,
+    FDSemiLagrangian,
+    Newton,
+    Problem,
+    SemiLagrangian,
+    tracking,
+)
+from maesolvers.classical.semilagrangian import fit_hessian, frame_values
 from maesolvers.metrics import evaluate
 
 HERE = Path(__file__).parent
@@ -226,6 +256,105 @@ def summary(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+NONNEGATIVE_TOL = 1e-8
+"""A second difference above ``-NONNEGATIVE_TOL`` counts as nonnegative: at a
+root of the scheme they are, up to rounding (about 1e-10 on T40)."""
+
+FIT_TOL = 1e-6
+"""A fitted eigenvalue below ``-FIT_TOL`` is negative beyond rounding."""
+
+CHECK_TASKS: tuple[tuple[str, str, int, float], ...] = (
+    ("fit", "T20", 361, 4.0),
+    ("fit", "T39", 320, 8.0),
+    ("fit", "T40", 80, 16.0),
+    ("fit", "T40", 320, 16.0),
+    ("fit", "T40 turned", 320, 16.0),
+    ("howard", "T39", 64, 4.0),
+    ("newton", "T39", 64, 4.0),
+    ("howard", "T39", 128, 8.0),
+    ("newton", "T39", 128, 8.0),
+)
+"""(check, problem, n, m) of every row of feng_jensen2017_checks.csv; T20 at the
+comparison table's n = 361 and m = 4."""
+
+
+def fit_measures(scheme: SemiLagrangian, problem: Problem, v: np.ndarray) -> dict:
+    """The second differences at the unknowns ``v`` against their fitted Hessian."""
+    grid = scheme.discretize(problem)
+    d = scheme.second_differences(grid, v)
+    fitted = np.linalg.eigvalsh(fit_hessian(grid.directions, d))[:, 0]
+    nonnegative = d.min(axis=0) >= -NONNEGATIVE_TOL
+    half = len(grid.directions) // 2
+    d1, d2 = d[:half], d[half:]
+    best = frame_values(d1, d2, grid.f).argmax(axis=0)
+    cells = np.arange(d.shape[1])
+    frame = np.minimum(d1[best, cells], d2[best, cells])
+    return {
+        "min_second_difference": float(d.min()),
+        "nonnegative_share": float(np.mean(nonnegative)),
+        "fit_negative_share": float(np.mean(fitted[nonnegative] < -FIT_TOL)),
+        "fit_eigmin_nonnegative": float(fitted[nonnegative].min()),
+        "frame_eigmin": float(frame.min()),
+    }
+
+
+def check(task: tuple[str, str, int, float], log: bool) -> dict[str, Any]:
+    """One row of feng_jensen2017_checks.csv; a value that does not apply is empty."""
+    kind, name, n, m = task
+    problem = {**PROBLEMS, "T20": T20}[name]
+    scheme = SemiLagrangian(n=n, stencil_factor=m)
+    solver = (
+        Newton(scheme=scheme)
+        if kind == "newton"
+        else FDSemiLagrangian(n=n, stencil_factor=m)
+    )
+    experiment = f"maesolvers-feng_jensen2017-{name.replace(' ', '_')}"
+    with (
+        tracking.run(experiment, run_name=f"check={kind} n={n} m={m:g}")
+        if log
+        else nullcontext()
+    ):
+        logger = tracking.MLflowLogger() if log else None
+        result = solver.solve(problem, callbacks=[logger] if logger else [])
+        metrics = evaluate(result)
+        measured = (
+            fit_measures(scheme, problem, result.values[result.interior])
+            if kind == "fit"
+            else {}
+        )
+        if log:
+            import mlflow
+
+            mlflow.log_metrics(measured)
+    print(f"{kind} {name} n={n} m={m:g}: {result.info['time']:.1f} s", flush=True)
+    empty = dict.fromkeys(
+        (
+            "min_second_difference",
+            "nonnegative_share",
+            "fit_negative_share",
+            "fit_eigmin_nonnegative",
+            "frame_eigmin",
+        ),
+        "",
+    )
+    return {
+        "check": kind,
+        "problem": name,
+        "n_cells": n,
+        "m": m,
+        "solver": type(solver).__name__,
+        "time_s": f"{result.info['time']:.2f}",
+        "iterations": result.info["iterations"],
+        "converged": result.info["converged"],
+        "max_err_nodes": metrics["max"],
+        "nonconvex_fraction": metrics["nonconvex_fraction"],
+        "eigmin": metrics["eigmin"],
+        **empty,
+        **measured,
+        "commit": tracking.git_tags()["mlflow.source.git.commit"],
+    }
+
+
 def read(path: Path) -> list[dict[str, Any]]:
     """The rows of a CSV this script wrote."""
     with path.open(newline="") as fh:
@@ -250,9 +379,20 @@ def main() -> None:
     parser.add_argument(
         "--summary", type=Path, default=None, help="print the tables of this CSV"
     )
+    parser.add_argument(
+        "--checks", action="store_true", help="write the checks CSV instead"
+    )
     args = parser.parse_args()
     if args.summary is not None:
         print(summary(read(args.summary)))
+        return
+    if args.checks:
+        out = (
+            args.out
+            if args.out != parser.get_default("out")
+            else HERE / "feng_jensen2017_checks.csv"
+        )
+        write(out, [check(task, not args.no_mlflow) for task in CHECK_TASKS])
         return
     done = read(args.out) if args.out.exists() else []
     finished = {(r["problem"], int(r["n_cells"]), float(r["m"])) for r in done}
