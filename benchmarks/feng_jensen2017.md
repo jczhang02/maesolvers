@@ -1,6 +1,6 @@
 # Semi-Lagrangian scheme: published versus ours
 
-`FDSemiLagrangian` (`Howard` on `SemiLagrangian`) against Feng and Jensen, SIAM J. Numer. Anal. 55 (2017), Section 8, read from the journal PDF (`sources.md`, section 6).
+`FDSemiLagrangian` (`Howard` on `SemiLagrangian`) against Feng and Jensen, SIAM J. Numer. Anal. 55 (2017), Section 8, read from the journal PDF (`sources.md`, section 7).
 **Levels (ADR 0002): figure only on T39**, against Figure 6, a table of the best relative error over the stencil factor `m` at each level under a figure caption, and the rate `h^1.02` of p. 711; **mismatch on T40**, which our structured grid solves to the rounding level (Finding 1).
 The paper's nonsmooth behaviour is compared on T40 turned off the grid, a test-local problem without a T id (Finding 2).
 

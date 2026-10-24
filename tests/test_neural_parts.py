@@ -29,6 +29,7 @@ from maesolvers import (
     PenaltyLoss,
     PenaltyMLP,
     Problem,
+    TransportICNN,
     UniformSampler,
     UnsupportedProblemError,
 )
@@ -103,7 +104,7 @@ def test_the_registry_lists_the_neural_presets():
     assert SOLVERS["DirichletICNN"] is DirichletICNN
 
 
-@pytest.mark.parametrize("preset", [PenaltyMLP, DirichletICNN])
+@pytest.mark.parametrize("preset", [PenaltyMLP, DirichletICNN, TransportICNN])
 @pytest.mark.parametrize("name", sorted(CATALOGUE))
 def test_the_preset_class_declaration_agrees_with_its_parts(preset, name):
     problem = CATALOGUE[name]
@@ -149,7 +150,7 @@ def test_the_icnn_preset_supports_dirichlet_problems_in_any_dimension():
     assert all(preset.supports(p) for p in (T1, T6, T8, T9, T10))
     assert not preset.supports(T12) and not preset.supports(T16)  # transport
     ellipse = Problem("E", Ellipse((0, 0), (2, 1)), T1.f, Dirichlet(T1.f))
-    assert not preset.supports(ellipse)  # no boundary sampling
+    assert preset.supports(ellipse)  # an ellipse samples its boundary
 
 
 def test_the_penalty_mlp_supports_2d_dirichlet_problems_on_sampled_domains():
@@ -158,7 +159,7 @@ def test_the_penalty_mlp_supports_2d_dirichlet_problems_on_sampled_domains():
     assert not PenaltyMLP().supports(T9)  # 3D: the penalty does not imply convexity
     assert not PenaltyMLP().supports(T12)  # transport
     ellipse = Problem("E", Ellipse((0, 0), (2, 1)), T1.f, Dirichlet(T1.f))
-    assert not PenaltyMLP().supports(ellipse)  # no boundary sampling or distance
+    assert not PenaltyMLP().supports(ellipse)  # no boundary distance
 
 
 def test_the_composed_solver_supports_what_all_its_parts_support():

@@ -10,7 +10,7 @@ P5 is T2, P1 is T8 with ``g = 0``, P3 is T12, P2 left the catalogue).
 
 Every Dirichlet problem with an exact solution takes its boundary data from
 that solution. A right-hand side that blows up at a point of the closed
-domain (T2, T3, T22) returns ``inf`` there. Every field checks that its points
+domain (T2, T3, T22, T28) returns ``inf`` there. Every field checks that its points
 have shape ``(..., d)`` and raises ``ValueError`` otherwise.
 
 T21 of the specification (the cone ``|x - x0|``, whose ``f`` is a Dirac mass at
@@ -26,6 +26,7 @@ from types import MappingProxyType
 
 import numpy as np
 
+from maesolvers.core._params import points
 from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.domains import (
     Box,
@@ -35,7 +36,6 @@ from maesolvers.core.domains import (
     Domain,
     Ellipse,
     Field,
-    _points,
 )
 from maesolvers.core.problem import Problem
 
@@ -56,8 +56,10 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "T28",
     "T39",
     "T40",
+    "T46",
 ]
 
 # Pure numerical kernels on float points of shape (..., d), values of shape (...).
@@ -74,7 +76,7 @@ def _field(dim: int, kernel: Field) -> Field:
 
     @functools.wraps(kernel)
     def field(x: np.ndarray) -> np.ndarray:
-        return kernel(_points(x, dim))
+        return kernel(points(x, dim))
 
     return field
 
@@ -259,6 +261,18 @@ def _t20_f(x: np.ndarray) -> np.ndarray:
     return 1.0 - 0.2 / np.maximum(r, 0.2)
 
 
+# T28: T3 in 3D, f = |x|^(-3/2) / 16 blows up at the corner 0 but is integrable.
+
+
+def _t28_exact(x: np.ndarray) -> np.ndarray:
+    return _r2(x) ** 0.75 / 3.0
+
+
+def _t28_f(x: np.ndarray) -> np.ndarray:
+    with np.errstate(divide="ignore"):
+        return _r2(x) ** -0.75 / 16.0
+
+
 # T39, T40: Feng-Jensen 2017, Section 8, on the union of the unit disk and
 # the unit square.
 
@@ -274,6 +288,17 @@ def _t39_f(x: np.ndarray) -> np.ndarray:
 
 def _t40_exact(x: np.ndarray) -> np.ndarray:
     return np.abs(x[..., 0])
+
+
+# T46: u = |x|^2/2 - sum_k sin x_k on (0, pi)^3, so D^2 u = diag(1 + sin x_k).
+
+
+def _t46_exact(x: np.ndarray) -> np.ndarray:
+    return 0.5 * _r2(x) - np.sum(np.sin(x), axis=-1)
+
+
+def _t46_f(x: np.ndarray) -> np.ndarray:
+    return np.prod(1.0 + np.sin(x), axis=-1)
 
 
 # The problems, in id order.
@@ -414,6 +439,17 @@ T22 = _sphere_solution(
     "corner (1, 1, 1) (Froese-Oberman 2011, Table 4).",
 )
 
+T28 = _dirichlet(
+    "T28",
+    _unit_box(3),
+    _t28_f,
+    _t28_exact,
+    "T3 in 3D: u = |x|^(3/2) / 3, f = |x|^(-3/2) / 16 blows up at the corner "
+    "(0, 0, 0) but is integrable (Brenner-Neilan 2012, Example 3; Liu et al. "
+    "2017, Example 4.6). Not in the shared test-set specification yet: the id "
+    "and the definition are the survey's.",
+)
+
 T39 = _dirichlet(
     "T39",
     DiskUnionSquare(),
@@ -436,6 +472,17 @@ T40 = _dirichlet(
     "specification does not define it yet.",
 )
 
+T46 = _dirichlet(
+    "T46",
+    Box((0.0,) * 3, (np.pi,) * 3),
+    _t46_f,
+    _t46_exact,
+    "Smooth solution u = |x|^2/2 - sin x - sin y - sin z on (0, pi)^3, "
+    "f = (1 + sin x)(1 + sin y)(1 + sin z) (Liu et al. 2017, Example 4.5). Not "
+    "in the shared test-set specification yet: the id and the definition are "
+    "the survey's.",
+)
+
 CATALOGUE: Mapping[str, Problem] = MappingProxyType(
     {
         p.name: p
@@ -454,8 +501,10 @@ CATALOGUE: Mapping[str, Problem] = MappingProxyType(
             T16,
             T20,
             T22,
+            T28,
             T39,
             T40,
+            T46,
         )
     }
 )

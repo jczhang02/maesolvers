@@ -9,17 +9,24 @@ like every solver they declare their support on the class.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import ClassVar, Generic, Literal, TypeVar
 
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
 from maesolvers.classical.iterations import Howard, Newton, PoissonIteration
-from maesolvers.classical.monotone import Monotone17
+from maesolvers.classical.monotone import Monotone17, stencil_dimension
+from maesolvers.classical.multigrid import Multigrid
 from maesolvers.classical.schemes import Standard9
+from maesolvers.classical.second_boundary import SecondBoundary
 from maesolvers.classical.semilagrangian import SemiLagrangian
+from maesolvers.classical.standard_box import StandardBox
+from maesolvers.core._params import integer
+from maesolvers.core.domains import Box
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import UnsupportedProblemError
+from maesolvers.core.transport import can_check_mass_balance, check_mass_balance
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -121,7 +128,7 @@ class _SquareBoxCheck(Generic[_SquareSchemeT]):
     scheme: _SquareSchemeT
 
     def check(self, problem: Problem) -> None:
-        """Raise if the problem is not a 2D box with equal sides and a Dirichlet boundary.
+        """Raise if the problem is not a box with equal sides and a Dirichlet boundary.
 
         Parameters
         ----------
@@ -132,19 +139,23 @@ class _SquareBoxCheck(Generic[_SquareSchemeT]):
         ------
         UnsupportedProblemError
             If the scheme does not support the problem; the message names the
-            equal sides when they are what is missing.
+            equal sides when the preset declares the problem's domain,
+            boundary and dimension.
         """
-        if (
-            isinstance(problem.domain, self.domains)
-            and isinstance(problem.boundary, self.boundaries)
-            and problem.dim in (self.dims or ())
-            and not self.scheme.supports(problem)
-        ):
+        if self._declares(problem) and not self.scheme.supports(problem):
             raise UnsupportedProblemError(
                 f"{type(self).__name__} does not support {problem.name}: "
                 f"{type(self.scheme).__name__} needs a Box with equal sides"
             )
         super().check(problem)  # type: ignore[misc]
+
+    def _declares(self, problem: Problem) -> bool:
+        """Whether the preset's class declares the problem's domain, boundary and dimension."""
+        return (
+            isinstance(problem.domain, self.domains)
+            and isinstance(problem.boundary, self.boundaries)
+            and problem.dim in (self.dims or ())
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -161,7 +172,7 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
 
     scheme: Monotone17 = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 19, 33] = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     spline_degree: int = Monotone17.spline_degree
@@ -181,6 +192,28 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
         object.__setattr__(self, "spline_degree", scheme.spline_degree)
         super().__post_init__()  # type: ignore[misc]
 
+    def check(self, problem: Problem) -> None:
+        """Raise if the scheme does not support the problem.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem; the message names the
+            stencil's dimension when that is what is missing, as for a 3D
+            problem with the default 17-point stencil.
+        """
+        if self._declares(problem) and problem.dim != self.scheme.dim:
+            raise UnsupportedProblemError(
+                f"{type(self).__name__} does not support {problem.name}: the "
+                f"{self.scheme.stencil}-point stencil is {self.scheme.dim}D"
+            )
+        super().check(problem)
+
 
 @dataclass(frozen=True, kw_only=True)
 class FDMonotone(_Monotone17Preset, Newton):
@@ -189,18 +222,20 @@ class FDMonotone(_Monotone17Preset, Newton):
     ``FDMonotone(n=n, stencil=s, ...)`` is
     ``Newton(scheme=Monotone17(n=n, stencil=s, ...), ...)``, the monotone
     columns of Froese-Oberman 2011, Table 3 (SIAM J. Numer. Anal. and
-    J. Comput. Phys.). Newton uses the scheme's generalised Jacobian, so it
-    is a semi-smooth Newton method; ``max_iter`` is higher than ``Newton``'s,
-    because T2 needs about 60 steps with the 9-point stencil
-    (``docs/methods/monotone17.md``).
+    J. Comput. Phys.), and with ``stencil=19`` the 3D scheme of the SIAM
+    paper's Table 4 (``FDMonotone(n=31, stencil=19).solve(T9)``). Newton
+    uses the scheme's generalised Jacobian, so it is a semi-smooth Newton
+    method; ``max_iter`` is higher than ``Newton``'s, because T2 needs about
+    60 steps with the 9-point stencil (``docs/methods/monotone17.md``).
 
     Parameters
     ----------
     n
-        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
-        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2.
+        Cells per side (``h = 1/n`` on the unit box, ADR 0001), so
+        ``(n + 1)^d`` nodes and ``(n - 1)^d`` unknowns; at least 2.
     stencil
-        Points of the stencil: 9, 17 or 33.
+        Points of the stencil: 9, 17 or 33 for a 2D problem, 19 for a 3D
+        one.
     boundary
         ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
     jacobian_floor
@@ -243,6 +278,11 @@ class _HybridPreset(_SquareBoxCheck[Hybrid]):
     band: float = Hybrid.band
 
     def __post_init__(self) -> None:
+        if stencil_dimension(integer("stencil", self.stencil, 1)) != 2:
+            raise ValueError(
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
+                f"{self.stencil}: its standard scheme, Standard9, is 2D"
+            )
         scheme = Hybrid(
             n=self.n,
             stencil=self.stencil,
@@ -328,16 +368,16 @@ class _FilteredPreset(_SquareBoxCheck[Filtered]):
     Listed first among a preset's bases, so its ``__post_init__`` builds the
     scheme, :class:`Standard9` filtered with :class:`Monotone17` on one grid,
     from the flat fields before the iteration checks it. The support is
-    Monotone17's, which Standard9's contains.
+    Monotone17's in 2D, which Standard9's contains.
     """
 
     domains: ClassVar[tuple[type, ...]] = Monotone17.domains
     boundaries: ClassVar[tuple[type, ...]] = Monotone17.boundaries
-    dims: ClassVar[tuple[int, ...] | None] = Monotone17.dims
+    dims: ClassVar[tuple[int, ...] | None] = Standard9.dims
 
     scheme: Filtered = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 33] = 17  # Monotone17's default, a 2D stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     epsilon: float | None = None
@@ -351,6 +391,11 @@ class _FilteredPreset(_SquareBoxCheck[Filtered]):
             jacobian_floor=self.jacobian_floor,
             spline_degree=self.spline_degree,
         )
+        if monotone.dim != 2:
+            raise ValueError(
+                f"{type(self).__name__}'s stencil must be 9, 17 or 33 points, got "
+                f"{monotone.stencil}: its accurate scheme, Standard9, is 2D"
+            )
         accurate = Standard9(n=monotone.n, spline_degree=monotone.spline_degree)
         scheme = Filtered(accurate=accurate, monotone=monotone, epsilon=self.epsilon)
         object.__setattr__(self, "scheme", scheme)
@@ -399,6 +444,198 @@ class FDFiltered(_FilteredPreset, Newton):
 
     start: None = field(default=None, init=False, repr=False)
     max_iter: int = 200
+
+
+@dataclass(frozen=True, kw_only=True)
+class _StandardBoxPreset:
+    """The fields and support of a preset on :class:`StandardBox`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from ``n`` and ``spline_degree`` before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = StandardBox.domains
+    boundaries: ClassVar[tuple[type, ...]] = StandardBox.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = StandardBox.dims
+
+    scheme: StandardBox = field(init=False, repr=False)
+    n: int = StandardBox.n
+    spline_degree: int = StandardBox.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = StandardBox(n=self.n, spline_degree=self.spline_degree)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDMultigrid(_StandardBoxPreset, Multigrid):
+    """The standard scheme on a 2D or 3D box solved by full multigrid.
+
+    ``FDMultigrid(n=n, spline_degree=k, ...)`` is
+    ``Multigrid(scheme=StandardBox(n=n, spline_degree=k), ...)``, the
+    FMG-FAS method of Liu, Froese, Oberman and Xiao (2017): one full
+    multigrid cycle, then FAS V-cycles until the residual meets ``tol``, with
+    the nonlinear Gauss-Seidel smoother that picks the convex root at each
+    node (``docs/methods/multigrid.md``). It supports 2D and 3D boxes with
+    equal sides and Dirichlet data.
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit box, ADR 0001), at least 2;
+        a power of 2 gives the paper's nested grids.
+    ordering
+        ``"lexicographic"`` or ``"red-black"``, the order of the Gauss-Seidel
+        sweeps.
+    pre_sweeps, post_sweeps
+        Sweeps before and after the coarse-grid correction.
+    coarsest_sweeps
+        Sweeps on the grid of 2 cells per side.
+    max_iter
+        Most cycles, the full multigrid cycle included.
+    tol
+        Stop when the RMS of the residual over the unknowns is at most
+        ``tol * max(1, max |f|)``; the history reports the paper's relative
+        residual (:class:`~maesolvers.classical.multigrid.Multigrid`).
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
+    """
+
+
+@dataclass(frozen=True, kw_only=True)
+class _SecondBoundaryPreset:
+    """The fields and support of a preset on :class:`SecondBoundary`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    filtered scheme and the monotone start from the flat fields before the
+    iteration checks them.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = SecondBoundary.domains
+    boundaries: ClassVar[tuple[type, ...]] = SecondBoundary.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = SecondBoundary.dims
+
+    scheme: SecondBoundary = field(init=False, repr=False)
+    start: Newton = field(init=False, repr=False)
+    n: int = SecondBoundary.n
+    stencil: Literal[9, 17, 33] = SecondBoundary.stencil
+    epsilon: float | None = SecondBoundary.epsilon
+    directions: int | None = SecondBoundary.directions
+    box: Box | None = SecondBoundary.box
+    jacobian_floor: float = SecondBoundary.jacobian_floor
+    spline_degree: int = SecondBoundary.spline_degree
+
+    def __post_init__(self) -> None:
+        shared = {
+            "n": self.n,
+            "stencil": self.stencil,
+            "directions": self.directions,
+            "box": self.box,
+            "jacobian_floor": self.jacobian_floor,
+            "spline_degree": self.spline_degree,
+        }
+        scheme = SecondBoundary(interior="filtered", epsilon=self.epsilon, **shared)
+        monotone = SecondBoundary(interior="monotone", **shared)
+        start = Newton(scheme=monotone, max_iter=200, tol=self.tol)  # type: ignore[attr-defined]
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "start", start)
+        for name in (*shared, "epsilon"):
+            object.__setattr__(self, name, getattr(scheme, name))
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDTransport(_SecondBoundaryPreset, Newton):
+    """The second boundary value problem by the method of Benamou-Froese-Oberman 2014.
+
+    ``FDTransport(n=n, ...)`` is ``Newton(scheme=SecondBoundary(n=n,
+    interior="filtered", ...), start=Newton(scheme=SecondBoundary(n=n,
+    interior="monotone", ...), max_iter=200, tol=tol), ...)``: the filtered
+    compact scheme with the transport condition on the boundary ring, solved
+    by Newton from the root of the monotone scheme on the same grid, which
+    Newton on the filtered scheme does not reach from the Poisson start on
+    a domain embedded in the square (``benchmarks/bfo2014.md``). Its
+    ``check`` also runs :func:`~maesolvers.core.transport.check_mass_balance`
+    where that can compute both sides; on a domain or target of your own it
+    warns that the balance is unchecked and solves.
+
+    Parameters
+    ----------
+    n
+        Cells per side of the square (``h = side / n``, ADR 0001), so
+        ``(n + 1)^2`` unknowns; at least 2.
+    stencil
+        Points of the monotone stencil: 9 (the paper's), 17 or 33.
+    epsilon
+        The filter width, or None for the paper's ``sqrt(h) + dtheta``.
+    directions
+        Directions of the boundary equation, or None for the face normals
+        of a Box target and 512 for any other, as in :class:`SecondBoundary`.
+    box
+        The square the grid covers, or None for the domain's bounding box.
+    jacobian_floor
+        The floor of the monotone Jacobian's factors, times ``1 / (2 h^2)``.
+    max_iter
+        Most Newton steps on the filtered scheme; the start keeps a budget
+        of 200 steps whatever ``max_iter``.
+    tol
+        Stop when ``max |residual| <= tol * max(1, max |f|)``, on the
+        filtered scheme and on the start.
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5.
+    """
+
+    max_iter: int = 200
+
+    def check(self, problem: Problem) -> None:
+        """Raise unless the scheme supports the problem and its mass balances.
+
+        The balance is checked where
+        :func:`~maesolvers.core.transport.can_check_mass_balance` is True:
+        a :class:`~maesolvers.core.domains.Box`,
+        :class:`~maesolvers.core.domains.Disk` or
+        :class:`~maesolvers.core.domains.Ellipse` domain and target. On
+        another domain or target, which the scheme supports through its
+        support function, it warns instead; an imbalance then shows in
+        ``Result.info["u_anchor"]``, the constant that absorbs it.
+
+        Parameters
+        ----------
+        problem
+            The problem to solve.
+
+        Raises
+        ------
+        UnsupportedProblemError
+            If the scheme does not support the problem.
+        ValueError
+            If the problem is out of mass balance
+            (:func:`~maesolvers.core.transport.check_mass_balance`).
+
+        Warns
+        -----
+        UserWarning
+            If the mass balance cannot be checked.
+        """
+        super().check(problem)
+        if can_check_mass_balance(problem):
+            check_mass_balance(problem)
+        else:
+            warnings.warn(
+                f"FDTransport does not check the mass balance of {problem.name}: "
+                "check_mass_balance integrates over a Box, Disk or Ellipse domain "
+                "and knows the volume of such a target only; compare the integral "
+                "of f with the target's volume yourself, or read "
+                'Result.info["u_anchor"]',
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 @dataclass(frozen=True, kw_only=True)

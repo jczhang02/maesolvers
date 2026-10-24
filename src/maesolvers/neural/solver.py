@@ -23,8 +23,9 @@ from typing import Any, Literal
 import numpy as np
 
 from maesolvers.core._params import integer, positive
-from maesolvers.core.boundary import Dirichlet
+from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.callbacks import Callback
+from maesolvers.core.domains import Domain
 from maesolvers.core.problem import Problem
 from maesolvers.core.solver import Solution, Solver, Trace, check_part
 from maesolvers.neural.losses import Batch, Loss
@@ -59,6 +60,7 @@ class _Context:
     f: np.ndarray
     g: np.ndarray | None
     f_boundary: np.ndarray
+    target: Domain | None
 
 
 @dataclass(frozen=True, eq=False)
@@ -130,7 +132,8 @@ class NeuralSolver(Solver[_Context, _Trained]):
     it: ``"converged"``, ``"stalled"``, ``"diverged"`` or
     ``"max_steps"``), ``loss_terms`` (the loss terms of the trained network,
     ``"loss"`` among them), ``collocation`` (``interior_points``,
-    ``boundary_points`` and :meth:`Collocation.fingerprint
+    ``boundary_points``, ``target_boundary_points`` and
+    :meth:`Collocation.fingerprint
     <maesolvers.neural.samplers.Collocation.fingerprint>`), ``device``,
     ``threads`` (torch's CPU threads, on which the rounding, and so the
     result, depends) and, when the network's module carries a ``report``
@@ -230,9 +233,10 @@ class NeuralSolver(Solver[_Context, _Trained]):
         Returns
         -------
         _Context
-            The points, the network, ``f`` at the interior points, and ``g``
+            The points, the network, ``f`` at the interior points, ``g``
             (None for a boundary condition other than Dirichlet) and ``f``
-            at the boundary points.
+            at the boundary points, and the transport target (None for a
+            boundary condition other than Transport).
         """
         from maesolvers.neural import _torch
 
@@ -244,8 +248,9 @@ class NeuralSolver(Solver[_Context, _Trained]):
         if isinstance(boundary, Dirichlet):
             g = boundary.g(points) if len(points) else np.zeros(0)
         f_boundary = problem.f(points) if len(points) else np.zeros(0)
+        target = boundary.target if isinstance(boundary, Transport) else None
         return _Context(
-            collocation, model, problem.f(collocation.interior), g, f_boundary
+            collocation, model, problem.f(collocation.interior), g, f_boundary, target
         )
 
     def run(
@@ -308,6 +313,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
             "collocation": {
                 "interior_points": len(collocation.interior),
                 "boundary_points": len(collocation.boundary),
+                "target_boundary_points": len(collocation.target_boundary),
                 "fingerprint": collocation.fingerprint(),
             },
             "device": state.device,
@@ -345,4 +351,8 @@ class NeuralSolver(Solver[_Context, _Trained]):
             boundary=tensor(points.boundary),
             g=None if context.g is None else tensor(context.g),
             f_boundary=tensor(context.f_boundary),
+            target=context.target,
+            target_boundary=(
+                tensor(points.target_boundary) if len(points.target_boundary) else None
+            ),
         )
