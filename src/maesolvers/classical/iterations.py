@@ -178,13 +178,22 @@ def _check_scheme(iteration: object, scheme: object) -> None:
     check_part(f"{type(iteration).__name__}.scheme", scheme, Scheme)
 
 
-class _NewtonScheme(Protocol):
-    """The scheme methods :class:`Newton` calls: ``rhs`` and its ``requires``."""
+class _JacobianScheme(Protocol):
+    """The scheme methods :class:`Newton` and :class:`Howard` call.
+
+    ``rhs``, and the methods their ``requires`` names.
+    """
 
     def rhs(self, grid: Any) -> np.ndarray: ...
     def residual(self, grid: Any, v: np.ndarray) -> np.ndarray: ...
     def jacobian(self, grid: Any, v: np.ndarray) -> sp.spmatrix: ...
     def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+def _laplace_start(scheme: _JacobianScheme, grid: Any, dim: int) -> np.ndarray:
+    """Solve ``laplace u = d f^(1/d)``, the start of :class:`Newton` and :class:`Howard`."""
+    # numpy takes the square root for ** 0.5, so 2D starts are 2 sqrt(f) exactly
+    return scheme.solve_laplace(grid, dim * scheme.rhs(grid) ** (1.0 / dim))
 
 
 class _PoissonScheme(Protocol):
@@ -292,9 +301,9 @@ class Newton(SchemeIteration):
             self.start.check(problem)
 
     @property
-    def _scheme(self) -> _NewtonScheme:
+    def _scheme(self) -> _JacobianScheme:
         """The scheme, typed by the methods :meth:`check` makes sure it has."""
-        return cast(_NewtonScheme, self.scheme)
+        return cast(_JacobianScheme, self.scheme)
 
     def run(
         self, problem: Problem, context: Any, callbacks: Sequence[Callback]
@@ -369,11 +378,7 @@ class Newton(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        d = problem.dim
-        # numpy takes the square root for ** 0.5, so 2D starts are 2 sqrt(f) exactly
-        return self._scheme.solve_laplace(
-            context, d * self._scheme.rhs(context) ** (1.0 / d)
-        )
+        return _laplace_start(self._scheme, context, problem.dim)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
@@ -533,21 +538,27 @@ class PoissonIteration(SchemeIteration):
 class Howard(SchemeIteration):
     """Howard's algorithm: full Newton steps, stopped when a step is small.
 
-    Starts from ``laplace u = 2 sqrt(f)``, as :class:`Newton` does, and takes
-    full steps ``v - J^{-1} r(v)`` with the scheme's (generalised) Jacobian
-    ``J``, without a line search. For a scheme whose equation is a maximum
-    of affine maps with M-matrix linear parts and whose ``jacobian`` is the
-    linear part of the maximising map, such as
-    :class:`~maesolvers.classical.semilagrangian.SemiLagrangian`, a step
-    solves the equation of the maximising control, so this is Howard's
+    Starts from ``laplace u = d f^(1/d)`` (``2 sqrt(f)`` in 2D), as
+    :class:`Newton` does, and takes full steps ``v - J^{-1} r(v)`` with the
+    scheme's (generalised) Jacobian ``J``, without a line search. For a
+    scheme whose equation is a maximum of affine maps with M-matrix linear
+    parts and whose ``jacobian`` is the linear part of the maximising map,
+    such as :class:`~maesolvers.classical.semilagrangian.SemiLagrangian`, a
+    step solves the equation of the maximising control, so this is Howard's
     policy iteration: it converges from any start, monotonically and
     superlinearly (Bokanowski-Maroso-Zidani 2009; Feng-Jensen 2017,
     Algorithm 1 and Theorem 5.2), and the start is the control
     ``B = Id / 2`` of Feng and Jensen. On another scheme it is undamped
-    Newton. Each step's linear system is solved by BiCGSTAB preconditioned
-    with its diagonal, which converges in fewer steps the wider a monotone
-    scheme's stencil, where a sparse LU factorisation fills in; where
-    BiCGSTAB does not converge, by the LU factorisation.
+    Newton.
+
+    Each step's linear system is solved by BiCGSTAB with diagonal scaling;
+    where BiCGSTAB stops short of a relative residual of ``1e-8``, by
+    restarted GMRES from its last iterate; where GMRES does too, by a sparse
+    LU factorisation. The Krylov methods converge in fewer steps the wider a
+    monotone scheme's stencil, where an LU factorisation fills in; on a
+    Jacobian that is not an M-matrix, such as
+    :class:`~maesolvers.classical.schemes.Standard9`'s, they may not
+    converge, and the step then rests on the LU factorisation.
 
     Parameters
     ----------
@@ -568,12 +579,12 @@ class Howard(SchemeIteration):
     tol: float = 1e-6
 
     @property
-    def _scheme(self) -> _NewtonScheme:
+    def _scheme(self) -> _JacobianScheme:
         """The scheme, typed by the methods :meth:`check` makes sure it has."""
-        return cast(_NewtonScheme, self.scheme)
+        return cast(_JacobianScheme, self.scheme)
 
     def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
-        """Solve ``laplace u = 2 sqrt(f)``.
+        """Solve ``laplace u = d f^(1/d)``, ``2 sqrt(f)`` in 2D, as :class:`Newton` does.
 
         Parameters
         ----------
@@ -587,9 +598,7 @@ class Howard(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return self._scheme.solve_laplace(
-            context, 2.0 * np.sqrt(self._scheme.rhs(context))
-        )
+        return _laplace_start(self._scheme, context, problem.dim)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray

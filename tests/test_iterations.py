@@ -321,9 +321,9 @@ def test_a_scheme_is_set_from_the_command_line():
 @pytest.mark.parametrize(
     ("iteration", "protocol"),
     [
-        (Newton, iterations._NewtonScheme),
+        (Newton, iterations._JacobianScheme),
         (PoissonIteration, iterations._PoissonScheme),
-        (Howard, iterations._NewtonScheme),
+        (Howard, iterations._JacobianScheme),
     ],
 )
 def test_requires_names_the_scheme_methods_the_iteration_is_typed_against(

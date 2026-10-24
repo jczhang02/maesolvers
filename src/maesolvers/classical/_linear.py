@@ -1,4 +1,9 @@
-"""Sparse linear solves shared by the iterations and schemes of this package."""
+"""Sparse M-matrix solves, for Howard's algorithm and the semi-Lagrangian scheme.
+
+:class:`~maesolvers.classical.iterations.Howard` and
+:meth:`~maesolvers.classical.semilagrangian.SemiLagrangian.solve_laplace` use
+:func:`solve_m_matrix`.
+"""
 
 from __future__ import annotations
 
