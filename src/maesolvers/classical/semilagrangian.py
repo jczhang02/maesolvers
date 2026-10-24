@@ -1,7 +1,8 @@
 """The semi-Lagrangian scheme of Feng and Jensen (2017) on a structured grid.
 
 Feng and Jensen (SIAM J. Numer. Anal. 55 (2017), Sections 3 and 4) write the
-Monge-Ampere equation ``det D^2 u = f`` as the Bellman equation
+Monge-Ampere equation ``det D^2 u = f`` as the Hamilton-Jacobi-Bellman
+(HJB) equation
 
     sup over B >= 0, tr B = 1, of  -B : D^2 u + 2 sqrt(f) sqrt(det B) = 0,
 
@@ -100,7 +101,7 @@ def stencil_directions(count: int) -> np.ndarray:
 
 
 def frame_values(d1: np.ndarray, d2: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """Return the Bellman operator restricted to one frame, in closed form.
+    """Return the HJB operator restricted to one frame, in closed form.
 
     For the second differences ``d1``, ``d2`` along the two directions of a
     frame,
@@ -354,7 +355,7 @@ class SemiLagrangian(Scheme):
 
         max over frames (s1, s2) of  sqrt(((d1 - d2) / 2)^2 + f) - (d1 + d2) / 2 = 0,
 
-    the Bellman form of ``det D^2 u = f`` (:func:`frame_values`), with
+    the HJB form of ``det D^2 u = f`` (:func:`frame_values`), with
     ``d1``, ``d2`` the semi-Lagrangian second differences along the frame:
     the stencil ends ``x +/- k s`` take the piecewise linear interpolant of
     the nodal values. A root has ``d1 d2 >= f`` and ``d1, d2 >= 0`` in every

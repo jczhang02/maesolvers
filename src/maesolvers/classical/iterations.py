@@ -26,7 +26,7 @@ from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import LinearOperator, bicgstab, spilu, spsolve
 
 from maesolvers.classical._linear import solve_m_matrix
 from maesolvers.classical.schemes import Scheme
@@ -40,6 +40,12 @@ _BACKTRACKS = 40
 
 _SUFFICIENT_DECREASE = 1e-4
 """Armijo constant: a step of length ``t`` must cut the max residual by ``1e-4 t``."""
+
+_ILU_DROP_TOL = 1e-4
+"""Drop tolerance of the incomplete LU that preconditions ``PolicyIteration``'s BiCGSTAB."""
+
+_ILU_FILL = 10.0
+"""Fill factor of that incomplete LU: at most ten times the matrix's nonzeros."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -190,10 +196,21 @@ class _JacobianScheme(Protocol):
     def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
 
 
-def _laplace_start(scheme: _JacobianScheme, grid: Any, dim: int) -> np.ndarray:
-    """Solve ``laplace u = d f^(1/d)``, the start of :class:`Newton` and :class:`Howard`."""
-    # numpy takes the square root for ** 0.5, so 2D starts are 2 sqrt(f) exactly
-    return scheme.solve_laplace(grid, dim * scheme.rhs(grid) ** (1.0 / dim))
+class _LaplaceScheme(Protocol):
+    """The scheme methods :func:`_convex_start` calls."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+def _convex_start(scheme: _LaplaceScheme, problem: Problem, grid: Any) -> np.ndarray:
+    """Solve ``laplace u = d f^(1/d)``, the trace of the convex branch, for the unknowns.
+
+    In 2D ``laplace u = 2 sqrt(f)``: numpy takes the square root for
+    ``** 0.5``, so the 2D start is ``2 sqrt(f)`` exactly.
+    """
+    d = problem.dim
+    return scheme.solve_laplace(grid, d * scheme.rhs(grid) ** (1.0 / d))
 
 
 class _PoissonScheme(Protocol):
@@ -378,7 +395,7 @@ class Newton(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return _laplace_start(self._scheme, context, problem.dim)
+        return _convex_start(self._scheme, problem, context)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray
@@ -534,6 +551,185 @@ class PoissonIteration(SchemeIteration):
         return measure <= self.tol
 
 
+class _PolicyScheme(Protocol):
+    """The scheme methods :class:`PolicyIteration` calls: ``rhs`` and its ``requires``."""
+
+    def rhs(self, grid: Any) -> np.ndarray: ...
+    def policy_system(
+        self, grid: Any, v: np.ndarray
+    ) -> tuple[sp.spmatrix, np.ndarray]: ...
+    def solve_laplace(self, grid: Any, rhs: np.ndarray) -> np.ndarray: ...
+
+
+@dataclass(frozen=True, kw_only=True)
+class PolicyIteration(SchemeIteration):
+    """Policy iteration (Howard's algorithm) on a scheme in HJB form.
+
+    For a scheme whose residual is a maximum over controls of linear
+    operators, ``max over policies of A v - F``, each step finds the optimal
+    policy at the current unknowns and solves its linear system,
+    ``A v_new = F`` (Chen-Wan-Lin 2018, Section 5.1; Howard 1960). When the
+    matrix of every policy is an M-matrix and the set of policies does not
+    depend on ``v``, as for a monotone scheme, the iteration converges from
+    any start (Bokanowski, Maroso and Zidani 2009); it is Newton's method
+    with full steps and the policy's matrix as the Jacobian. A scheme whose
+    set of competing policies depends on ``v``, such as :class:`MixedHJB
+    <maesolvers.classical.mixed.MixedHJB>` with its default
+    ``wide_search``, has no such guarantee: the iteration can cycle and
+    stop at ``max_iter``.
+
+    Starts from ``laplace u = d f^(1/d)``, as :class:`Newton` does; in 2D
+    ``laplace u = 2 sqrt(f)``, the solution for the control ``a = 1/2``
+    (Chen-Wan-Lin 2018, eq. (50)).
+
+    Parameters
+    ----------
+    scheme
+        A scheme with ``policy_system(grid, v)``, which returns the sparse
+        ``A`` and the vector ``F`` of the optimal policy at ``v``, and
+        ``solve_laplace(grid, rhs)``.
+    max_iter
+        Most steps.
+    tol
+        Stop when ``max |A v - F| <= tol`` at the current unknowns, the
+        paper's tolerance on the residual by default.
+    krylov_tol
+        None solves each policy's system by sparse LU. A positive value
+        solves it by BiCGSTAB to that relative residual, preconditioned by
+        an incomplete LU (drop tolerance ``1e-4``), and by LU, with a
+        ``RuntimeWarning``, if BiCGSTAB fails; the paper uses GMRES with an
+        incomplete LU. Needed where the
+        LU fills in, as for the 17-point wide stencil at many nodes from
+        ``n = 256`` on.
+
+    Notes
+    -----
+    A step measures the residual at the unknowns it starts from, as
+    Howard's algorithm does, and returns them unchanged once that residual
+    is at most ``tol``. So ``Result.info["history"]`` holds the residual of
+    each iterate before its update, the last one at most ``tol`` when the
+    solve converged, and ``iterations`` counts the policies evaluated,
+    the paper's "number of policy iterations".
+    """
+
+    measure: ClassVar[str] = "residual"
+    requires: ClassVar[tuple[str, ...]] = ("policy_system", "solve_laplace")
+
+    max_iter: int = 100
+    tol: float = 1e-6
+    krylov_tol: float | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.krylov_tol is not None:
+            object.__setattr__(
+                self, "krylov_tol", positive("krylov_tol", self.krylov_tol)
+            )
+
+    @property
+    def _scheme(self) -> _PolicyScheme:
+        """The scheme, typed by the methods :meth:`check` makes sure it has."""
+        return cast(_PolicyScheme, self.scheme)
+
+    def initial_guess(self, problem: Problem, context: Any) -> np.ndarray:
+        """Solve ``laplace u = d f^(1/d)``, in 2D ``laplace u = 2 sqrt(f)``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+
+        Returns
+        -------
+        numpy.ndarray
+            The unknowns.
+        """
+        return _convex_start(self._scheme, problem, context)
+
+    def step(
+        self, problem: Problem, context: Any, iterate: np.ndarray
+    ) -> tuple[np.ndarray, float] | None:
+        """Evaluate the optimal policy at ``iterate`` and solve its system.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        iterate
+            The current unknowns.
+
+        Returns
+        -------
+        tuple or None
+            The next unknowns and the max residual at ``iterate``; ``iterate``
+            itself once that residual is at most ``tol``. None if the solve
+            of the policy's system is not finite.
+        """
+        matrix, rhs = self._scheme.policy_system(context, iterate)
+        norm = float(np.max(np.abs(matrix @ iterate - rhs)))
+        if self.converged(problem, context, norm):
+            return iterate, norm
+        new = self._solve(sp.csc_matrix(matrix), rhs, iterate)
+        if not np.all(np.isfinite(new)):
+            return None
+        return new, norm
+
+    def _solve(
+        self, matrix: sp.csc_matrix, rhs: np.ndarray, guess: np.ndarray
+    ) -> np.ndarray:
+        """Solve the policy's system, by LU or by BiCGSTAB with an incomplete LU."""
+        if self.krylov_tol is not None:
+            # Natural order and diagonal pivots: the incomplete LU of an
+            # M-matrix then has positive pivots whatever it drops.
+            ilu = spilu(
+                matrix,
+                drop_tol=_ILU_DROP_TOL,
+                fill_factor=_ILU_FILL,
+                permc_spec="NATURAL",
+                diag_pivot_thresh=0.0,
+            )
+            new, info = bicgstab(
+                matrix,
+                rhs,
+                x0=guess,
+                rtol=self.krylov_tol,
+                atol=0.0,
+                M=LinearOperator(matrix.shape, ilu.solve),
+            )
+            if info == 0:
+                return np.asarray(new)
+            warnings.warn(
+                f"BiCGSTAB stopped with info {info} on a policy system of "
+                f"{rhs.size} unknowns; solving it by sparse LU, which "
+                "can take long and much memory on a large grid",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        return np.asarray(spsolve(matrix, rhs))
+
+    def converged(self, problem: Problem, context: Any, measure: float) -> bool:
+        """Whether the max residual is at most ``tol``.
+
+        Parameters
+        ----------
+        problem
+            The problem.
+        context
+            The scheme's grid.
+        measure
+            The max residual.
+
+        Returns
+        -------
+        bool
+        """
+        return measure <= self.tol
+
+
 @dataclass(frozen=True, kw_only=True)
 class Howard(SchemeIteration):
     """Howard's algorithm: full Newton steps, stopped when a step is small.
@@ -549,7 +745,8 @@ class Howard(SchemeIteration):
     superlinearly (Bokanowski-Maroso-Zidani 2009; Feng-Jensen 2017,
     Algorithm 1 and Theorem 5.2), and the start is the control
     ``B = Id / 2`` of Feng and Jensen. On another scheme it is undamped
-    Newton.
+    Newton. :class:`PolicyIteration` runs the same algorithm on a scheme that
+    provides ``policy_system`` instead, and stops on the residual.
 
     Each step's linear system is solved by BiCGSTAB with diagonal scaling;
     where BiCGSTAB stops short of a relative residual of ``1e-8``, by
@@ -598,7 +795,7 @@ class Howard(SchemeIteration):
         numpy.ndarray
             The unknowns.
         """
-        return _laplace_start(self._scheme, context, problem.dim)
+        return _convex_start(self._scheme, problem, context)
 
     def step(
         self, problem: Problem, context: Any, iterate: np.ndarray

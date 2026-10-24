@@ -13,6 +13,7 @@ from types import MappingProxyType
 from maesolvers.classical import (
     FDFiltered,
     FDHybrid,
+    FDMixed,
     FDMonotone,
     FDMultigrid,
     FDNewton,
@@ -38,6 +39,7 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
             FDMonotone,
             FDHybrid,
             FDFiltered,
+            FDMixed,
             FDMultigrid,
             FDTransport,
             FDSemiLagrangian,

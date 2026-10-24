@@ -562,7 +562,7 @@ Table 4 reprints, for Example 4.4, the wide-stencil hybrid finite differences of
 X. Feng, M. Jensen, "Convergent semi-Lagrangian methods for the Monge-Ampere equation on unstructured grids", SIAM J. Numer. Anal. 55(2) (2017) 691-712, DOI 10.1137/16M1061709.
 Read: local journal PDF (Zotero item PVLY7QYE, attachment YSSATHUT); every value below was checked against a rendered image of pp. 709-711 (journal page numbers).
 
-Method (Sections 3, 4, 7, 8): the Bellman form `sup over B >= 0, tr B = 1 of (-B : D^2 u + f (det B)^(1/d)) = 0` of `det D^2 u = (f/d)^d`, so the paper's `f` is `2 sqrt(f)` in maesolvers' convention `det D^2 u = f` (2D).
+Method (Sections 3, 4, 7, 8): the HJB form `sup over B >= 0, tr B = 1 of (-B : D^2 u + f (det B)^(1/d)) = 0` of `det D^2 u = (f/d)^d`, so the paper's `f` is `2 sqrt(f)` in maesolvers' convention `det D^2 u = f` (2D).
 Each `B = sigma lambda sigma^T`; the second derivatives along the columns of `sigma` are the semi-Lagrangian differences `(u(x - k sigma_j) - 2 u(x) + u(x + k sigma_j)) / k^2` (eq. (18)), whose ends take the value of the continuous piecewise linear finite element function.
 Section 8: the control set is `SO(2) x {diag(a, 1 - a): a in [0, 1/2)}` together with `(Id, Id/2)`; `SO(2)` is discretised by the rotation angles `i pi / 64`, `i = 0, ..., 63`, and nothing is said about discretising `a`.
 The stencil size is `k = m h` with `h` the average mesh size, reduced near the boundary to stay inside the triangulated domain (Fig. 5(b)).

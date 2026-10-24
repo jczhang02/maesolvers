@@ -42,8 +42,10 @@ from maesolvers import (
     T9,
     T16,
     T20,
+    Box,
     FDFiltered,
     FDHybrid,
+    FDMixed,
     FDMonotone,
     FDMultigrid,
     FDNewton,
@@ -51,6 +53,7 @@ from maesolvers import (
     FDTransport,
     Newton,
     Problem,
+    T20c,
 )
 from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
 
@@ -342,3 +345,38 @@ def test_multigrid_matches_the_liu_et_al_table_1(problem, n, printed, cycles):
     assert len(history) == cycles and history[-1] <= 1e-6
     assert all(relres > 1e-6 for relres in history[:-1])
     assert float(f"{evaluate(result)['max']:.1e}") == printed
+
+
+# Chen-Wan-Lin, J. Sci. Comput. 76 (2018), Tables 1 to 3, "proposed mixed
+# stencil scheme": the discrete L2 norm sqrt(h^2 sum e^2) and the max norm at
+# the nodes, h = 1/N on the unit square (benchmarks/chen_wan_lin2018.md,
+# Finding 1). Exact at every printed N on T1, on T2 up to N = 128 (Finding 5),
+# and in 6 of 10 values on T20c (Finding 4); the cheap ones are pinned. Table 2
+# needs the paper's rule for the wide-stencil search (Finding 2), the preset's
+# default.
+T1_SQUARE = Problem(
+    "T1-square", Box((-1.0, -1.0), (1.0, 1.0)), T1.f, T1.boundary, exact=T1.exact
+)
+CWL2018_MIXED = {  # (problem, N): (L2, Linf) as printed, (mantissa, power)
+    ("T1-square", 32): (("1.201", -3), ("9.598", -4)),
+    ("T1-square", 64): (("3.009", -4), ("2.404", -4)),
+    ("T2", 32): (("6.450", -5), ("2.359", -4)),
+    ("T2", 64): (("1.628", -5), ("8.211", -5)),
+    ("T20c", 32): (("1.270", -4), ("4.298", -4)),
+    # L2 at N = 64 is 4.271e-5 against 4.273e-5 (Finding 4): not pinned
+    ("T20c", 64): (None, ("1.520", -4)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CWL2018_MIXED))
+def test_mixed_scheme_matches_chen_wan_lin_2018(case):
+    name, N = case
+    problem = {"T1-square": T1_SQUARE, "T2": T2, "T20c": T20c}[name]
+    result = FDMixed(n=N).solve(problem)
+    error = result.values - problem.exact(result.nodes)
+    h = result.info["h"][0]
+    ours = (np.sqrt(h * h * np.sum(error**2)), np.max(np.abs(error)))
+    for value, published in zip(ours, CWL2018_MIXED[case], strict=True):
+        if published is not None:
+            mantissa, power = published
+            assert f"{value / 10.0**power:.3f}" == mantissa

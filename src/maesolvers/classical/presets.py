@@ -15,7 +15,13 @@ from typing import ClassVar, Generic, Literal, TypeVar
 
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
-from maesolvers.classical.iterations import Howard, Newton, PoissonIteration
+from maesolvers.classical.iterations import (
+    Howard,
+    Newton,
+    PoissonIteration,
+    PolicyIteration,
+)
+from maesolvers.classical.mixed import MixedHJB
 from maesolvers.classical.monotone import Monotone17, stencil_dimension
 from maesolvers.classical.multigrid import Multigrid
 from maesolvers.classical.schemes import Standard9
@@ -112,7 +118,7 @@ class FDPoisson(_Standard9Preset, PoissonIteration):
     """
 
 
-_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid, Filtered)
+_SquareSchemeT = TypeVar("_SquareSchemeT", Monotone17, Hybrid, Filtered, MixedHJB)
 
 
 class _SquareBoxCheck(Generic[_SquareSchemeT]):
@@ -447,6 +453,86 @@ class FDFiltered(_FilteredPreset, Newton):
 
 
 @dataclass(frozen=True, kw_only=True)
+class _MixedPreset(_SquareBoxCheck[MixedHJB]):
+    """The fields and support of a preset on :class:`MixedHJB`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = MixedHJB.domains
+    boundaries: ClassVar[tuple[type, ...]] = MixedHJB.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = MixedHJB.dims
+
+    scheme: MixedHJB = field(init=False, repr=False)
+    n: int = MixedHJB.n
+    angles: int | None = MixedHJB.angles
+    wide_search: Literal["outside", "everywhere", "only"] = MixedHJB.wide_search
+    spline_degree: int = MixedHJB.spline_degree
+
+    def __post_init__(self) -> None:
+        scheme = MixedHJB(
+            n=self.n,
+            angles=self.angles,
+            wide_search=self.wide_search,
+            spline_degree=self.spline_degree,
+        )
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "n", scheme.n)
+        object.__setattr__(self, "angles", scheme.angles)
+        object.__setattr__(self, "wide_search", scheme.wide_search)
+        object.__setattr__(self, "spline_degree", scheme.spline_degree)
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDMixed(_MixedPreset, PolicyIteration):
+    """The monotone mixed scheme of Chen, Wan and Lin (2018) solved by policy iteration.
+
+    ``FDMixed(n=n, angles=M, ...)`` is
+    ``PolicyIteration(scheme=MixedHJB(n=n, angles=M, ...), ...)``, the
+    "proposed mixed stencil scheme" of Chen-Wan-Lin 2018, Tables 1 to 4:
+    the standard 7-point stencil for the controls where it is monotone, the
+    semi-Lagrangian wide stencil for the others. By default the wide
+    stencil competes only where neither 7-point stationary point, eq. (30),
+    lies in its region, the rule the paper's tables follow; that rule is
+    not monotone everywhere, and policy iteration can then cycle or reach a
+    second root (``benchmarks/chen_wan_lin2018.md``, Findings 2, 5 to 7): on
+    the catalogue's T4 it cycles from ``n = 48`` on, the default ``n = 64``
+    included, where ``wide_search="everywhere"`` converges.
+    ``wide_search="everywhere"`` is the monotone maximum over all controls
+    (``docs/methods/chen_wan_lin2018.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side (``h = 1/n`` on the unit square, ADR 0001), so
+        ``(n + 1)^2`` nodes and ``(n - 1)^2`` unknowns; at least 2. The
+        paper's ``N`` is ``n`` (``benchmarks/chen_wan_lin2018.md``,
+        Finding 1).
+    angles
+        The number ``M`` of angles of the wide-stencil search, at least 1;
+        None takes ``n``, the paper's ``M = N``.
+    wide_search
+        Where the wide-stencil controls compete: ``"outside"`` (the paper's
+        tables), ``"everywhere"`` (its Section 5.2, monotone) or ``"only"``
+        (the pure semi-Lagrangian scheme); :class:`MixedHJB`.
+    max_iter
+        Most policy iterations.
+    tol
+        Stop when the max residual of the HJB equation is at most ``tol``,
+        the paper's ``1e-6`` by default.
+    krylov_tol
+        None solves each policy's system by sparse LU; a value, by BiCGSTAB
+        with an incomplete LU (:class:`PolicyIteration`).
+    spline_degree
+        Degree of the tensor spline that evaluates the solution off the
+        nodes, 1 to 5; a grid with fewer than ``spline_degree`` cells per
+        side takes degree ``n``.
+    """
+
+
+@dataclass(frozen=True, kw_only=True)
 class _StandardBoxPreset:
     """The fields and support of a preset on :class:`StandardBox`.
 
@@ -671,7 +757,7 @@ class FDSemiLagrangian(_SemiLagrangianPreset, Howard):
 
     ``FDSemiLagrangian(n=n, stencil_factor=m, directions=d, ...)`` is
     ``Howard(scheme=SemiLagrangian(n=n, stencil_factor=m, directions=d),
-    ...)``: the Bellman form of the equation, with semi-Lagrangian second
+    ...)``: the HJB form of the equation, with semi-Lagrangian second
     differences of stencil size ``m h`` along ``d`` directions, on the
     nodes of a uniform grid instead of the paper's unstructured triangular
     grid (``docs/methods/feng_jensen2017.md``).

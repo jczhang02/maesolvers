@@ -60,6 +60,7 @@ __all__ = [
     "T39",
     "T40",
     "T46",
+    "T20c",
 ]
 
 # Pure numerical kernels on float points of shape (..., d), values of shape (...).
@@ -261,6 +262,17 @@ def _t20_f(x: np.ndarray) -> np.ndarray:
     return 1.0 - 0.2 / np.maximum(r, 0.2)
 
 
+# T20c: f = (1 - 0.1/|x|)^+ on (-0.5, 0.5)^2, zero on the disk |x| <= 0.1.
+
+
+def _t20c_exact(x: np.ndarray) -> np.ndarray:
+    return 0.5 * np.maximum(np.sqrt(_r2(x)) - 0.1, 0.0) ** 2
+
+
+def _t20c_f(x: np.ndarray) -> np.ndarray:
+    return 1.0 - 0.1 / np.maximum(np.sqrt(_r2(x)), 0.1)
+
+
 # T28: T3 in 3D, f = |x|^(-3/2) / 16 blows up at the corner 0 but is integrable.
 
 
@@ -432,6 +444,17 @@ T20 = _dirichlet(
     "right-hand side (Froese-Oberman 2011).",
 )
 
+T20c = _dirichlet(
+    "T20c",
+    Box((-0.5, -0.5), (0.5, 0.5)),
+    _t20c_f,
+    _t20c_exact,
+    "T20 with radius 0.1 about the origin on (-0.5, 0.5)^2: C^1 solution, f = 0 "
+    "on the disk |x| < 0.1 (Chen-Wan-Lin 2018, Example 3). Defined by the "
+    "survey, not yet by the shared specification; the survey prints the "
+    "domain [-1, 1]^2, the paper (-0.5, 0.5)^2, which this follows.",
+)
+
 T22 = _sphere_solution(
     "T22",
     3,
@@ -500,6 +523,7 @@ CATALOGUE: Mapping[str, Problem] = MappingProxyType(
             T12,
             T16,
             T20,
+            T20c,
             T22,
             T28,
             T39,

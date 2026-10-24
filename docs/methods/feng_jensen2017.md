@@ -1,6 +1,6 @@
 # Semi-Lagrangian scheme
 
-The semi-Lagrangian scheme of Feng and Jensen (2017) writes `det D^2 u = f` as a Bellman equation, whose solutions are convex without a convexity constraint, and discretises it with wide stencils whose ends fall anywhere in the domain and take the value of the piecewise linear interpolant there.
+The semi-Lagrangian scheme of Feng and Jensen (2017) writes `det D^2 u = f` as a Hamilton-Jacobi-Bellman (HJB) equation, whose solutions are convex without a convexity constraint, and discretises it with wide stencils whose ends fall anywhere in the domain and take the value of the piecewise linear interpolant there.
 The scheme is monotone, its discrete solution is unique, and Howard's algorithm finds it from any start.
 maesolvers ships it as the scheme `SemiLagrangian`, the iteration `Howard`, and the preset `FDSemiLagrangian` for that pair (ADR 0004).
 Reproduction: [`benchmarks/feng_jensen2017.md`](../../benchmarks/feng_jensen2017.md).
@@ -14,7 +14,7 @@ same = Howard(scheme=SemiLagrangian(n=80, stencil_factor=4)).solve(T39)  # its p
 print(evaluate(result)["max"] / 4)  # 7.6e-3, relative to max |u| = 4
 ```
 
-## The equation in Bellman form
+## The equation in HJB form
 
 For a symmetric matrix `A` and `f >= 0` (Feng-Jensen 2017, Section 3; the paper writes the right-hand side as `(f/d)^d`, so its `f` is `2 sqrt(f)` here):
 
@@ -78,6 +78,7 @@ The fit can be indefinite where every second difference is nonnegative (Known li
 `Howard` starts from `laplace u = 2 sqrt(f)`, which for this scheme is the equation of the control `B = Id / 2` (the paper's start `B_0 = Id / d`), and takes full Newton steps `v - J^{-1} r(v)`, stopping when a step changes no unknown by more than `tol` (the paper's `10^-6`).
 `SemiLagrangian.jacobian` differentiates the maximising frame with its split `a` (Danskin's theorem): it is the linear part `L^B` of the maximising control, an M-matrix (Lemma 5.1).
 Because the equation of each control is affine in `u`, a Newton step solves the equation of the control that maximises at the current iterate: this is Howard's policy iteration (Algorithm 1), which converges from any start, monotonically decreasing and superlinearly (Theorem 5.2).
+`PolicyIteration`, the iteration of the mixed scheme (`docs/methods/chen_wan_lin2018.md`), is the same algorithm for a scheme that returns each policy's system (`policy_system`) and stops on the residual; `Howard` works from the scheme's `residual` and `jacobian` and stops on the step, the paper's rule.
 In the reproduction it takes 4 to 7 steps on T39 and 2 to 9 on T40, against 4 to 16 in the paper's Figure 8; on T40 turned off the grid, more where the stencil is narrow, up to 27 at `m = 2` (`benchmarks/feng_jensen2017.md`).
 
 The linear systems are wide-stencil M-matrices, which a sparse LU factorisation fills in (35 s at `n = 121`, `m = 32`, against 0.01 s for the Krylov solve); `Howard` solves them by BiCGSTAB preconditioned with the diagonal, then restarted GMRES, then the LU factorisation where a Krylov method stops short of a relative residual of `1e-8`.
