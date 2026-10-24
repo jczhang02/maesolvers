@@ -4,6 +4,7 @@ import csv
 import dataclasses
 import importlib.util
 import itertools
+import math
 from pathlib import Path
 
 import numpy as np
@@ -533,6 +534,85 @@ def test_the_runner_sweep_of_eight_levels_is_the_receipt_row_for_row():
     assert len(rows) == len(set(rows)) == 141
     assert set(runner.sweep(8)) == set(rows)
     assert len(runner.sweep(8)) == 8 * 3 * 6 - len(runner.EXCLUDED)
+
+
+@pytest.mark.parametrize(("a", "b"), [(0, 0), (1, 0), (3, 5), (8, 0), (2, 6)])
+def test_the_triangle_rule_is_exact_to_degree_8(a, b):
+    points, weights = _runner().triangle_rule(5)
+    integral = np.sum(weights * points[:, 0] ** a * points[:, 1] ** b)
+    exact = math.factorial(a) * math.factorial(b) / math.factorial(a + b + 2)
+    assert integral == pytest.approx(exact, rel=1e-13)
+
+
+REFERENCE = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+
+
+def test_fe_errors_vanish_on_a_linear_function():
+    runner = _runner()
+    nodes = np.random.default_rng(0).random((30, 2))
+
+    def u(x):
+        return 1.0 + 2.0 * x[..., 0] - x[..., 1]
+
+    def grad(x):
+        return np.broadcast_to([2.0, -1.0], x.shape)
+
+    l2, h1 = runner.fe_errors(nodes, u(nodes), u, grad)
+    assert l2 < 1e-14 and h1 < 1e-14
+
+
+def test_fe_errors_of_x_squared_on_one_triangle_are_known():
+    """u = x^2 against its interpolant x: ||e||^2 = 1/60, ||grad e||^2 = 1/6,
+    ||u||^2 = 1/30 and ||grad u||^2 = 1/3, so both ratios are 1/2."""
+    l2, h1 = _runner().fe_errors(
+        REFERENCE,
+        REFERENCE[:, 0] ** 2,
+        lambda x: x[..., 0] ** 2,
+        lambda x: np.stack([2.0 * x[..., 0], 0.0 * x[..., 0]], -1),
+    )
+    assert l2 == pytest.approx(np.sqrt(0.5), rel=1e-13)
+    assert h1 == pytest.approx(np.sqrt(0.5), rel=1e-13)
+
+
+def test_fe_errors_split_the_triangles_along_the_kink():
+    """u = |x1| on (-1, 0), (1, 0), (0, 1) against its interpolant 1 - x2:
+    ||e||^2 = ||u||^2 = 1/6, ||grad e||^2 = 2 and ||grad u||^2 = 1."""
+    runner = _runner()
+    nodes = np.array([[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    l2, h1 = runner.fe_errors(
+        nodes,
+        np.abs(nodes[:, 0]),
+        lambda x: np.abs(x[..., 0]),
+        runner.GRADIENT["T40"],
+        kink=np.array([1.0, 0.0]),
+    )
+    assert l2 == pytest.approx(1.0, rel=1e-13)
+    assert h1 == pytest.approx(np.sqrt(13 / 7), rel=1e-13)
+
+
+def test_split_along_line_keeps_the_area_and_puts_each_piece_on_one_side():
+    runner = _runner()
+    corners = np.random.default_rng(1).normal(size=(200, 3, 2))
+    normal = runner.KINK["T40 turned"]
+    pieces, parent = runner.split_along_line(corners, normal)
+
+    def area(c):
+        return 0.5 * np.abs(np.linalg.det(c[:, 1:] - c[:, :1]))
+
+    np.testing.assert_allclose(
+        np.bincount(parent, area(pieces), len(corners)), area(corners), rtol=1e-12
+    )
+    side = pieces @ normal
+    assert np.all((side.min(axis=1) >= -1e-12) | (side.max(axis=1) <= 1e-12))
+    assert len(pieces) > len(corners)
+
+
+def test_fe_errors_use_the_triangulation_the_scheme_interpolates_on():
+    scheme = SemiLagrangian(n=12)
+    result = Howard(scheme=scheme).solve(T39)
+    np.testing.assert_array_equal(
+        Delaunay(result.nodes).simplices, scheme.discretize(T39).tri.simplices
+    )
 
 
 # The solution
