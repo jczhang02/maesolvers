@@ -24,6 +24,7 @@ from maesolvers import (  # noqa: E402
     T9,
     T12,
     T20,
+    T39,
     Adam,
     Box,
     Dirichlet,
@@ -391,6 +392,17 @@ def test_the_presets_name_the_reference_point_when_it_fails(problem):
     moved = DirichletQSPINN(reference=(0.1, 0.1))
     assert moved.network == QuadraticForm(reference=(0.1, 0.1))
     assert moved.reference == (0.1, 0.1) and moved.supports(problem)
+
+
+@pytest.mark.parametrize("reference", [None, (0.5, 0.5)])
+def test_no_reference_hint_when_another_part_refuses(reference):
+    # f(0, 0) = 0 on T39, but the sampler refuses its DiskUnionSquare (#74)
+    # wherever x0 is, so moving x0 would not help.
+    solver = DirichletQSPINN(reference=reference)
+    assert (solver.network.refusal(T39) is None) == (reference is not None)
+    with pytest.raises(UnsupportedProblemError) as error:
+        solver.check(T39)
+    assert "reference" not in str(error.value)
 
 
 def test_the_transport_preset_names_the_reference_point_when_it_fails():

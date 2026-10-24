@@ -395,22 +395,25 @@ class TransportICNN(_TransportPreset):
 
 
 def _check_naming_the_reference(
-    network: Network, check: Callable[[Problem], None], problem: Problem
+    solver: NeuralSolver, check: Callable[[Problem], None], problem: Problem
 ) -> None:
-    """Run ``check``; if it refuses the problem for the QS form's reference point, say so.
+    """Run ``check``; if only the QS form's reference point refuses the problem, say so.
 
     The message of :meth:`~maesolvers.core.solver.Solver.check` names the
-    domain and the boundary condition; when the reason is the reference
-    point (:meth:`QuadraticForm.refusal
-    <maesolvers.neural.networks.QuadraticForm.refusal>`), it is added, with
-    the parameter that moves the point.
+    domain and the boundary condition; when the network refuses the problem
+    for its reference point (:meth:`QuadraticForm.refusal
+    <maesolvers.neural.networks.QuadraticForm.refusal>`) and the loss and
+    the sampler support it, so that another point would make the solver
+    support it, the reason is added, with the parameter that moves the point.
     """
     try:
         check(problem)
     except UnsupportedProblemError as error:
+        network = solver.network
         assert isinstance(network, QuadraticForm)
         reason = network.refusal(problem)
-        if reason is None:
+        others = solver.loss.supports(problem) and solver.sampler.supports(problem)
+        if reason is None or not others:
             raise
         x0 = tuple(float(v) for v in network.point(problem))
         raise UnsupportedProblemError(
@@ -532,12 +535,12 @@ class DirichletQSPINN(NeuralSolver):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reason is the reference
-            point, the message says so.
+            If :meth:`supports` is False; when the reference point is the
+            only reason, the message says so.
         ImportError
             Without torch or lightning.
         """
-        _check_naming_the_reference(self.network, super().check, problem)
+        _check_naming_the_reference(self, super().check, problem)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -662,12 +665,12 @@ class TransportQSPINN(_TransportPreset):
         Raises
         ------
         UnsupportedProblemError
-            If :meth:`supports` is False; when the reason is the reference
-            point, the message says so.
+            If :meth:`supports` is False; when the reference point is the
+            only reason, the message says so.
         ValueError
             If the source mass differs from the target's volume
             (:meth:`_TransportPreset.check`).
         ImportError
             Without torch or lightning.
         """
-        _check_naming_the_reference(self.network, super().check, problem)
+        _check_naming_the_reference(self, super().check, problem)
