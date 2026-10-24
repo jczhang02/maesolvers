@@ -1,15 +1,16 @@
-# Published finite-difference benchmarks for the 2D Dirichlet Monge-Ampere problem
+# Published finite-difference benchmarks for the Monge-Ampere equation
 
-Target problem: det D^2 u = f on (0,1)^2 with Dirichlet data from the exact solution.
-Target solution (a): u = exp(|x|^2 / 2), f = (1 + |x|^2) exp(|x|^2).
-Target solution (b): u = -sqrt(2 - |x|^2), f = 2 (2 - |x|^2)^(-2), gradient unbounded at the corner (1,1).
+The tables below are the published finite-difference tables that maesolvers reproduces: in 2D and 3D, with Dirichlet data and with the transport boundary condition.
+Most of the 2D Dirichlet tables share two problems, det D^2 u = f on (0,1)^2 with Dirichlet data from the exact solution:
+solution (a), T1: u = exp(|x|^2 / 2), f = (1 + |x|^2) exp(|x|^2);
+solution (b), T2: u = -sqrt(2 - |x|^2), f = 2 (2 - |x|^2)^(-2), gradient unbounded at the corner (1,1).
 
 All numbers below were copied from the journal versions, read from local PDF copies in the Zotero library.
 Each value was checked against a rendered image of the printed page.
 The arXiv and Numdam links are public equivalents; their tables were not checked against the journal tables.
 Values keep the printed scaling (for example "24.45 x 10^-5", not 2.445e-4).
 A "--" means the paper printed a dash: the run was not done, or it was too slow to report.
-The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network).
+The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network), and Caboussat-Peruso 2025 in `icnn.md` (T12).
 
 ## Grid convention (settled by ADR 0001)
 
@@ -612,6 +613,24 @@ The Linf rates are the end-to-end slopes of the Figure 6 columns: `log2(9.26e-2 
 ### Figure 8, Howard steps to a step below 10^-6
 
 Over all levels and all `m`, 4 to 16 steps; at the `m` that minimises the Linf error (the boxed entries), 5 to 8 on the quartic problem and 5 to 9 on the nonsmooth one.
+
+## 8. Benamou, Froese, Oberman, J. Comput. Phys. (2014)
+
+J.-D. Benamou, B. D. Froese, A. M. Oberman, "Numerical solution of the optimal transportation problem using the Monge-Ampere equation", J. Comput. Phys. 260 (2014) 107-126, DOI 10.1016/j.jcp.2013.12.015.
+Read: local journal PDF (Zotero item W5FIFMRA, attachment ZGDPYBIE).
+
+The transport boundary condition as an upwind Hamilton-Jacobi equation on the boundary, the filtered scheme inside, solved by Newton.
+Tables 1 to 3 print the max error of the gradient map: Table 1 on T16, the square onto itself, against `N`, with the L2 error and the Newton iterations; Table 2 an ellipse onto a rotated ellipse and Table 3 two half-disks onto a disk (neither has a T id), against `N` and the number `N_Y` of target directions.
+They are transcribed, checked against rendered images of pp. 118-120, in `bfo2014.md`, next to our values, where each table's grid convention is stated (Table 1's max column counts `N` nodes per side, Finding 1 there).
+
+## 9. Chen, Wan, Lin, J. Sci. Comput. (2018)
+
+Y. Chen, J. W. L. Wan, J. Lin, "Monotone mixed finite difference scheme for Monge-Ampere equation", J. Sci. Comput. 76 (2018) 1839-1867, DOI 10.1007/s10915-018-0685-y.
+Read: local journal PDF (Zotero attachments 3XWEWWT6, 9WII8MMM; the survey calls the paper "Chen-Wan-Wang 2018").
+
+The HJB form, each control on the standard 7-point stencil where it is monotone and on the semi-Lagrangian wide stencil elsewhere, solved by policy iteration; grid `h = 1/N`.
+Tables 1 to 4 print the L2 and max errors, their orders and the policy iterations against `N`, for the mixed scheme and, in Tables 1 to 3, the pure semi-Lagrangian scheme: Table 1 on T1 moved to `[-1, 1]^2`, Table 2 on T2, Table 3 on T20c, Table 4 on the cone T21; Table 5 prints `u_h(0, 0)` for `f = 1`, `g = 0` on `(-0.5, 0.5)^2`, monotone against non-monotone.
+They are transcribed, checked against the PDF's page images, in `chen_wan_lin2018.md`, next to our values.
 
 ## What a reproduction must match
 
