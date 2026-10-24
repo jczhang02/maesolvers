@@ -324,10 +324,11 @@ A new iteration that calls other scheme methods lists them in its own `requires`
 
 A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, so its fields are its parameters (an iteration checks this as the base class checks a solver), and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
 `Standard9` in `maesolvers/classical/schemes.py` is the model to follow; `docs/methods/standard9.md` describes its mathematics.
+A scheme in HJB form, a maximum over policies of linear operators, runs under `PolicyIteration` if it provides `policy_system(grid, v)`, which returns the sparse matrix `A` and the vector `F` of the optimal policy at `v` (so that `A v - F` is the residual), and `solve_laplace(grid, rhs)`; `MixedHJB` in `maesolvers/classical/mixed.py` is the model (`docs/methods/chen_wan_lin2018.md`).
 
 ### Grids in any dimension
 
-`Standard9`, `Hybrid` and `Filtered` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
+`Standard9`, `Hybrid`, `Filtered` and `MixedHJB` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
 `StandardBox`, the standard scheme on a box, runs in 2D and 3D under `Newton` and `Multigrid` (`docs/methods/multigrid.md`); a scheme of your own on a box runs under `Multigrid` if it has a field `n` and provides `values` (the node values with its boundary data on the ring) and `relax` (the pointwise Gauss-Seidel solve) besides `residual`.
 `BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
 

@@ -53,6 +53,7 @@ def test_catalogue_is_keyed_by_t_id():
         "T12",
         "T16",
         "T20",
+        "T20c",
         "T22",
         "T28",
         "T46",
@@ -194,6 +195,11 @@ HAND_VALUES = [
     # q'(0) = 0, q''(0) = -2 pi, so u = 4 q(0)^2 and
     # f = 1 - 16 pi q(0) + 64 pi^2 q(0)^2 = (1 - 8 pi q(0))^2.
     ("T16", (0.0, 0.0), 4.0 * _Q0**2, (1.0 - 8.0 * np.pi * _Q0) ** 2),
+    # T20c: |x| = 0.5 at (0.3, 0.4): u = 0.4^2 / 2 = 0.08, f = 1 - 0.1/0.5;
+    # on the flat disk u = f = 0, also at the origin itself.
+    ("T20c", (0.3, 0.4), 0.08, 0.8),
+    ("T20c", (0.06, -0.08), 0.0, 0.0),
+    ("T20c", (0.0, 0.0), 0.0, 0.0),
     # At the origin u = -sqrt 3, f = 3 * 3^(-5/2).
     ("T22", (0.0, 0.0, 0.0), -np.sqrt(3.0), 3.0**-1.5),
     # |x| = 1: u = 1/3, f = 1/16; at (1, 1, 1), |x|^2 = 3: u = 3^(3/4) / 3,
@@ -271,6 +277,7 @@ KINKS = {
     "T4": ((0.5, 0.5), 0.4),
     "T5": ((0.0, 0.0), 1.0),
     "T20": ((0.5, 0.5), 0.2),
+    "T20c": ((0.0, 0.0), 0.1),
 }
 
 
@@ -388,7 +395,8 @@ def _enclosed_area(loop):
 # int (1 + x^2 + y^2) exp(x^2 + y^2) = A^2 + 2 A (e - A)/2 = A e. T3: the
 # integral of 1/|x| over (0, a)^2 is 2 a ln(1 + sqrt 2). T4, T5: the area
 # where f > 0 times f. T20: (1 - 0.04 pi) - 0.2 (4 ln(1 + sqrt 2) - 0.4 pi),
-# the square of side 1 about the centre being four squares of side 1/2.
+# the square of side 1 about the centre being four squares of side 1/2; T20c
+# likewise with radius 0.1.
 _LN = np.log(1.0 + np.sqrt(2.0))
 INTEGRAL_OF_F = {
     "T1": np.e * np.sqrt(np.pi) / 2.0 * erfi(1.0),
@@ -396,6 +404,7 @@ INTEGRAL_OF_F = {
     "T4": 1.0 - 0.16 * np.pi,
     "T5": 4.0 * (1.5**2 - np.pi / 4.0),
     "T20": 1.0 + 0.04 * np.pi - 0.8 * _LN,
+    "T20c": 1.0 + 0.01 * np.pi - 0.4 * _LN,
 }
 
 

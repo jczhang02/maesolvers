@@ -18,6 +18,7 @@ README's section "Comparison" shows the tables; this file says how they were mad
 - The rows of `DirichletQSPINN` and `TransportQSPINN` (issue #33) came from the same script at commit 249e131 (review round 1 of #69: `alpha` kept positive, the presets' `reference` field), clean checkout, merged into the receipt in 1681 s of wall time with 8 worker processes of one CPU thread each: `just remote-bg qs-comparison-r1 env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers DirichletQSPINN TransportQSPINN --workers 8 --out /jczhang02/maesolvers-data/data/comparison-qs-r1.csv`, the current `comparison.csv` copied there first; every other row agrees with it to every byte.
   They replace the rows of the first version, at 0526410 (`maesolvers-dirichletqspinn-*` and `maesolvers-transportqspinn-T12` keep both in MLflow, under the same run names, told apart by their commit tag).
   The rows of `FDMultigrid` (from `next`) and these rows came from separate branches; the merge of the two receipts keeps every row as its branch wrote it.
+- The `FDMixed` rows (issue #31) came from the same script at commit 55da491, clean checkout, merged into the receipt in 261 s of wall time with 3 worker processes of one CPU thread each: `run_comparison.py --solvers FDMixed --workers 3 --out /jczhang02/maesolvers-data/data/cwl-r1-comparison.csv`, the current `comparison.csv` copied there first; every other row is unchanged. They rerun the rows of commit 2f828a6 after `FDMixed` gained the field `wide_search`, with the same errors and iterations to the last printed digit.
 - Every run is one MLflow run in the experiment `maesolvers-<preset in lower case>-<problem>` (for example `maesolvers-fdnewton-T1`, `maesolvers-dirichleticnn-T9`), named `comparison n=361` or `comparison seed=<s>` and tagged `benchmark=comparison`; the neural runs carry their training curves.
 - `comparison.py` writes README's tables from the CSV (`just comparison-table`), with notes derived from the rows (the grid steps, the seeds, the machine, the reasons), and `tests/test_comparison.py` checks that README is current and that the CSV covers every preset on every problem of the shared test set, with seeds 0 to 9 for a neural preset, `n = 361` for a classical one, the reason `unsupported_reason` gives for an unsupported pair, and the `hparams` the preset has now.
   A new preset, a preset whose support or defaults change, fails that test until `run_comparison.py` runs again.
@@ -76,7 +77,7 @@ At `n = 361` the damped Newton iteration of `FDFiltered` stops after 14, 21 and 
 
 ### Finding 3: every classical preset and `PenaltyMLP` have non-convex points on T20; `DirichletICNN` has none
 
-On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 9.8% (`FDNewton`) of the interior nodes (`FDMultigrid` 5.7%, after cycles that do not converge, Finding 7), as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
+On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the centred discrete Hessian of every classical preset has a negative smallest eigenvalue at 3.4% (`FDPoisson`) to 10.9% (`FDMixed`) of the interior nodes (`FDMultigrid` 5.7%, after cycles that do not converge, Finding 7), as `monotone17.md` (Finding 6) and `filtered.md` record for single presets.
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
 On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` and `FDMultigrid` have none (`FDMultigrid` had 6 when it stopped after two cycles, `multigrid.md`, Finding 4).
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
@@ -98,7 +99,7 @@ Its default `ratio = 0.6` is too small for the canonical QS representation of T1
 
 ### Finding 6: cost
 
-At `n = 361` the classical presets take 0.9 s (`FDMultigrid` on T1) to 240 s on one thread, with 129600 unknowns on the square and 102328 on the disk, and `FDMultigrid` 155 s on T9, with 46656000 unknowns; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), except `DirichletQSPINN`, whose seeds stall or converge sooner (38 s to 422 s), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
+At `n = 361` the classical presets take 0.9 s (`FDMultigrid` on T1) to 260 s (`FDMixed` on T20) on one thread, with 129600 unknowns on the square and 102328 on the disk, and `FDMultigrid` 155 s on T9, with 46656000 unknowns; the neural presets take 416 s to 1450 s per seed (medians; T10's 155 s is the exception of Finding 5), except `DirichletQSPINN`, whose seeds stall or converge sooner (38 s to 422 s), and on T1, T2 and T20 their median errors are two to four orders of magnitude above the best classical preset's.
 The cheapest accurate classical preset differs by problem: `FDPoisson` on T1 (2.6 s, 5.28e-7), `FDHybrid` on T2 (4.18e-5 in 152 s, against 5.41e-3 for `FDPoisson`), `FDPoisson` on T20 (1.59e-5 in 36 s).
 
 ### Finding 7: `FDMultigrid` is the one classical preset whose defaults run T9, and the fastest on the square; it does not converge on T20
@@ -108,6 +109,10 @@ On the square it stops after one cycle on T1 (0.9 s) and nine on T2 (3.9 s); its
 On T20, where `f = 0` on a disk, its cycles stall: it runs its 50 cycles in 19 s and reports `converged` False, so its cell carries `\*`, with an error of 1.69e-5 (against 1.59e-5 for `FDPoisson`) and 5.7% non-convex nodes; the paper warns that the method may break down on degenerate data (`docs/methods/multigrid.md`, Known limits).
 The first receipt of these rows (fe47d9b) stopped by the paper's relative residual, which holds after one cycle on fine grids whatever the iterate (`multigrid.md`, Findings 2 and 5): it reported one cycle and `converged` True on T20 (3.51e-5, 0.72% non-convex nodes) and two cycles on T2 (5.40e-3, 6 non-convex nodes).
 `n = 361` is not a power of 2, so its grids (361, 181, 91, 46, 23, 12, 6, 3, 2 cells) are not nested and the transfers interpolate linearly between them (`docs/methods/multigrid.md`); the paper's grids are powers of 2.
+
+### Finding 8: `FDMixed` on T2 ends on its second root
+
+`FDMixed` reaches 7.0e-7 on T1 with the 7-point stencil at every node, but 2.13e-4 on T2, the second root of `chen_wan_lin2018.md`, Finding 5: from the paper's start, policy iteration ends with the wide stencil at a few nodes next to the corner `(1, 1)` (28 policy iterations; 18 non-convex nodes, 0.014%), as it does there from `N = 256` on; its 7-point root, which it reaches from the exact solution, is more accurate.
 
 ## Rerun
 

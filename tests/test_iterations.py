@@ -21,6 +21,7 @@ from maesolvers import (
     DirichletQSPINN,
     FDFiltered,
     FDHybrid,
+    FDMixed,
     FDMonotone,
     FDMultigrid,
     FDNewton,
@@ -241,6 +242,7 @@ def test_the_registry_lists_the_presets_read_only():
     assert dict(SOLVERS) == {
         "FDFiltered": FDFiltered,
         "FDHybrid": FDHybrid,
+        "FDMixed": FDMixed,
         "FDMultigrid": FDMultigrid,
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
@@ -258,7 +260,16 @@ def test_the_registry_lists_the_presets_read_only():
 
 @pytest.mark.parametrize(
     "solver",
-    [FDFiltered, FDHybrid, FDMonotone, FDMultigrid, FDNewton, FDPoisson, FDTransport],
+    [
+        FDFiltered,
+        FDHybrid,
+        FDMixed,
+        FDMonotone,
+        FDMultigrid,
+        FDNewton,
+        FDPoisson,
+        FDTransport,
+    ],
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
