@@ -29,6 +29,17 @@ if TYPE_CHECKING:
 _LOGGERS = ("lightning.pytorch", "lightning.fabric")
 """Lightning's loggers, which report the hardware at INFO level on every fit."""
 
+_ADVICE = (
+    "does not have many workers",
+    "`srun` command is available",
+    "GPU available but not used",
+)
+"""Lightning's warnings about the environment, silenced on every fit.
+
+The last fires only for ``accelerator="cpu"`` on a host with a GPU: the CPU
+is the solver's documented default (ADR 0008), so the warning is noise.
+"""
+
 
 class _Forever(IterableDataset):
     """An endless stream of empty batches: the data live on the module (full batch)."""
@@ -172,13 +183,13 @@ class _Forward(lightning.Callback):
 
 @contextmanager
 def _quiet() -> Iterator[None]:
-    """Silence Lightning's per-fit hardware report and advice about the environment."""
+    """Silence Lightning's per-fit hardware report and its advice in ``_ADVICE``."""
     levels = {name: logging.getLogger(name).level for name in _LOGGERS}
     for name in _LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
     try:
         with warnings.catch_warnings():
-            for advice in ("does not have many workers", "`srun` command is available"):
+            for advice in _ADVICE:
                 warnings.filterwarnings("ignore", message=f".*{advice}.*")
             yield
     finally:

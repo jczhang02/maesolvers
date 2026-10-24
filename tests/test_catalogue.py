@@ -22,13 +22,14 @@ import pytest
 from scipy.special import erfi
 
 import maesolvers
-from maesolvers import FDNewton, FDPoisson
+from maesolvers import FDMultigrid, FDNewton, FDPoisson, FDSemiLagrangian
 from maesolvers.catalogue import CATALOGUE, SHARED_TEST_SET
 from maesolvers.core import (
     Box,
     CutQuarterDisk,
     Dirichlet,
     Disk,
+    DiskUnionSquare,
     Result,
     Transport,
     UnsupportedProblemError,
@@ -53,7 +54,12 @@ def test_catalogue_is_keyed_by_t_id():
         "T12",
         "T16",
         "T20",
+        "T20c",
         "T22",
+        "T28",
+        "T39",
+        "T40",
+        "T46",
     ]
     assert all(problem.name == key for key, problem in CATALOGUE.items())
 
@@ -100,7 +106,8 @@ def test_every_problem_has_an_exact_solution_or_observables(name):
 
 
 @pytest.mark.parametrize(
-    ("name", "dim"), [("T1", 2), ("T9", 3), ("T10", 4), ("T2", 2), ("T22", 3)]
+    ("name", "dim"),
+    [("T1", 2), ("T9", 3), ("T10", 4), ("T2", 2), ("T22", 3), ("T28", 3)],
 )
 def test_unit_box_problems_have_their_dimension(name, dim):
     assert CATALOGUE[name].domain == Box((0,) * dim, (1,) * dim)
@@ -191,8 +198,36 @@ HAND_VALUES = [
     # q'(0) = 0, q''(0) = -2 pi, so u = 4 q(0)^2 and
     # f = 1 - 16 pi q(0) + 64 pi^2 q(0)^2 = (1 - 8 pi q(0))^2.
     ("T16", (0.0, 0.0), 4.0 * _Q0**2, (1.0 - 8.0 * np.pi * _Q0) ** 2),
+    # T20c: |x| = 0.5 at (0.3, 0.4): u = 0.4^2 / 2 = 0.08, f = 1 - 0.1/0.5;
+    # on the flat disk u = f = 0, also at the origin itself.
+    ("T20c", (0.3, 0.4), 0.08, 0.8),
+    ("T20c", (0.06, -0.08), 0.0, 0.0),
+    ("T20c", (0.0, 0.0), 0.0, 0.0),
     # At the origin u = -sqrt 3, f = 3 * 3^(-5/2).
     ("T22", (0.0, 0.0, 0.0), -np.sqrt(3.0), 3.0**-1.5),
+    # |x| = 1: u = 1/3, f = 1/16; at (1, 1, 1), |x|^2 = 3: u = 3^(3/4) / 3,
+    # f = 3^(-3/4) / 16.
+    ("T28", (0.48, 0.6, 0.64), 1.0 / 3.0, 1.0 / 16.0),
+    ("T28", (1.0, 1.0, 1.0), 3.0**0.75 / 3.0, 3.0**-0.75 / 16.0),
+    # u = |x|^4 and f = 48 |x|^4: on the unit circle, at the corner (1, 1)
+    # of the square (|x|^2 = 2), and at (0.5, -0.5) (|x|^2 = 1/2); f vanishes
+    # at the origin.
+    ("T39", (0.6, 0.8), 1.0, 48.0),
+    ("T39", (1.0, 1.0), 4.0, 192.0),
+    ("T39", (0.5, -0.5), 0.25, 12.0),
+    ("T39", (0.0, 0.0), 0.0, 0.0),
+    # u = |x1|, f = 0, on the kink and either side of it.
+    ("T40", (-0.3, 0.9), 0.3, 0.0),
+    ("T40", (0.0, -0.5), 0.0, 0.0),
+    ("T40", (0.9, 0.9), 0.9, 0.0),
+    # sin(pi/2) = 1, sin(pi/6) = 1/2, sin 0 = 0.
+    (
+        "T46",
+        (np.pi / 2, np.pi / 6, 0.0),
+        0.5 * (np.pi**2 / 4 + np.pi**2 / 36) - 1.5,
+        2.0 * 1.5 * 1.0,
+    ),
+    ("T46", (np.pi,) * 3, 1.5 * np.pi**2, 1.0),
 ]
 
 
@@ -205,7 +240,8 @@ def test_hand_computed_values(name, point, u, f):
 
 
 @pytest.mark.parametrize(
-    ("name", "point"), [("T2", (1.0, 1.0)), ("T3", (0.0, 0.0)), ("T22", (1.0,) * 3)]
+    ("name", "point"),
+    [("T2", (1.0, 1.0)), ("T3", (0.0, 0.0)), ("T22", (1.0,) * 3), ("T28", (0.0,) * 3)],
 )
 def test_f_is_infinite_at_its_singular_point(name, point):
     problem = CATALOGUE[name]
@@ -218,7 +254,9 @@ def test_f_is_infinite_at_its_singular_point(name, point):
 def test_f_and_exact_are_finite_on_the_shared_grid_away_from_singular_points(name):
     problem = CATALOGUE[name]
     grid = shared_grid(problem.domain)
-    singular = {"T2": (1, 1), "T3": (0, 0), "T22": (1, 1, 1)}.get(name)
+    singular = {"T2": (1, 1), "T3": (0, 0), "T22": (1, 1, 1), "T28": (0, 0, 0)}.get(
+        name
+    )
     if singular is not None:
         grid = grid[np.any(grid != singular, axis=-1)]
     with np.errstate(all="raise"):
@@ -253,7 +291,11 @@ KINKS = {
     "T4": ((0.5, 0.5), 0.4),
     "T5": ((0.0, 0.0), 1.0),
     "T20": ((0.5, 0.5), 0.2),
+    "T20c": ((0.0, 0.0), 0.1),
 }
+
+# Lines where D u jumps: x1 = value.
+KINK_LINES = {"T40": 0.0}
 
 
 def _smooth_interior_points(problem, rng, count=300, margin=0.05):
@@ -270,6 +312,8 @@ def _smooth_interior_points(problem, rng, count=300, margin=0.05):
         center, radius = KINKS[problem.name]
         r = np.linalg.norm(p - center, axis=-1)
         keep &= np.abs(r - radius) > margin
+    if problem.name in KINK_LINES:
+        keep &= np.abs(p[:, 0] - KINK_LINES[problem.name]) > margin
     p = p[keep]
     assert len(p) >= count
     return p[:count]
@@ -302,6 +346,16 @@ def _boundary_points(domain, rng, count=400):
         t = rng.uniform(0.0, 2.0 * np.pi, count)
         return np.asarray(domain.center) + domain.radius * np.stack(
             [np.cos(t), np.sin(t)], axis=-1
+        )
+    if isinstance(domain, DiskUnionSquare):
+        s = rng.uniform(0.0, 1.0, count)[:, None]
+        t = rng.uniform(np.pi / 2, 2.0 * np.pi, count)
+        return np.concatenate(
+            [
+                np.hstack([np.ones_like(s), s]),  # the side x = 1
+                np.hstack([s, np.ones_like(s)]),  # the side y = 1
+                np.stack([np.cos(t), np.sin(t)], axis=-1),  # the arc
+            ]
         )
     assert isinstance(domain, CutQuarterDisk)
     corner = np.array([(1.0 + np.sqrt(7.0)) / 4.0, (np.sqrt(7.0) - 1.0) / 4.0])
@@ -370,7 +424,8 @@ def _enclosed_area(loop):
 # int (1 + x^2 + y^2) exp(x^2 + y^2) = A^2 + 2 A (e - A)/2 = A e. T3: the
 # integral of 1/|x| over (0, a)^2 is 2 a ln(1 + sqrt 2). T4, T5: the area
 # where f > 0 times f. T20: (1 - 0.04 pi) - 0.2 (4 ln(1 + sqrt 2) - 0.4 pi),
-# the square of side 1 about the centre being four squares of side 1/2.
+# the square of side 1 about the centre being four squares of side 1/2; T20c
+# likewise with radius 0.1.
 _LN = np.log(1.0 + np.sqrt(2.0))
 INTEGRAL_OF_F = {
     "T1": np.e * np.sqrt(np.pi) / 2.0 * erfi(1.0),
@@ -378,6 +433,7 @@ INTEGRAL_OF_F = {
     "T4": 1.0 - 0.16 * np.pi,
     "T5": 4.0 * (1.5**2 - np.pi / 4.0),
     "T20": 1.0 + 0.04 * np.pi - 0.8 * _LN,
+    "T20c": 1.0 + 0.01 * np.pi - 0.4 * _LN,
 }
 
 
@@ -458,7 +514,11 @@ def test_t7_reports_u_at_the_origin():
 # evaluate reports finite numbers, or it refuses with UnsupportedProblemError.
 
 
-@pytest.mark.parametrize("solver", [FDPoisson(n=8), FDNewton(n=8)], ids=repr)
+@pytest.mark.parametrize(
+    "solver",
+    [FDPoisson(n=8), FDNewton(n=8), FDMultigrid(n=8), FDSemiLagrangian(n=8)],
+    ids=repr,
+)
 @pytest.mark.parametrize("name", list(CATALOGUE))
 def test_every_solver_solves_or_refuses_every_problem(solver, name):
     problem = CATALOGUE[name]

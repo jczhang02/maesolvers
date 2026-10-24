@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from maesolvers.core import boolean, integer, nonnegative, positive
+from maesolvers.core import boolean, floats, integer, nonnegative, positive
 
 
 @pytest.mark.parametrize("value", [3, np.int64(3), np.int32(3)])
@@ -74,3 +74,27 @@ def test_boolean_returns_a_plain_bool(value):
 def test_boolean_rejects_a_non_bool_naming_the_parameter(value):
     with pytest.raises(TypeError, match="flag must be a bool"):
         boolean("flag", value)
+
+
+@pytest.mark.parametrize(
+    "value", [(0, 1.5), [np.float64(0.25), 2], np.array([1.0, -3.0])]
+)
+def test_floats_returns_a_tuple_of_plain_floats(value):
+    out = floats("x0", value)
+    assert out == tuple(float(v) for v in value)
+    assert all(type(v) is float for v in out)
+
+
+@pytest.mark.parametrize("value", [1.0, None, "12", b"12", (0.0, True), (0.0, "1")])
+def test_floats_rejects_a_non_sequence_or_non_real_naming_the_parameter(value):
+    with pytest.raises(TypeError, match="x0 must be a sequence of numbers"):
+        floats("x0", value)
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [((), "one or more"), ((0.0, np.inf), "finite"), ((np.nan,), "finite")],
+)
+def test_floats_rejects_an_empty_or_non_finite_sequence(value, message):
+    with pytest.raises(ValueError, match=message):
+        floats("x0", value)

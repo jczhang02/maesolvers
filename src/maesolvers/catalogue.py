@@ -10,7 +10,7 @@ P5 is T2, P1 is T8 with ``g = 0``, P3 is T12, P2 left the catalogue).
 
 Every Dirichlet problem with an exact solution takes its boundary data from
 that solution. A right-hand side that blows up at a point of the closed
-domain (T2, T3, T22) returns ``inf`` there. Every field checks that its points
+domain (T2, T3, T22, T28) returns ``inf`` there. Every field checks that its points
 have shape ``(..., d)`` and raises ``ValueError`` otherwise.
 
 T21 of the specification (the cone ``|x - x0|``, whose ``f`` is a Dirac mass at
@@ -26,15 +26,16 @@ from types import MappingProxyType
 
 import numpy as np
 
+from maesolvers.core._params import points
 from maesolvers.core.boundary import Dirichlet, Transport
 from maesolvers.core.domains import (
     Box,
     CutQuarterDisk,
     Disk,
+    DiskUnionSquare,
     Domain,
     Ellipse,
     Field,
-    _points,
 )
 from maesolvers.core.problem import Problem
 
@@ -55,6 +56,11 @@ __all__ = [
     "T16",
     "T20",
     "T22",
+    "T28",
+    "T39",
+    "T40",
+    "T46",
+    "T20c",
 ]
 
 # Pure numerical kernels on float points of shape (..., d), values of shape (...).
@@ -71,7 +77,7 @@ def _field(dim: int, kernel: Field) -> Field:
 
     @functools.wraps(kernel)
     def field(x: np.ndarray) -> np.ndarray:
-        return kernel(_points(x, dim))
+        return kernel(points(x, dim))
 
     return field
 
@@ -256,6 +262,57 @@ def _t20_f(x: np.ndarray) -> np.ndarray:
     return 1.0 - 0.2 / np.maximum(r, 0.2)
 
 
+# T20c: f = (1 - 0.1/|x|)^+ on (-0.5, 0.5)^2, zero on the disk |x| <= 0.1.
+
+
+def _t20c_exact(x: np.ndarray) -> np.ndarray:
+    return 0.5 * np.maximum(np.sqrt(_r2(x)) - 0.1, 0.0) ** 2
+
+
+def _t20c_f(x: np.ndarray) -> np.ndarray:
+    return 1.0 - 0.1 / np.maximum(np.sqrt(_r2(x)), 0.1)
+
+
+# T28: T3 in 3D, f = |x|^(-3/2) / 16 blows up at the corner 0 but is integrable.
+
+
+def _t28_exact(x: np.ndarray) -> np.ndarray:
+    return _r2(x) ** 0.75 / 3.0
+
+
+def _t28_f(x: np.ndarray) -> np.ndarray:
+    with np.errstate(divide="ignore"):
+        return _r2(x) ** -0.75 / 16.0
+
+
+# T39, T40: Feng-Jensen 2017, Section 8, on the union of the unit disk and
+# the unit square.
+
+
+def _t39_exact(x: np.ndarray) -> np.ndarray:
+    return _r2(x) ** 2
+
+
+def _t39_f(x: np.ndarray) -> np.ndarray:
+    # u = r^4: u_rr = 12 r^2 and u_r / r = 4 r^2, so det D^2 u = 48 r^4.
+    return 48.0 * _r2(x) ** 2
+
+
+def _t40_exact(x: np.ndarray) -> np.ndarray:
+    return np.abs(x[..., 0])
+
+
+# T46: u = |x|^2/2 - sum_k sin x_k on (0, pi)^3, so D^2 u = diag(1 + sin x_k).
+
+
+def _t46_exact(x: np.ndarray) -> np.ndarray:
+    return 0.5 * _r2(x) - np.sum(np.sin(x), axis=-1)
+
+
+def _t46_f(x: np.ndarray) -> np.ndarray:
+    return np.prod(1.0 + np.sin(x), axis=-1)
+
+
 # The problems, in id order.
 
 T1 = _exp_solution(
@@ -387,6 +444,17 @@ T20 = _dirichlet(
     "right-hand side (Froese-Oberman 2011).",
 )
 
+T20c = _dirichlet(
+    "T20c",
+    Box((-0.5, -0.5), (0.5, 0.5)),
+    _t20c_f,
+    _t20c_exact,
+    "T20 with radius 0.1 about the origin on (-0.5, 0.5)^2: C^1 solution, f = 0 "
+    "on the disk |x| < 0.1 (Chen-Wan-Lin 2018, Example 3). Defined by the "
+    "survey, not yet by the shared specification; the survey prints the "
+    "domain [-1, 1]^2, the paper (-0.5, 0.5)^2, which this follows.",
+)
+
 T22 = _sphere_solution(
     "T22",
     3,
@@ -394,8 +462,75 @@ T22 = _sphere_solution(
     "corner (1, 1, 1) (Froese-Oberman 2011, Table 4).",
 )
 
+T28 = _dirichlet(
+    "T28",
+    _unit_box(3),
+    _t28_f,
+    _t28_exact,
+    "T3 in 3D: u = |x|^(3/2) / 3, f = |x|^(-3/2) / 16 blows up at the corner "
+    "(0, 0, 0) but is integrable (Brenner-Neilan 2012, Example 3; Liu et al. "
+    "2017, Example 4.6). Not in the shared test-set specification yet: the id "
+    "and the definition are the survey's.",
+)
+
+T39 = _dirichlet(
+    "T39",
+    DiskUnionSquare(),
+    _t39_f,
+    _t39_exact,
+    "u = |x|^4, f = 48 |x|^4, vanishing at the origin, on the union of the "
+    "unit disk and the unit square (0, 1)^2, a convex domain that is not "
+    "strictly convex (Feng-Jensen 2017, Section 8, the quartic problem). "
+    "From the survey; the shared test-set specification does not define it yet.",
+)
+
+T40 = _dirichlet(
+    "T40",
+    DiskUnionSquare(),
+    _const(0.0, 2),
+    _t40_exact,
+    "u = |x1|, f = 0: a degenerate equation whose viscosity solution has a "
+    "kink along x1 = 0, on the domain of T39 (Feng-Jensen 2017, Section 8, "
+    "the nonsmooth problem). From the survey; the shared test-set "
+    "specification does not define it yet.",
+)
+
+T46 = _dirichlet(
+    "T46",
+    Box((0.0,) * 3, (np.pi,) * 3),
+    _t46_f,
+    _t46_exact,
+    "Smooth solution u = |x|^2/2 - sin x - sin y - sin z on (0, pi)^3, "
+    "f = (1 + sin x)(1 + sin y)(1 + sin z) (Liu et al. 2017, Example 4.5). Not "
+    "in the shared test-set specification yet: the id and the definition are "
+    "the survey's.",
+)
+
 CATALOGUE: Mapping[str, Problem] = MappingProxyType(
-    {p.name: p for p in (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T12, T16, T20, T22)}
+    {
+        p.name: p
+        for p in (
+            T1,
+            T2,
+            T3,
+            T4,
+            T5,
+            T6,
+            T7,
+            T8,
+            T9,
+            T10,
+            T12,
+            T16,
+            T20,
+            T20c,
+            T22,
+            T28,
+            T39,
+            T40,
+            T46,
+        )
+    }
 )
 """Every catalogue problem by its T id, in id order; read-only."""
 

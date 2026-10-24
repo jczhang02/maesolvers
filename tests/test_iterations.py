@@ -14,20 +14,31 @@ from maesolvers import (
     T1,
     T2,
     T8,
+    T9,
     T12,
+    T16,
     DirichletICNN,
+    DirichletQSPINN,
     FDFiltered,
     FDHybrid,
+    FDMixed,
     FDMonotone,
+    FDMultigrid,
     FDNewton,
     FDPoisson,
+    FDSemiLagrangian,
+    FDTransport,
     Filtered,
+    Howard,
+    Monotone17,
     Newton,
     PenaltyMLP,
     PoissonIteration,
     Scheme,
     SchemeIteration,
     Standard9,
+    TransportICNN,
+    TransportQSPINN,
     UnsupportedProblemError,
 )
 from maesolvers.classical import iterations
@@ -195,7 +206,7 @@ def test_a_new_iteration_writes_three_hooks():
     np.testing.assert_allclose(ours.values, reference.values, rtol=1e-8)
 
 
-@pytest.mark.parametrize("iteration", [Newton, PoissonIteration])
+@pytest.mark.parametrize("iteration", [Newton, PoissonIteration, Howard])
 def test_iterations_validate_tol_and_max_iter(iteration):
     with pytest.raises(ValueError, match="tol"):
         iteration(scheme=Standard9(), tol=-1.0)
@@ -203,6 +214,22 @@ def test_iterations_validate_tol_and_max_iter(iteration):
         iteration(scheme=Standard9(), max_iter=0)
     with pytest.raises(TypeError, match="scheme"):
         iteration()
+
+
+@pytest.mark.parametrize(
+    ("scheme", "problem"), [(Standard9(n=12), T1), (Monotone17(n=6, stencil=19), T9)]
+)
+def test_newtons_start_is_the_mean_bound_d_f_to_the_one_over_d(scheme, problem):
+    """``laplace u = d f^(1/d)``: ``2 sqrt(f)`` in 2D to the bit, ``3 f^(1/3)`` in 3D."""
+    grid = scheme.discretize(problem)
+    start = Newton(scheme=scheme).initial_guess(problem, grid)
+    f, d = scheme.rhs(grid), problem.dim
+    root = np.sqrt(f) if d == 2 else np.cbrt(f)
+    expected = scheme.solve_laplace(grid, d * root)
+    if d == 2:
+        np.testing.assert_array_equal(start, expected)
+    else:
+        np.testing.assert_allclose(start, expected, rtol=1e-14)
 
 
 def test_newton_and_poisson_reach_different_roots_on_t2():
@@ -217,30 +244,49 @@ def test_the_registry_lists_the_presets_read_only():
     assert dict(SOLVERS) == {
         "FDFiltered": FDFiltered,
         "FDHybrid": FDHybrid,
+        "FDMixed": FDMixed,
+        "FDMultigrid": FDMultigrid,
         "FDMonotone": FDMonotone,
         "FDNewton": FDNewton,
         "FDPoisson": FDPoisson,
+        "FDTransport": FDTransport,
+        "FDSemiLagrangian": FDSemiLagrangian,
         "PenaltyMLP": PenaltyMLP,
         "DirichletICNN": DirichletICNN,
+        "TransportICNN": TransportICNN,
+        "DirichletQSPINN": DirichletQSPINN,
+        "TransportQSPINN": TransportQSPINN,
     }
     with pytest.raises(TypeError):
         SOLVERS["Mine"] = FDNewton  # type: ignore[index]
 
 
 @pytest.mark.parametrize(
-    "solver", [FDFiltered, FDHybrid, FDMonotone, FDNewton, FDPoisson]
+    "solver",
+    [
+        FDFiltered,
+        FDHybrid,
+        FDMixed,
+        FDMonotone,
+        FDMultigrid,
+        FDNewton,
+        FDPoisson,
+        FDSemiLagrangian,
+        FDTransport,
+    ],
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
-    # The filtered scheme answers through its parts (#23); its narrower part
-    # is the monotone one.
+    # The filtered scheme answers through its parts (#23): the monotone one is
+    # the narrower in domain, the accurate one (2D) in dimension.
     declared = scheme.monotone if isinstance(scheme, Filtered) else scheme
+    dims = scheme.accurate.dims if isinstance(scheme, Filtered) else scheme.dims
     assert (solver.domains, solver.boundaries, solver.dims) == (
         declared.domains,
         declared.boundaries,
-        declared.dims,
+        dims,
     )
-    for problem in (T8, T12, T1):
+    for problem in (T8, T12, T16, T1, T9):
         assert solver().supports(problem) == scheme.supports(problem)
 
 
@@ -277,7 +323,11 @@ def test_a_scheme_is_set_from_the_command_line():
 
 @pytest.mark.parametrize(
     ("iteration", "protocol"),
-    [(Newton, iterations._NewtonScheme), (PoissonIteration, iterations._PoissonScheme)],
+    [
+        (Newton, iterations._JacobianScheme),
+        (PoissonIteration, iterations._PoissonScheme),
+        (Howard, iterations._JacobianScheme),
+    ],
 )
 def test_requires_names_the_scheme_methods_the_iteration_is_typed_against(
     iteration, protocol

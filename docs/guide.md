@@ -50,7 +50,7 @@ for name in SHARED_TEST_SET:
     problem = CATALOGUE[name]
     supported = [key for key, preset in SOLVERS.items() if preset().supports(problem)]
     print(name, supported)
-    # T1 ['FDNewton', 'FDPoisson', 'FDMonotone', 'FDHybrid', 'FDFiltered', 'PenaltyMLP', 'DirichletICNN'], ...
+    # T1 ['FDNewton', 'FDPoisson', 'FDMonotone', 'FDHybrid', 'FDFiltered', 'FDMixed', 'FDMultigrid', 'FDSemiLagrangian', ...], ...
 ```
 
 Solving an unsupported problem raises `UnsupportedProblemError`, before any work is done.
@@ -169,10 +169,9 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
 from scipy.sparse.linalg import factorized
 
-from maesolvers import Box, Dirichlet, IterativeSolver, Solution
+from maesolvers import Box, BoxGrid, Dirichlet, IterativeSolver, Solution
 from maesolvers.classical.schemes import difference_operators
 from maesolvers.core import integer, positive
 
@@ -196,57 +195,45 @@ class MyPoisson(IterativeSolver):
         object.__setattr__(self, "tol", positive("tol", self.tol))
 
     def setup(self, problem):
-        (x0, y0), (x1, y1) = problem.domain.lo, problem.domain.hi
-        x, y = np.linspace(x0, x1, self.n + 1), np.linspace(y0, y1, self.n + 1)
-        nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-        inner = np.zeros((self.n + 1, self.n + 1), dtype=bool)
-        inner[1:-1, 1:-1] = True
-        inner = inner.ravel()
-        dxx, dyy, dxy = difference_operators(self.n, x[1] - x[0], y[1] - y[0])
+        grid = BoxGrid(problem.domain, self.n)  # (n + 1)^2 nodes, h = side / n
+        inner = grid.interior  # the unknowns; the other nodes carry g
+        dxx, dyy, dxy = difference_operators(self.n, *grid.h)
         laplace = dxx + dyy
         return SimpleNamespace(  # the context, passed to every later hook
-            x=x,
-            y=y,
-            nodes=nodes,
+            grid=grid,
             inner=inner,
             second_differences=(dxx, dyy, dxy),
             laplace=laplace,
             solve=factorized(laplace[:, inner].tocsc()),
-            g=np.where(inner, 0.0, problem.boundary.g(nodes)),
-            f=problem.f(nodes[inner]),
+            g=np.where(inner, 0.0, problem.boundary.g(grid.nodes)),
+            f=problem.f(grid.nodes[inner]),
         )
 
-    def poisson(self, grid, rhs):
+    def poisson(self, context, rhs):
         """Solve laplace u = rhs at the interior nodes, with u = g on the boundary."""
-        u = grid.g.copy()
-        u[grid.inner] = grid.solve(rhs - grid.laplace @ grid.g)
+        u = context.g.copy()
+        u[context.inner] = context.solve(rhs - context.laplace @ context.g)
         return u
 
-    def initial_guess(self, problem, grid):
-        return self.poisson(grid, np.sqrt(2.0 * grid.f))
+    def initial_guess(self, problem, context):
+        return self.poisson(context, np.sqrt(2.0 * context.f))
 
-    def step(self, problem, grid, u):
-        uxx, uyy, uxy = (d @ u for d in grid.second_differences)
-        new = self.poisson(grid, np.sqrt(uxx**2 + uyy**2 + 2 * uxy**2 + 2 * grid.f))
+    def step(self, problem, context, u):
+        uxx, uyy, uxy = (d @ u for d in context.second_differences)
+        rhs = np.sqrt(uxx**2 + uyy**2 + 2 * uxy**2 + 2 * context.f)
+        new = self.poisson(context, rhs)
         return new, float(np.max(np.abs(new - u)))
 
-    def converged(self, problem, grid, measure):
+    def converged(self, problem, context, measure):
         return measure <= self.tol
 
-    def finalize(self, problem, grid, u):
-        spline = RectBivariateSpline(grid.x, grid.y, u.reshape(self.n + 1, -1))
-
-        def u_at(points):
-            p = np.asarray(points, dtype=float)
-            values = spline(p[..., 0].ravel(), p[..., 1].ravel(), grid=False)
-            return values.reshape(p.shape[:-1])
-
+    def finalize(self, problem, context, u):
         return Solution(
-            u=u_at,
-            nodes=grid.nodes,
+            u=context.grid.interpolant(u, 3),  # the cubic tensor spline off the nodes
+            nodes=context.grid.nodes,
             values=u,
-            interior=grid.inner,
-            unknowns=int(grid.inner.sum()),
+            interior=context.inner,
+            unknowns=int(context.inner.sum()),
         )
 ```
 
@@ -260,6 +247,7 @@ What each part does:
 - `__post_init__` checks the type and the range of every parameter, after `super().__post_init__()`, so that a wrong value fails on construction.
   `integer` and `positive` from `maesolvers.core` are the checks the solvers maesolvers ships use: they raise `TypeError` or `ValueError` with a message that names the parameter, and return a plain `int` or `float`, which `object.__setattr__` stores on the frozen solver, so that `hparams` holds no numpy scalars.
 - `setup` builds what the solve needs once; every later hook takes the problem and this context first.
+  `BoxGrid(problem.domain, n)` is the grid of `n` cells per side over a box that the shipped schemes use, in any dimension: its `nodes` in flat order, the mask `interior` of the nodes that carry unknowns (the others, the boundary ring, carry the Dirichlet data), the spacing `h`, and `interpolant(values, degree)`, the tensor spline through values at the nodes.
 - `step` returns the next iterate and its measure, or None when it can make no progress; it must not change the iterate it was given.
 - `finalize` turns the final iterate into a `Solution`, the method's part of the result.
   `u` must accept points of shape `(..., 2)`, and `nodes`, `values` and `interior` let `evaluate` report the errors at the nodes; add `node_hessian` or `hessian` for the convexity fields.
@@ -336,6 +324,41 @@ A new iteration that calls other scheme methods lists them in its own `requires`
 
 A scheme subclasses `Scheme`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, so its fields are its parameters (an iteration checks this as the base class checks a solver), and implements `supports`, `discretize`, `rhs` and `solution`, plus the methods the iterations it serves require.
 `Standard9` in `maesolvers/classical/schemes.py` is the model to follow; `docs/methods/standard9.md` describes its mathematics.
+A scheme in HJB form, a maximum over policies of linear operators, runs under `PolicyIteration` if it provides `policy_system(grid, v)`, which returns the sparse matrix `A` and the vector `F` of the optimal policy at `v` (so that `A v - F` is the residual), and `solve_laplace(grid, rhs)`; `MixedHJB` in `maesolvers/classical/mixed.py` is the model (`docs/methods/chen_wan_lin2018.md`).
+
+### Grids in any dimension
+
+`Standard9`, `Hybrid`, `Filtered`, `MixedHJB`, `SemiLagrangian` and `SecondBoundary` are two-dimensional (`dims` is `(2,)`; `supports` is False for T9 and T10); `Monotone17` with `stencil=19` is the 3D monotone scheme (`FDMonotone(n=31, stencil=19).solve(T9)`, `docs/methods/monotone17.md`, "In three dimensions"), built on the grid below.
+`StandardBox`, the standard scheme on a box, runs in 2D and 3D under `Newton` and `Multigrid` (`docs/methods/multigrid.md`); a scheme of your own on a box runs under `Multigrid` if it has a field `n` and provides `values` (the node values with its boundary data on the ring) and `relax` (the pointwise Gauss-Seidel solve) besides `residual`.
+`BoxGrid` and the pure functions in `maesolvers.classical.grid` work on a box of any dimension, so a scheme in 3D or 4D needs only its own equations:
+
+- `nodes`, shape `((n + 1)^d, d)`, in C order (the last axis fastest), so `values.reshape(grid.shape)` is the d-dimensional array; for even `n` the nodes of the grid with `n // 2` cells are the nodes with even indices;
+- `interior`, the mask of the `(n - 1)^d` nodes that carry the unknowns, and `interior_index`, their multi-indices; the boundary ring `~interior` carries the Dirichlet data `g(grid.nodes[~grid.interior])`;
+- `offset(direction)`, the step of the flat index to the neighbour along a direction of index offsets, and `reach(direction)`, the fraction of that step that stays in the box at each interior node, for the arms of a wide stencil (the pure function `reach(index, n, direction)` gives it at any nodes);
+- `stencil(n, offsets, weights)`, any linear stencil of width 1 as a sparse matrix; `second_differences(n, h)`, the centred second differences (9 points in 2D, 19 in 3D, 33 in 4D); `centred_hessian(grid, values)`, the discrete Hessian at the nodes in the shape `Result.node_hessian` takes;
+- `interpolant(values, degree)`, the tensor spline through values at the nodes, which `evaluate` reads on the shared evaluation grid (51^3 points in 3D, 21^4 in 4D; fitting and evaluating it there takes well under a second, `benchmarks/nd_grids.md`); it is defined on the box, and off the box the 2D spline clamps the points to the box while the spline in any other dimension extends its end polynomials.
+
+A grid method with the exact values at its nodes has no error there, in any dimension:
+
+```python
+from maesolvers import T9, BoxGrid, Result
+from maesolvers.classical.grid import centred_hessian
+from maesolvers.metrics import evaluate
+
+grid = BoxGrid(T9.domain, 16)  # (0, 1)^3, h = 1/16
+values = T9.exact(grid.nodes)
+exact = Result(
+    T9,
+    grid.interpolant(values, 3),
+    nodes=grid.nodes,
+    values=values,
+    node_hessian=centred_hessian(grid, values),
+    interior=grid.interior,
+)
+m = evaluate(exact)
+assert m["max"] == 0.0 and m["nonconvex_fraction"] == 0.0
+print(m["max_grid"])  # the spline's error on the 51^3 shared grid
+```
 
 ## Neural solvers (needs the `neural` extra)
 
@@ -413,12 +436,33 @@ assert all(
 )
 ```
 
+`DirichletQSPINN` swaps one part of `DirichletICNN`: its network is the QS form of QS-PINN, `QuadraticForm()`, `u = (x - x0)^T A^T A (x - x0) + b . x + c` with `A` from a plain network, which lies above its tangent plane at the reference point `x0` (`docs/methods/qs_pinn.md`).
+
+```python
+from maesolvers import DirichletQSPINN, QuadraticForm
+
+qs = NeuralSolver(
+    network=QuadraticForm(width=10, depth=5, ratio=0.6),
+    loss=icnn.loss,
+    sampler=icnn.sampler,
+    optimizer=icnn.optimizer,
+    max_steps=icnn.max_steps,
+)
+assert all(
+    getattr(qs, name) == getattr(DirichletQSPINN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps")
+)
+```
+
+`QuadraticForm(reference=(0.1, 0.1))`, or `DirichletQSPINN(reference=(0.1, 0.1))`, puts `x0` elsewhere than the centre of the domain's bounding box, the default; the network needs `x0` inside the domain and `f(x0) > 0`, so with the default it refuses T4, T20 and T20c, whose `f` vanishes around the centre.
+`ICNN(alpha=0.25)` is the input convex network plus `0.25 |x|^2 / 2`, whose Hessian is at least `0.25 I`.
+
 The collocation points are drawn from the seed by the sampler, so every solver with an equal sampler and the same seed trains on the same points: `solver.collocation(problem)` returns them, and `result.info["collocation"]["fingerprint"]` identifies them.
 
 ### Write your own network, loss, sampler or optimizer
 
 A part is a frozen dataclass, like a solver: it subclasses `Network`, `Loss`, `Sampler` or `Optimizer` from `maesolvers.neural`, carries its own `@dataclass(frozen=True, kw_only=True)` decorator, and its fields are its hyperparameters, which `Result.hparams` records and configurations set.
-The four parts below are a network that adds a convex quadratic to any other network, a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
+The four parts below are a network that adds a convex quadratic to any other network, the MLP, the QS form or one of your own (`ICNN(alpha=...)` is the same for the input convex network alone), a loss that penalises a negative Laplacian instead of negative diagonal entries, a sampler that adds boundary points near a singular corner (Nystrom and Vestberg do this for T3, Section 4.3), and an optimizer that takes a gradient step with momentum.
 Put them in a module of your own, here `my_parts.py`.
 
 ```python
@@ -541,11 +585,12 @@ What each part does:
   The solver calls it once per solve, with float64 as torch's default dtype and torch's CPU generator seeded from the solver's seed, so a module made there is float64 and reproducible; the parameters that require a gradient are the ones the optimizer trains.
   A network that fits something before training, like `HardDirichlet`, does it in `build`, where the collocation points are at hand, and may set an attribute `report` on the module, a dict of plain values, which the solver records as `result.info["network"]`.
 - A loss's `__call__(u, batch)` returns a dict of scalar tensors, with the total under `"loss"`; every entry is logged after each step under its name.
-  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, and `maesolvers.neural.functional` holds the kernels: the autograd `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty` and `mean_squared_misfit`.
+  `batch` holds the tensors `interior` and `f`, `boundary`, `g` (the Dirichlet data, None for another boundary condition) and `f_boundary` (the right-hand side at the boundary points, for a loss that also puts the equation there), on the training device during training, `target`, the target set of a transport problem (None for another boundary condition), and `target_boundary`, points on the target's boundary (None when the sampler drew none); `maesolvers.neural.functional` holds the kernels: the autograd `gradient` and `hessian`, `monge_ampere_residual`, `diagonal_convexity_penalty`, `mean_squared_misfit` and, for transport problems, `signed_distance` and `nearest_squared_distances`.
 - A sampler's `sample(problem, rng)` returns a `Collocation` and must draw only from `rng`, so that the seed decides the points.
+  A `Collocation` has a third field, `target_boundary`, empty by default: a sampler for a transport loss that compares point sets fills it with points on the target's boundary, as `TransportSampler` does, and the solver passes them on as `batch.target_boundary`.
 - `supports(problem)` says which problems a part handles; the solver supports a problem when its network, loss and sampler all do.
   A loss supports the Dirichlet problems by default, because `batch.g` is Dirichlet data; `LaplacianPenaltyLoss` reads it and so keeps the default, and a loss for another boundary condition overrides `supports` and does not read `batch.g`.
-  `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement.
+  `UniformSampler` asks the domain for `BoundarySampling`, and `HardDirichlet` for `BoundaryDistance` as well, protocols of `maesolvers.core` that `Box`, `Disk` and `CutQuarterDisk` implement; `Ellipse` implements `BoundarySampling` only.
 - `__post_init__` checks every parameter with `integer`, `positive`, `nonnegative` or `boolean`, and a part it takes with `check_part`, as the shipped parts do: `PlusQuadratic(network=MLP)`, the class for an instance, then fails at construction with a message that says to write `MLP(...)`.
 - A loss term built on `functional.mean_squared_misfit` raises `ValueError` when its points are empty, so a boundary term cannot drop out because the sampler gave no boundary points.
 - An optimizer's `build(parameters)` returns a torch optimizer of the trainable parameters whose `step(closure)` makes one update (one iteration, with its line search if it has one): the training loop counts its steps by the calls of `step`, so `max_steps` and the step count in the result and in MLflow mean one update each.
@@ -591,3 +636,204 @@ config = {
 assert from_config(config).network == PlusQuadratic(network=MLP(), alpha=0.5)
 assert from_config(mine.hparams) == mine
 ```
+
+## Transport problems
+
+T12 and T16 carry the boundary condition `Transport(target)`: `grad u` maps the domain onto the target set, the second boundary value problem of optimal transport, with a uniform target density 1.
+Its solution is unique up to a constant, so `evaluate` subtracts each side's mean before it takes the errors of `u` (ADR 0007).
+The papers on these problems report the error of the transport map `grad u` instead (Benamou-Froese-Oberman 2014, Tables 1 and 2; Caboussat-Peruso 2025, Table 2), which `gradient_map_error` in `maesolvers.metrics` measures, outside `evaluate`.
+`maesolvers.core` holds the geometry of the target sets `Box`, `Disk` and `Ellipse` as pure functions: `signed_distance` (positive outside the target, negative inside, as `H` in Benamou-Froese-Oberman 2014), `support_function` (`H*(n)`, the largest `y . n` over the target) and `closest_boundary_point` (the nearest boundary point and the outward unit normal there).
+
+```python
+import numpy as np
+
+from maesolvers import T16
+from maesolvers.core import check_mass_balance, signed_distance, support_function
+from maesolvers.metrics import gradient_fd, shared_grid
+
+target = T16.boundary.target  # the square (-1/2, 1/2)^2
+check_mass_balance(T16)  # the integral of f over the domain is the target's area
+
+points = shared_grid(T16.domain)
+transport_map = gradient_fd(T16.exact, points)  # grad u by central differences
+inside = signed_distance(target, transport_map) <= 1e-9  # up to rounding
+assert np.all(inside)  # the map lands in the target
+print(support_function(target, np.array([[1.0, 0.0], [1.0, 1.0]])))  # [0.5 1. ]
+```
+
+`gradient_map_error(gradient, exact)` returns `gradient_max` and `gradient_rms`, the largest and the root mean square Euclidean norm of the difference over the points, under names that do not clash with those of `evaluate`.
+The RMS weighs every point by `1 / M`; the L2 norm over the domain is about `sqrt(volume(domain))` times it, which differs from it where the domain's area is not 1, as on T12's unit disk, so a benchmark states which of the two a paper's "L2 error" is.
+Pass the method's own gradient where it has one, such as the differences of a grid scheme at its nodes, and `gradient_fd` of `result.u` otherwise.
+`gradient_fd` evaluates `u` a small step past each point along each axis, so `u` must be the solution there: a problem's exact solution and a network are.
+A classical result's `u` is an interpolant of its grid values, and past the domain it is not the solution: the 2D box spline is constant there, the tensor spline in another dimension extends its end polynomials, and the Clough-Tocher interpolant of a curved domain extrapolates to first order.
+For such a `u`, take the interior points only, `points[domain.interior(points)]`, or pass the method's own gradient.
+
+### Solve one
+
+`FDTransport` solves a transport problem by the finite-difference method of Benamou-Froese-Oberman 2014 (`docs/methods/bfo2014.md`).
+Its grid covers a square: the domain's bounding box, or `box` for a domain whose bounding box is not a square, with `f` zero outside the domain.
+The paper measures the map by centred differences at the grid nodes; `gradient_fd` of `result.u` with the step `h` gives them at the interior nodes, since the spline through the node values interpolates them.
+
+```python
+from maesolvers import T16, FDTransport
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error
+
+result = FDTransport(n=32).solve(T16)
+h = result.info["h"][0]
+points = result.nodes[result.interior]
+errors = gradient_map_error(
+    gradient_fd(result.u, points, step=h), gradient_fd(T16.exact, points)
+)
+# gradient_max 0.0214, gradient_rms 0.0126; the paper prints 0.0220, 0.0127
+print(errors)
+print(evaluate(result)["max"])  # the error of u, after subtracting the means
+```
+
+The scheme needs only the target's support function, `H*(n) = sup_{y in Y} y . n`.
+A target of a type the helpers do not know, such as a rotated ellipse, gets one through the method of the `SupportFunction` protocol.
+`FDTransport` solves such a problem in one line.
+Its `check` runs `check_mass_balance` where `can_check_mass_balance(problem)` is True, a `Box`, `Disk` or `Ellipse` domain and target; for a domain or target of your own `volume` or `integrate` cannot run, so it warns that the balance is unchecked and solves.
+Check the balance yourself, as the comment below does, or read `result.info["u_anchor"]`, the constant `u(x_0)` that absorbs an imbalance and is of the order of the discretisation error when the data balance.
+
+```python
+from dataclasses import dataclass
+
+import numpy as np
+
+from maesolvers import Box, Ellipse, Problem, Transport
+
+
+@dataclass(frozen=True)
+class RotatedEllipse:
+    """The ellipse M B_1, M symmetric positive definite."""
+
+    matrix: tuple = ((0.6, 0.2), (0.2, 0.8))
+    dim = 2
+
+    @property
+    def bbox(self):
+        r = np.linalg.norm(np.asarray(self.matrix), axis=1)
+        return Box(tuple(-r), tuple(r))
+
+    def _level(self, x):
+        z = np.asarray(x) @ np.linalg.inv(np.asarray(self.matrix)).T
+        return np.sum(z**2, axis=-1)
+
+    def contains(self, x):
+        return self._level(x) <= 1.0
+
+    def interior(self, x):
+        return self._level(x) < 1.0
+
+    def support_function(self, n):  # SupportFunction: |M n|
+        return np.linalg.norm(np.asarray(n) @ np.asarray(self.matrix).T, axis=-1)
+
+
+# Uniform densities: f is the target's area, pi det M = 0.44 pi, over the
+# domain's, pi 0.8 0.4 = 0.32 pi, so the masses balance.
+problem = Problem(
+    "ellipses",
+    Ellipse((0.0, 0.0), (0.8, 0.4)),
+    lambda x: np.full(np.shape(x)[:-1], 0.44 / 0.32),
+    Transport(RotatedEllipse()),
+)
+solver = FDTransport(n=32, directions=64, box=Box((-1.0, -1.0), (1.0, 1.0)))
+result = solver.solve(problem)  # UserWarning: the mass balance is unchecked
+print(result.info["converged"], result.info["u_anchor"])
+```
+
+### Declare Transport support
+
+A solver supports transport problems as it supports any other.
+Written from scratch, it lists `Transport` in its `boundaries`; composed of parts, it supports a problem when its parts do, so a scheme or a loss for transport problems returns True from `supports` for them.
+The base `Solver.check` does not check the mass balance.
+A solver written from scratch, or a subclass of a preset, calls `check_mass_balance(problem)` in its own `check`, after `super().check(problem)`, so that a solve raises `ValueError` before `setup` for a problem whose source mass differs from the target's volume.
+A composed solver (`NeuralSolver`, or a scheme with an iteration) has no hook yet through which a part adds a check (#28, #29), so its caller runs `check_mass_balance(problem)` before `solve`, as the example below does.
+`check_mass_balance` integrates `f` over a `Box`, a `Disk` or an `Ellipse` and raises `TypeError` for another domain; a solver on another domain integrates `f` itself and passes the result as `mass`.
+Its default `rtol` of `1e-3` suits a smooth `f`; for an `f` that jumps, which the quadrature resolves only to about the jump over the number of nodes (`1e-2` at the default 64), pass a larger `rtol`, more `points` or the `mass`.
+A scheme reads the target from `problem.boundary.target`: the scheme of Benamou-Froese-Oberman 2014 writes the condition at a boundary node as the largest `grad u . n - H*(n)` over a set of directions `n`, with `H*(n) = support_function(target, n)` computed once per solve.
+A loss reads it from `batch.target`; this one penalises the squared signed distance of `grad u` at the boundary points, on top of the equation's residual.
+
+```python
+from dataclasses import dataclass
+
+import numpy as np
+
+from maesolvers import ICNN, LBFGS, T1, T12, NeuralSolver, Transport, UniformSampler
+from maesolvers.core import check_mass_balance, nonnegative
+from maesolvers.metrics import evaluate, gradient_fd, gradient_map_error, shared_grid
+from maesolvers.neural import Loss, functional
+
+
+@dataclass(frozen=True, kw_only=True)
+class TransportPenaltyLoss(Loss):
+    """Mean squared residual plus the mean squared signed distance of grad u at the boundary."""
+
+    transport_weight: float = 1.0
+
+    def __post_init__(self):
+        weight = nonnegative("transport_weight", self.transport_weight)
+        object.__setattr__(self, "transport_weight", weight)
+
+    def supports(self, problem):
+        return isinstance(problem.boundary, Transport)
+
+    def __call__(self, u, batch):
+        hess = functional.hessian(u, batch.interior)
+        image = functional.gradient(u, batch.boundary)  # where grad u maps the boundary
+        terms = {
+            "equation": functional.monge_ampere_residual(hess, batch.f).pow(2).mean(),
+            "transport": functional.signed_distance(batch.target, image).pow(2).mean(),
+        }
+        total = terms["equation"] + self.transport_weight * terms["transport"]
+        return {"loss": total, **terms}
+
+
+transport = NeuralSolver(
+    network=ICNN(width=10, depth=2),
+    loss=TransportPenaltyLoss(),
+    sampler=UniformSampler(interior_points=200, boundary_points=100),
+    optimizer=LBFGS(),
+    max_steps=20,
+)
+assert transport.supports(T12) and not transport.supports(T1)
+check_mass_balance(T12)  # a composed solver does not check it itself
+result = transport.solve(T12)
+points = shared_grid(T12.domain)
+print(gradient_map_error(gradient_fd(result.u, points), gradient_fd(T12.exact, points)))
+print(evaluate(result)["max"])  # the error of u, after subtracting the means
+```
+
+`functional.signed_distance` takes its nearest boundary points from the numpy function, outside the autograd graph, so its gradient in `grad u` is the outward normal there: the loss trains through it, with no NaN where `grad u` lies on the target's boundary.
+
+The shipped transport loss is `HausdorffLoss`, the loss of Caboussat-Peruso 2025: it compares the image `grad u` of the boundary points with points on the target's boundary, both ways, so it needs no target geometry beyond those points, which `TransportSampler` draws.
+The preset `TransportICNN` composes it with an input convex network fitted to `grad u = x` before the training, and Adam then L-BFGS; as a preset subclass it checks the mass balance in its own `check`, and its `supports` takes only the domains and targets whose mass that check computes (`Box`, `Disk`, `Ellipse`).
+`HausdorffLoss` supports every transport problem, but it needs both point sets: composed with a sampler that draws no target points, such as `UniformSampler`, the solver supports the problem and raises `ValueError` only at the first training step, after the network's `build` (for `IdentityStart`, after its fit to the identity map).
+
+```python
+from maesolvers import (
+    HausdorffLoss,
+    IdentityStart,
+    Switch,
+    TransportICNN,
+    TransportSampler,
+)
+from maesolvers.neural import Adam
+
+paper = NeuralSolver(
+    network=IdentityStart(network=ICNN(width=10, depth=4)),
+    loss=HausdorffLoss(boundary_weight=1.0),
+    sampler=TransportSampler(
+        interior_points=800, boundary_points=800, target_points=800
+    ),
+    optimizer=Switch(first=Adam(lr=1e-3), then=LBFGS(), after=200),
+    max_steps=2000,
+    tol=1e-7,
+)
+assert all(
+    getattr(paper, name) == getattr(TransportICNN(), name)
+    for name in ("network", "loss", "sampler", "optimizer", "max_steps", "tol")
+)
+```
+
+`TransportICNN(adam_steps=2000)` trains with Adam alone, the other row of the paper's Table 2; `docs/methods/icnn.md` gives the parameters and `benchmarks/icnn.md` the reproduction on T12.

@@ -1,12 +1,12 @@
 [project]
 name = "maesolvers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Solvers for the Monge-Ampere equation: classical and neural methods behind one interface"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "JC Zhang" }]
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "scipy>=1.10"]
+dependencies = ["numpy>=1.24", "scipy>=1.12"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",

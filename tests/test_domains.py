@@ -9,6 +9,7 @@ from maesolvers.core import (
     Box,
     CutQuarterDisk,
     Disk,
+    DiskUnionSquare,
     Domain,
     Ellipse,
 )
@@ -23,6 +24,7 @@ from maesolvers.core.domains import _allocate
         Disk((0, 0), 1),
         Ellipse((0, 0), (2, 1)),
         CutQuarterDisk(),
+        DiskUnionSquare(),
     ],
 )
 def test_every_domain_satisfies_the_protocol(domain):
@@ -41,7 +43,7 @@ def test_box_is_d_dimensional_and_stores_floats():
     ("lo", "hi", "message"),
     [
         ((0, 0), (1,), "same length"),
-        ((), (), "same length"),
+        ((), (), "one or more"),
         ((0, 1), (1, 1), "lo < hi"),
         ((0, np.inf), (1, 2), "finite"),
     ],
@@ -51,9 +53,10 @@ def test_box_rejects_bad_corners(lo, hi, message):
         Box(lo, hi)
 
 
-def test_box_rejects_non_numbers():
+@pytest.mark.parametrize("lo", [0.0, "01", (0, True), (0, "1")])
+def test_box_rejects_non_numbers(lo):
     with pytest.raises(TypeError, match="sequence of numbers"):
-        Box(0.0, 1.0)
+        Box(lo, (1.0, 1.0))
 
 
 def test_box_membership_closed_and_open():
@@ -126,6 +129,32 @@ def test_cut_quarter_disk_bbox_touches_the_domain_on_every_side():
 )
 def test_cut_quarter_disk_membership(point, inside):
     domain = CutQuarterDisk()
+    assert domain.contains(np.array(point)) == inside
+    assert domain.interior(np.array(point)) == inside
+
+
+def test_disk_union_square_is_the_hull_of_the_disk_and_the_corner():
+    domain = DiskUnionSquare()
+    assert domain.dim == 2 and domain.bbox == Box((-1, -1), (1, 1))
+    # The sides of the square touch the circle at (1, 0) and (0, 1), so
+    # those points lie on the boundary, as does the corner (1, 1).
+    edge = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.5], [-1.0, 0.0]])
+    assert np.all(domain.contains(edge)) and not np.any(domain.interior(edge))
+
+
+@pytest.mark.parametrize(
+    ("point", "inside"),
+    [
+        ((0.9, 0.9), True),  # in the square, outside the disk
+        ((-0.6, -0.6), True),  # in the disk, outside the square
+        ((0.0, 0.5), True),  # on a side of the square, inside the disk
+        ((0.9, -0.5), False),  # below the square, outside the disk
+        ((1.1, 0.5), False),
+        ((-0.9, 0.9), False),
+    ],
+)
+def test_disk_union_square_membership(point, inside):
+    domain = DiskUnionSquare()
     assert domain.contains(np.array(point)) == inside
     assert domain.interior(np.array(point)) == inside
 
@@ -244,7 +273,25 @@ def test_boundary_distance_keeps_the_leading_shape():
     assert CutQuarterDisk().boundary_distance(np.full((3, 4, 2), 0.2)).shape == (3, 4)
 
 
-def test_ellipse_neither_samples_its_boundary_nor_knows_its_distance():
+def test_ellipse_samples_its_boundary_but_does_not_know_its_distance():
     ellipse = Ellipse((0, 0), (2, 1))
-    assert not isinstance(ellipse, BoundarySampling)
+    assert isinstance(ellipse, BoundarySampling)
     assert not isinstance(ellipse, BoundaryDistance)
+
+
+def test_ellipse_boundary_points_lie_on_it_uniform_in_arc_length():
+    ellipse = Ellipse((3.5, 0), (2, 0.5))  # T12's target
+    points = ellipse.sample_boundary(20_000, np.random.default_rng(0))
+    assert points.shape == (20_000, 2)
+    level = np.sum(((points - (3.5, 0)) / (2, 0.5)) ** 2, axis=-1)
+    np.testing.assert_allclose(level, 1.0, rtol=1e-12)
+    # The arc |y_2| < 0.25 is the two ends near (1.5, 0) and (5.5, 0); its
+    # share of the length, by quadrature of the speed, is about 0.18, while a
+    # sample uniform in the parameter would put a third of the points there.
+    t = np.linspace(0.0, 2.0 * np.pi, 200_001)
+    speed = np.hypot(2 * np.sin(t), 0.5 * np.cos(t))
+    share = np.sum(speed[np.abs(0.5 * np.sin(t)) < 0.25]) / np.sum(speed)
+    assert np.mean(np.abs(points[:, 1]) < 0.25) == pytest.approx(share, abs=0.01)
+    again = ellipse.sample_boundary(20_000, np.random.default_rng(0))
+    np.testing.assert_array_equal(points, again)
+    assert ellipse.sample_boundary(0, np.random.default_rng(0)).shape == (0, 2)

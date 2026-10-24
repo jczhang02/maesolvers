@@ -4,18 +4,19 @@ Points are arrays of shape ``(..., d)`` and predicates return boolean arrays of
 shape ``(...)``. Every domain is a frozen dataclass that satisfies the
 :class:`Domain` protocol. :class:`Box`, :class:`Disk` and
 :class:`CutQuarterDisk` also satisfy :class:`BoundarySampling` and
-:class:`BoundaryDistance`, the capabilities the neural solvers need.
+:class:`BoundaryDistance`, the capabilities the neural solvers need;
+:class:`Ellipse`, a transport target, satisfies :class:`BoundarySampling`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from maesolvers.core._params import integer
+from maesolvers.core._params import floats, integer, points
 
 Field = Callable[[np.ndarray], np.ndarray]
 """Maps points of shape ``(..., d)`` to values of shape ``(...)``."""
@@ -107,6 +108,35 @@ class BoundaryDistance(Protocol):
         ...
 
 
+@runtime_checkable
+class SupportFunction(Protocol):
+    """A convex transport target that knows its own support function.
+
+    A capability beside :class:`Domain` (ADR 0007) for a target set that
+    :func:`~maesolvers.core.transport.support_function` does not know, such
+    as a rotated ellipse or a polygon: that function calls this method for
+    such a target, so a solver that represents the target by its support
+    function, such as :class:`~maesolvers.classical.SecondBoundary`, accepts
+    it. :class:`Box`, :class:`Disk` and :class:`Ellipse` need no method;
+    :func:`~maesolvers.core.transport.support_function` knows them.
+    """
+
+    def support_function(self, n: np.ndarray) -> np.ndarray:
+        """Return ``sup_{y in Y} y . n`` for each direction.
+
+        Parameters
+        ----------
+        n
+            Directions of shape ``(..., d)``, not necessarily unit vectors.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(...)``, positively homogeneous in ``n``.
+        """
+        ...
+
+
 def _allocate(n: int, sizes: np.ndarray) -> np.ndarray:
     """Split ``n`` points among pieces in proportion to their sizes.
 
@@ -133,23 +163,6 @@ def _allocate(n: int, sizes: np.ndarray) -> np.ndarray:
     return counts
 
 
-def _points(x: np.ndarray, dim: int) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    if x.ndim == 0 or x.shape[-1] != dim:
-        raise ValueError(f"points must have shape (..., {dim}), got {x.shape}")
-    return x
-
-
-def _floats(values: Sequence[float], name: str) -> tuple[float, ...]:
-    try:
-        out = tuple(float(v) for v in values)
-    except TypeError:
-        raise TypeError(f"{name} must be a sequence of numbers") from None
-    if not all(np.isfinite(out)):
-        raise ValueError(f"{name} must be finite, got {out}")
-    return out
-
-
 @dataclass(frozen=True)
 class Box:
     """Axis-aligned box ``[lo[0], hi[0]] x ... x [lo[d-1], hi[d-1]]``.
@@ -165,10 +178,10 @@ class Box:
     hi: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        lo, hi = _floats(self.lo, "Box.lo"), _floats(self.hi, "Box.hi")
-        if len(lo) == 0 or len(lo) != len(hi):
+        lo, hi = floats("Box.lo", self.lo), floats("Box.hi", self.hi)
+        if len(lo) != len(hi):
             raise ValueError(
-                f"Box.lo and Box.hi need the same length >= 1, got {lo} and {hi}"
+                f"Box.lo and Box.hi need the same length, got {lo} and {hi}"
             )
         if not all(a < b for a, b in zip(lo, hi, strict=True)):
             raise ValueError(f"Box needs lo < hi in every coordinate, got {lo}, {hi}")
@@ -187,12 +200,12 @@ class Box:
 
     def contains(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the closed box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.all((x >= self.lo) & (x <= self.hi), axis=-1)
 
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.all((x > self.lo) & (x < self.hi), axis=-1)
 
     def sample_boundary(self, n: int, rng: np.random.Generator) -> np.ndarray:
@@ -220,14 +233,14 @@ class Box:
         pieces = []
         for face, count in enumerate(_allocate(n, areas)):
             axis, end = divmod(face, 2)
-            points = rng.uniform(lo, hi, size=(count, self.dim))
-            points[:, axis] = hi[axis] if end else lo[axis]
-            pieces.append(points)
+            piece = rng.uniform(lo, hi, size=(count, self.dim))
+            piece[:, axis] = hi[axis] if end else lo[axis]
+            pieces.append(piece)
         return np.concatenate(pieces)
 
     def boundary_distance(self, x: np.ndarray) -> np.ndarray:
         """Distance to the nearest face, for points in the closed box."""
-        x = _points(x, self.dim)
+        x = points(x, self.dim)
         return np.min(np.minimum(x - self.lo, np.asarray(self.hi) - x), axis=-1)
 
 
@@ -247,8 +260,8 @@ class Ellipse:
     semi_axes: tuple[float, float]
 
     def __post_init__(self) -> None:
-        center = _floats(self.center, "Ellipse.center")
-        axes = _floats(self.semi_axes, "Ellipse.semi_axes")
+        center = floats("Ellipse.center", self.center)
+        axes = floats("Ellipse.semi_axes", self.semi_axes)
         if len(center) != 2 or len(axes) != 2:
             raise ValueError(
                 f"Ellipse is 2D: center and semi_axes need length 2, got {center}, {axes}"
@@ -270,7 +283,7 @@ class Ellipse:
         return Box(tuple(c - a), tuple(c + a))
 
     def _level(self, x: np.ndarray) -> np.ndarray:
-        x = _points(x, 2)
+        x = points(x, 2)
         return np.sum(((x - self.center) / np.asarray(self.semi_axes)) ** 2, axis=-1)
 
     def contains(self, x: np.ndarray) -> np.ndarray:
@@ -280,6 +293,41 @@ class Ellipse:
     def interior(self, x: np.ndarray) -> np.ndarray:
         """Whether each point lies in the open ellipse."""
         return self._level(x) < 1.0
+
+    def sample_boundary(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """Draw ``n`` points on the ellipse, uniform in arc length.
+
+        The point at parameter ``t`` is ``center + (a1 cos t, a2 sin t)``,
+        and its speed ``|dp/dt|`` varies along the ellipse, so ``t`` is drawn
+        uniform and kept with probability ``speed(t) / max speed``
+        (rejection), which makes the points uniform in arc length, not in
+        ``t``.
+
+        Parameters
+        ----------
+        n
+            Number of points, at least 0.
+        rng
+            The random generator.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n, 2)``, in the order they were accepted.
+        """
+        n = integer("n", n, 0)
+        a1, a2 = self.semi_axes
+        kept: list[np.ndarray] = []
+        count = 0
+        while count < n:
+            t = rng.uniform(0.0, 2.0 * np.pi, size=2 * (n - count))
+            speed = np.hypot(a1 * np.sin(t), a2 * np.cos(t))
+            t = t[rng.uniform(0.0, max(a1, a2), size=t.size) < speed]
+            kept.append(t)
+            count += t.size
+        t = np.concatenate(kept)[:n] if kept else np.zeros(0)
+        circle = np.stack([a1 * np.cos(t), a2 * np.sin(t)], axis=-1)
+        return np.asarray(self.center) + circle
 
 
 @dataclass(frozen=True)
@@ -298,7 +346,7 @@ class Disk:
     radius: float
 
     def __post_init__(self) -> None:
-        center = _floats(self.center, "Disk.center")
+        center = floats("Disk.center", self.center)
         if len(center) != 2:
             raise ValueError(f"Disk is 2D: center needs length 2, got {center}")
         radius = float(self.radius)
@@ -319,7 +367,7 @@ class Disk:
         return Box(tuple(c - self.radius), tuple(c + self.radius))
 
     def _level(self, x: np.ndarray) -> np.ndarray:
-        x = _points(x, 2)
+        x = points(x, 2)
         return np.sum((x - self.center) ** 2, axis=-1) / self.radius**2
 
     def contains(self, x: np.ndarray) -> np.ndarray:
@@ -351,7 +399,7 @@ class Disk:
 
     def boundary_distance(self, x: np.ndarray) -> np.ndarray:
         """Distance to the circle, ``radius - |x - center|``, for points in the disk."""
-        x = _points(x, 2)
+        x = points(x, 2)
         return self.radius - np.linalg.norm(x - np.asarray(self.center), axis=-1)
 
 
@@ -378,7 +426,7 @@ class CutQuarterDisk:
 
     def _margins(self, x: np.ndarray) -> np.ndarray:
         """Shape ``(..., 4)``: each defining inequality as ``margin > 0``."""
-        x = _points(x, 2)
+        x = points(x, 2)
         a, b = x[..., 0], x[..., 1]
         return np.stack([a, b, 1.0 - a**2 - b**2, b - a + 0.5], axis=-1)
 
@@ -439,7 +487,7 @@ class CutQuarterDisk:
         of its distances to the four boundaries: ``x``, ``y``,
         ``(y - x + 1/2) / sqrt 2`` and ``1 - |x|``.
         """
-        x = _points(x, 2)
+        x = points(x, 2)
         a, b = x[..., 0], x[..., 1]
         return np.min(
             np.stack(
@@ -447,3 +495,43 @@ class CutQuarterDisk:
             ),
             axis=-1,
         )
+
+
+@dataclass(frozen=True)
+class DiskUnionSquare:
+    """The union of the unit disk and the unit square ``(0, 1)^2``.
+
+    The domain of Feng-Jensen 2017, Section 8: the unit disk with the
+    quarter in the first quadrant squared off. It is the convex hull of the
+    disk and the corner ``(1, 1)``, since the sides ``x = 1`` and ``y = 1``
+    of the square touch the circle at ``(1, 0)`` and ``(0, 1)``; so it is
+    convex, but not strictly convex along those two sides. It has no
+    parameters.
+    """
+
+    @property
+    def dim(self) -> int:
+        """Space dimension, always 2."""
+        return 2
+
+    @property
+    def bbox(self) -> Box:
+        """The box ``[-1, 1]^2``."""
+        return Box((-1.0, -1.0), (1.0, 1.0))
+
+    def contains(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the closed domain."""
+        x = points(x, 2)
+        square = np.all((x >= 0.0) & (x <= 1.0), axis=-1)
+        return (np.sum(x**2, axis=-1) <= 1.0) | square
+
+    def interior(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the open domain.
+
+        The union of the open disk and the open square: the two boundaries
+        meet only at ``(1, 0)`` and ``(0, 1)``, which lie on the boundary of
+        the union.
+        """
+        x = points(x, 2)
+        square = np.all((x > 0.0) & (x < 1.0), axis=-1)
+        return (np.sum(x**2, axis=-1) < 1.0) | square

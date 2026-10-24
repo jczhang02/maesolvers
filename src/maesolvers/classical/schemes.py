@@ -23,7 +23,7 @@ import scipy.sparse as sp
 from scipy.interpolate import CloughTocher2DInterpolator
 from scipy.sparse.linalg import factorized
 
-from maesolvers.classical._grid import interior_mask, spline
+from maesolvers.classical.grid import BoxGrid, second_differences
 from maesolvers.core._params import integer
 from maesolvers.core.boundary import Dirichlet
 from maesolvers.core.domains import Box, CutQuarterDisk, Disk, Domain, Ellipse, Field
@@ -114,7 +114,8 @@ def difference_operators(
 
     Node ``(i, j)`` has flat index ``i * (n + 1) + j``, ``i`` along x. The
     stencils are the 3-point ``u_xx`` and ``u_yy`` and the 4-point ``u_xy``,
-    nine points together.
+    nine points together: the 2D case of
+    :func:`~maesolvers.classical.grid.second_differences`.
 
     Parameters
     ----------
@@ -130,29 +131,8 @@ def difference_operators(
         from the values at all nodes to the differences at the interior nodes,
         in flat order.
     """
-    m = n + 1
-    interior = interior_mask(n).ravel()
-    index = np.flatnonzero(interior)
-    rows = np.arange(index.size)
-
-    def build(offsets: list[tuple[int, int, float]], scale: float) -> sp.csr_matrix:
-        r, c, v = [], [], []
-        for di, dj, w in offsets:
-            r.append(rows)
-            c.append(index + di * m + dj)
-            v.append(np.full(rows.size, w * scale))
-        return sp.csr_matrix(
-            (np.concatenate(v), (np.concatenate(r), np.concatenate(c))),
-            shape=(index.size, m * m),
-        )
-
-    dxx = build([(1, 0, 1.0), (0, 0, -2.0), (-1, 0, 1.0)], 1.0 / hx**2)
-    dyy = build([(0, 1, 1.0), (0, 0, -2.0), (0, -1, 1.0)], 1.0 / hy**2)
-    dxy = build(
-        [(1, 1, 1.0), (1, -1, -1.0), (-1, 1, -1.0), (-1, -1, 1.0)],
-        1.0 / (4.0 * hx * hy),
-    )
-    return dxx, dyy, dxy
+    d = second_differences(n, (hx, hy))
+    return d[0, 0], d[1, 1], d[0, 1]
 
 
 def monge_ampere(uxx: np.ndarray, uyy: np.ndarray, uxy: np.ndarray) -> np.ndarray:
@@ -225,6 +205,101 @@ class ShortleyWellerOperators(NamedTuple):
     min_step: np.ndarray
 
 
+class _ShortleyWellerLayout(NamedTuple):
+    """The nodes of :func:`shortley_weller_nodes` and what the operators need.
+
+    ``t[d]`` is the step fraction of each unknown's stencil along the
+    half-direction ``d`` and ``columns[d]`` the column of its end, as
+    :func:`shortley_weller_operators` uses them.
+    """
+
+    nodes: np.ndarray
+    interior: np.ndarray
+    h: np.ndarray
+    t: np.ndarray
+    columns: np.ndarray
+
+
+def _shortley_weller_layout(domain: Domain, n: int) -> _ShortleyWellerLayout:
+    """Place the Shortley-Weller nodes; :func:`shortley_weller_operators` documents them."""
+    box_grid = BoxGrid(domain.bbox, n)
+    h = np.array(box_grid.h)
+    grid = box_grid.nodes.reshape(*box_grid.shape, 2)
+    inside = domain.interior(grid)
+    # The edges of the bounding box only touch the closed domain, so a node
+    # there joins the boundary even if it tests inside by rounding; every
+    # node left with an unknown then has its eight neighbours in the grid.
+    inside[[0, -1], :] = False
+    inside[:, [0, -1]] = False
+    on_boundary = domain.contains(grid) & ~inside
+    # The step fraction to the boundary along each half-direction, 1 where the
+    # neighbour is in the closed domain.
+    halves = [(sign * di, sign * dj) for di, dj in _SW_DIRECTIONS for sign in (1, -1)]
+    ii, jj = np.nonzero(inside)
+    t = np.ones((len(halves), ii.size))
+    for d, (di, dj) in enumerate(halves):
+        cut = ~(inside | on_boundary)[ii + di, jj + dj]
+        t[d, cut] = _crossing(domain, grid[ii[cut], jj[cut]], np.array([di, dj]) * h)
+        # A neighbour outside by rounding only joins the boundary, so that its
+        # other neighbours in the open domain do not add copies of it.
+        far = cut & (t[d] > 1.0 - _SNAP)
+        on_boundary[ii[far] + di, jj[far] + dj] = True
+        t[d, far] = 1.0
+    near = np.min(t, axis=0) < _SNAP
+    inside[ii[near], jj[near]] = False
+    on_boundary[ii[near], jj[near]] = True
+    ii, jj, t = ii[~near], jj[~near], t[:, ~near]
+    k = ii.size
+    if k == 0:
+        raise ValueError(f"no node of the {n} x {n} grid lies in the open domain")
+
+    # Columns: the unknowns, then the boundary nodes, then the crossings in
+    # the order they are met.
+    column = np.full(inside.shape, -1)
+    column[ii, jj] = np.arange(k)
+    bi, bj = np.nonzero(on_boundary)
+    column[bi, bj] = k + np.arange(bi.size)
+    points = [grid[ii, jj], grid[bi, bj]]
+    m = bi.size
+    columns = np.empty((len(halves), k), dtype=int)
+    for d, (di, dj) in enumerate(halves):
+        columns[d] = column[ii + di, jj + dj]
+        cut = columns[d] < 0
+        start = grid[ii[cut], jj[cut]]
+        points.append(start + t[d, cut, None] * (np.array([di, dj]) * h))
+        columns[d, cut] = k + m + np.arange(start.shape[0])
+        m += start.shape[0]
+    interior = np.zeros(k + m, dtype=bool)
+    interior[:k] = True
+    return _ShortleyWellerLayout(np.concatenate(points), interior, h, t, columns)
+
+
+def shortley_weller_nodes(domain: Domain, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the nodes of :func:`shortley_weller_operators`, without the operators.
+
+    Parameters
+    ----------
+    domain
+        A 2D domain.
+    n
+        Cells per side of the grid over ``domain.bbox``, at least 2.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``nodes``, shape ``(k + m, 2)``: the ``k`` grid nodes in the open
+        domain that carry unknowns, then the ``m`` boundary points; and
+        ``interior``, shape ``(k + m,)``, True at the first ``k``.
+
+    Raises
+    ------
+    ValueError
+        If no grid node carries an unknown.
+    """
+    layout = _shortley_weller_layout(domain, n)
+    return layout.nodes, layout.interior
+
+
 def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators:
     """Second differences on a uniform grid cut by a curved boundary.
 
@@ -277,55 +352,8 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     ValueError
         If no grid node carries an unknown.
     """
-    box = domain.bbox
-    x = np.linspace(box.lo[0], box.hi[0], n + 1)
-    y = np.linspace(box.lo[1], box.hi[1], n + 1)
-    h = np.array([x[1] - x[0], y[1] - y[0]])
-    grid = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
-    inside = domain.interior(grid)
-    # The edges of the bounding box only touch the closed domain, so a node
-    # there joins the boundary even if it tests inside by rounding; every
-    # node left with an unknown then has its eight neighbours in the grid.
-    inside[[0, -1], :] = False
-    inside[:, [0, -1]] = False
-    on_boundary = domain.contains(grid) & ~inside
-    # The step fraction to the boundary along each half-direction, 1 where the
-    # neighbour is in the closed domain.
-    halves = [(sign * di, sign * dj) for di, dj in _SW_DIRECTIONS for sign in (1, -1)]
-    ii, jj = np.nonzero(inside)
-    t = np.ones((len(halves), ii.size))
-    for d, (di, dj) in enumerate(halves):
-        cut = ~(inside | on_boundary)[ii + di, jj + dj]
-        t[d, cut] = _crossing(domain, grid[ii[cut], jj[cut]], np.array([di, dj]) * h)
-        # A neighbour outside by rounding only joins the boundary, so that its
-        # other neighbours in the open domain do not add copies of it.
-        far = cut & (t[d] > 1.0 - _SNAP)
-        on_boundary[ii[far] + di, jj[far] + dj] = True
-        t[d, far] = 1.0
-    near = np.min(t, axis=0) < _SNAP
-    inside[ii[near], jj[near]] = False
-    on_boundary[ii[near], jj[near]] = True
-    ii, jj, t = ii[~near], jj[~near], t[:, ~near]
-    k = ii.size
-    if k == 0:
-        raise ValueError(f"no node of the {n} x {n} grid lies in the open domain")
-
-    # Columns: the unknowns, then the boundary nodes, then the crossings in
-    # the order they are met.
-    column = np.full(inside.shape, -1)
-    column[ii, jj] = np.arange(k)
-    bi, bj = np.nonzero(on_boundary)
-    column[bi, bj] = k + np.arange(bi.size)
-    points = [grid[ii, jj], grid[bi, bj]]
-    m = bi.size
-    columns = np.empty((len(halves), k), dtype=int)
-    for d, (di, dj) in enumerate(halves):
-        columns[d] = column[ii + di, jj + dj]
-        cut = columns[d] < 0
-        start = grid[ii[cut], jj[cut]]
-        points.append(start + t[d, cut, None] * (np.array([di, dj]) * h))
-        columns[d, cut] = k + m + np.arange(start.shape[0])
-        m += start.shape[0]
+    nodes, interior, h, t, columns = _shortley_weller_layout(domain, n)
+    k, m = int(np.count_nonzero(interior)), int(np.count_nonzero(~interior))
 
     def directional(index: int, scale: float) -> sp.csr_matrix:
         """``scale * D_v`` for the direction ``_SW_DIRECTIONS[index]``."""
@@ -344,11 +372,7 @@ def shortley_weller_operators(domain: Domain, n: int) -> ShortleyWellerOperators
     dyy = directional(1, 1.0 / h[1] ** 2)
     dxy = (directional(2, cross) - directional(3, cross)).tocsr()
     dxy.eliminate_zeros()  # the centre of D_xy cancels at a full stencil
-    interior = np.zeros(k + m, dtype=bool)
-    interior[:k] = True
-    return ShortleyWellerOperators(
-        np.concatenate(points), interior, dxx, dyy, dxy, np.min(t, axis=0)
-    )
+    return ShortleyWellerOperators(nodes, interior, dxx, dyy, dxy, np.min(t, axis=0))
 
 
 def _crossing(domain: Domain, start: np.ndarray, step: np.ndarray) -> np.ndarray:
@@ -523,19 +547,16 @@ class Standard9(Scheme):
                 "Disk, Ellipse or CutQuarterDisk with a Dirichlet boundary"
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
-        n, box = self.n, problem.domain.bbox
-        x = np.linspace(box.lo[0], box.hi[0], n + 1)
-        y = np.linspace(box.lo[1], box.hi[1], n + 1)
+        n, box_grid = self.n, BoxGrid(problem.domain.bbox, self.n)
         if isinstance(problem.domain, Box):
-            nodes = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1).reshape(-1, 2)
-            interior = interior_mask(n).ravel()
-            dxx, dyy, dxy = difference_operators(n, x[1] - x[0], y[1] - y[0])
+            nodes, interior = box_grid.nodes, box_grid.interior
+            dxx, dyy, dxy = difference_operators(n, *box_grid.h)
             row_scale = np.ones(np.count_nonzero(interior))
             degree = min(self.spline_degree, n)  # a spline needs degree + 1 knots
             interpolant = f"spline({degree})"
 
             def interpolate(values: np.ndarray) -> Field:
-                return spline(x, y, values, degree)
+                return box_grid.interpolant(values, degree)
 
         else:
             nodes, interior, dxx, dyy, dxy, row_scale = shortley_weller_operators(
@@ -550,7 +571,7 @@ class Standard9(Scheme):
             (d[:, interior].tocsc(), d[:, ~interior].tocsc()) for d in (dxx, dyy, dxy)
         )
         return Grid(
-            h=(float(x[1] - x[0]), float(y[1] - y[0])),
+            h=(box_grid.h[0], box_grid.h[1]),
             nodes=nodes,
             interior=interior,
             f=problem.f(nodes[interior]),
@@ -690,6 +711,7 @@ class Standard9(Scheme):
         values[grid.interior] = v
         values[~grid.interior] = grid.boundary_values
         uxx, uyy, uxy = self.second_derivatives(grid, v)
+        # Not centred_hessian: the Shortley-Weller stencils reach crossing nodes.
         hess = np.full((len(grid.nodes), 2, 2), np.nan)
         hess[grid.interior, 0, 0] = uxx
         hess[grid.interior, 1, 1] = uyy

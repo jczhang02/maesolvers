@@ -16,6 +16,7 @@ from maesolvers import (
     CutQuarterDisk,
     Dirichlet,
     Disk,
+    DiskUnionSquare,
     Ellipse,
     FDNewton,
     FDPoisson,
@@ -23,7 +24,11 @@ from maesolvers import (
     Problem,
     Standard9,
 )
-from maesolvers.classical.schemes import _scattered, shortley_weller_operators
+from maesolvers.classical.schemes import (
+    _scattered,
+    shortley_weller_nodes,
+    shortley_weller_operators,
+)
 from maesolvers.metrics import evaluate, shared_grid
 
 DOMAINS = [
@@ -72,6 +77,16 @@ def test_the_operators_unpack_and_carry_names():
     assert ops.nodes is nodes and ops.interior is interior and ops.dxx is dxx
     assert ops.dyy is dyy and ops.dxy is dxy and ops.min_step is min_step
     assert ops._fields == ("nodes", "interior", "dxx", "dyy", "dxy", "min_step")
+
+
+@pytest.mark.parametrize(
+    "domain", [Disk((0.0, 0.0), 1.0), Box((0.0, 0.0), (1.0, 2.0)), DiskUnionSquare()]
+)
+def test_the_nodes_alone_are_the_operators_nodes(domain):
+    nodes, interior = shortley_weller_nodes(domain, 13)
+    ops = shortley_weller_operators(domain, 13)
+    np.testing.assert_array_equal(nodes, ops.nodes)
+    np.testing.assert_array_equal(interior, ops.interior)
 
 
 def test_full_stencils_are_the_nine_point_stencils():

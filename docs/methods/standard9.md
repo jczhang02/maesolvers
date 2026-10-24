@@ -29,6 +29,7 @@ Which root a solve reaches is decided by the iteration (branch selection).
 
 Off the nodes, the solution is a tensor spline of degree `spline_degree` through the node values (degree `n` on a grid with fewer cells per side; `Result.info["interpolant"]` names it); `Result.node_hessian` holds `D_xx`, `D_yy` and `D_xy` at the interior nodes and NaN at the boundary nodes.
 The difference operators are the pure functions `difference_operators`, `monge_ampere` and `monge_ampere_jacobian` in `maesolvers.classical.schemes`.
+On a box the grid is `BoxGrid(problem.domain, n)` and `difference_operators` is the 2D case of `second_differences` in `maesolvers.classical.grid`, which builds the centred differences on a box of any dimension.
 
 ## Curved boundaries (Shortley-Weller)
 
@@ -66,6 +67,7 @@ Six details make the stencils robust:
 
 `Result.nodes` lists the nodes with unknowns, then the boundary points, with `Result.interior` True at the first; `Result.node_hessian` is NaN at the boundary points.
 The pure function `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes` returns them as the named tuple `ShortleyWellerOperators`: the nodes, the mask, the three operators and the smallest step fraction `t` of each stencil.
+`shortley_weller_nodes(domain, n)` returns the nodes and the mask alone, which `SemiLagrangian` triangulates (`docs/methods/feng_jensen2017.md`).
 
 On T8 the stencils are exact for the solution `(|x|^2 - 1)/2`, so the convex root of the discrete equation is the exact solution at the nodes, and so is its mirror image, the concave root `(1 - |x|^2)/2`.
 `FDNewton` starts from `laplace u = 2 sqrt(f) = 2`, which here is already the convex root, and stops after one step; from `laplace u = -2` it reaches the concave root.
@@ -118,6 +120,8 @@ The presets take the scheme's parameters flat: `FDPoisson(n=128, tol=1e-10)` is 
 ## Known limits
 
 - Only 2D Dirichlet problems on a `Box`, `Disk`, `Ellipse` or `CutQuarterDisk`: `solve` raises `UnsupportedProblemError` for a transport boundary (T12) or a box in 3D or 4D (T9, T10).
+  Which schemes support which dimensions: `Standard9`, `Hybrid` and `Filtered` are 2D only (`dims = (2,)`); `Monotone17` with `stencil=19` is the 3D monotone scheme (`docs/methods/monotone17.md`, "In three dimensions").
+  The grid under them (`BoxGrid`: nodes, boundary ring, Dirichlet data, the centred Hessian and the tensor spline onto the shared evaluation grid) works in any dimension (issue #25, `docs/guide.md`, "Grids in any dimension"); a 3D standard scheme, the determinant of a 3 by 3 Hessian and its Jacobian, is not written, and comes with multigrid (#30).
 - On a curved domain the crossings are looked for only on the segment from a node to an outside neighbour, so a boundary that crosses one grid segment twice (a non-convex domain with features finer than the grid) is not resolved; the domains `Standard9` declares are convex.
 - On a curved domain the interpolant's error on the shared grid (`max_grid`) falls at the rate of the node error, corners off the grid included, but is 7 to 10 times it on a disk and on T6 and up to 18 times on a stretched grid, against about the same on a box with the cubic spline: the Clough-Tocher interpolant estimates its gradients to `O(h)` only (`benchmarks/shortley_weller.md`).
 - `FDNewton` reaches a non-convex discrete solution on T2 at every `n` and on T7 from `n = 40` on: its residual converges, but its error does not decrease with `n` (Finding 2 of `benchmarks/standard_fd.md`).

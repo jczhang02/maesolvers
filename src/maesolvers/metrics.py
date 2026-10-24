@@ -3,7 +3,9 @@
 :func:`evaluate` measures one :class:`~maesolvers.core.result.Result` the same
 way for every method; :func:`summarize` aggregates the seeds of one method on
 one problem, and :func:`summarize_errors` does the same for errors measured
-elsewhere, one per seed by :func:`seed_error`.
+elsewhere, one per seed by :func:`seed_error`. :func:`gradient_map_error`,
+with :func:`gradient_fd`, measures the gradient map of a transport problem
+for the reproduction tables that report it, outside :func:`evaluate`.
 """
 
 from __future__ import annotations
@@ -14,9 +16,22 @@ from types import MappingProxyType
 
 import numpy as np
 
+from maesolvers.core._params import positive
 from maesolvers.core.boundary import Transport
 from maesolvers.core.domains import Box, Domain, Field
 from maesolvers.core.result import Result
+
+__all__ = [
+    "SHARED_GRID_SIZE",
+    "Summary",
+    "evaluate",
+    "gradient_fd",
+    "gradient_map_error",
+    "seed_error",
+    "shared_grid",
+    "summarize",
+    "summarize_errors",
+]
 
 SHARED_GRID_SIZE: Mapping[int, int] = MappingProxyType({2: 201, 3: 51, 4: 21})
 """Points per axis of the shared evaluation grid, by dimension (3D, 4D provisional)."""
@@ -130,6 +145,109 @@ def _hessian_fd(u: Field, points: np.ndarray, step: float = 1e-4) -> np.ndarray:
             ) / (4.0 * step**2)
             hess[..., i, j] = hess[..., j, i] = cross
     return hess
+
+
+def gradient_fd(u: Field, points: np.ndarray, step: float | None = None) -> np.ndarray:
+    """Gradient of ``u`` by central differences.
+
+    For a gradient the method does not give: of a problem's exact solution,
+    or of a result's ``u``. A method's own discrete gradient, such as the
+    differences of a grid scheme at its nodes, is passed to
+    :func:`gradient_map_error` directly instead.
+
+    ``u`` is evaluated within ``step`` of each point along each axis, so a
+    little outside the domain at a boundary point, and must be defined and
+    smooth there. A problem's exact solution and a network are. A classical
+    result's ``u`` is an interpolant of its grid values, and past the domain
+    it is not the solution: the 2D box spline is constant there, the tensor
+    spline in another dimension extends its end polynomials, and the
+    Clough-Tocher interpolant of a curved domain extrapolates to first order.
+    So at boundary points pass the interior points only,
+    ``points[domain.interior(points)]``, or the method's own gradient.
+
+    Parameters
+    ----------
+    u
+        The function, defined and smooth within ``step`` of ``points`` along
+        each axis.
+    points
+        Shape ``(..., d)``.
+    step
+        Difference step; by default ``eps ** (1/3)`` (about ``6e-6``) times
+        ``max(1, |x|)`` at each point, which balances the ``O(step^2)``
+        truncation error against rounding of order ``eps / step``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(..., d)``.
+    """
+    points = np.asarray(points, dtype=float)
+    d = points.shape[-1]
+    if step is None:
+        scale = np.maximum(1.0, np.linalg.norm(points, axis=-1, keepdims=True))
+        h = np.finfo(float).eps ** (1.0 / 3.0) * scale
+    else:
+        h = np.full((*points.shape[:-1], 1), positive("step", step))
+    columns = []
+    for i in range(d):
+        shift = h * np.eye(d)[i]
+        columns.append((u(points + shift) - u(points - shift)) / (2.0 * h[..., 0]))
+    return np.stack(columns, axis=-1)
+
+
+def gradient_map_error(gradient: np.ndarray, exact: np.ndarray) -> dict[str, float]:
+    """Max and RMS of ``|grad u - grad u_exact|`` over some points.
+
+    The error of the transport map that Benamou-Froese-Oberman 2014 (Tables
+    1 and 2) and Caboussat-Peruso 2025 (Table 2) report, and
+    :func:`evaluate` does not (its errors are of ``u``, ADR 0007). The
+    gradient of a transport problem's solution is unique, so no constant is
+    subtracted. The pointwise error is the Euclidean norm of the difference.
+
+    Parameters
+    ----------
+    gradient
+        The method's gradient, shape ``(..., d)``: its own discrete gradient
+        at its nodes, an autograd gradient, or :func:`gradient_fd` of
+        ``result.u`` at points where ``result.u`` is the solution a step
+        beyond (the interior points, for a classical result's interpolant
+        of its grid values; see :func:`gradient_fd`).
+    exact
+        The exact gradient at the same points, shape ``(..., d)``, such as
+        :func:`gradient_fd` of ``problem.exact``.
+
+    Returns
+    -------
+    dict
+        ``gradient_max``, the largest pointwise error, and ``gradient_rms``,
+        the root mean square over the points. The names do not clash with
+        those of :func:`evaluate`, so the two dicts merge. ``gradient_rms``
+        is the discrete L2 norm with weights ``1 / M``; the L2 norm over the
+        domain is about ``sqrt(volume) * gradient_rms`` for points uniform in
+        the domain, which matters where the domain's volume is not 1 (T12's
+        unit disk, ``sqrt(pi)``), so a benchmark states which one a paper's
+        "L2 error" is. NaN in ``gradient`` gives NaN.
+
+    Raises
+    ------
+    ValueError
+        If the shapes differ or there are no points.
+    """
+    gradient = np.asarray(gradient, dtype=float)
+    exact = np.asarray(exact, dtype=float)
+    if gradient.shape != exact.shape or gradient.ndim == 0:
+        raise ValueError(
+            "gradient and exact need the same shape (..., d), "
+            f"got {gradient.shape} and {exact.shape}"
+        )
+    error = np.linalg.norm(gradient - exact, axis=-1)
+    if error.size == 0:
+        raise ValueError("gradient_map_error needs at least one point")
+    return {
+        "gradient_max": float(np.max(error)),
+        "gradient_rms": float(np.sqrt(np.mean(error**2))),
+    }
 
 
 def _smallest_eigenvalues(hess: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
