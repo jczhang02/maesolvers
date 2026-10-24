@@ -1,6 +1,6 @@
 # Published finite-difference benchmarks for the Monge-Ampere equation
 
-The tables below are the published finite-difference tables that maesolvers reproduces: in 2D and 3D, with Dirichlet data and with the transport boundary condition.
+This file holds the published finite-difference tables that maesolvers reproduces, in 2D and 3D, with Dirichlet data and with the transport boundary condition: sections 1 to 7 transcribe them here, and sections 8 and 9 point to their transcriptions in the method's own benchmark page.
 Most of the 2D Dirichlet tables share two problems, det D^2 u = f on (0,1)^2 with Dirichlet data from the exact solution:
 solution (a), T1: u = exp(|x|^2 / 2), f = (1 + |x|^2) exp(|x|^2);
 solution (b), T2: u = -sqrt(2 - |x|^2), f = 2 (2 - |x|^2)^(-2), gradient unbounded at the corner (1,1).
