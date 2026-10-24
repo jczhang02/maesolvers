@@ -1,6 +1,6 @@
 [project]
 name = "maesolvers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Solvers for the Monge-Ampere equation: classical and neural methods behind one interface"
 readme = "README.md"
 license = "MIT"

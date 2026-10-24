@@ -2,7 +2,10 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## Unreleased
+## 0.2.0 (2026-10-23)
+
+This release gives the finite-difference schemes a grid on boxes of any dimension (`BoxGrid`), with the 19-point monotone scheme and full multigrid in 3D, adds the second boundary value problem (`Transport`) to the classical and neural families, the monotone mixed scheme of Chen-Wan-Lin 2018, the semi-Lagrangian scheme of Feng-Jensen 2017 and QS-PINN, and reruns the comparison table with all fourteen presets.
+The fields of `evaluate` are those of 0.1 (ADR 0007): the quantities some papers report beyond them, such as the error of the transport map, come from functions next to it in `maesolvers.metrics`.
 
 ### Added
 
@@ -110,6 +113,7 @@ Every change to the public interface is listed here; 0.x may break the interface
 - The comparison table gives `FDMonotone` on T9 the reason `3D: stencil=19` (the runner builds its default 17-point stencil) and on T10 `2D/3D only`; `benchmarks/comparison.py`'s `unsupported_reason` names the stencils of the problem's dimension for a preset on `Monotone17`.
 - `SOLVERS` lists `TransportICNN` after `DirichletICNN`, so the comparison table gains its column (its rows on the shared test set: T12 over seeds 0 to 9, `Transport only` elsewhere).
 - `SOLVERS` lists `DirichletQSPINN` and `TransportQSPINN` after `TransportICNN`, so the comparison table gains their columns.
+- The comparison table comes from one run of every preset of `SOLVERS` at one commit (issue #34), in place of the rows that each preset's branch merged into it; every value but the times is what those rows held, and the notes under the table no longer name a roadmap release, as 0.2 leaves `FDNewton`, `FDPoisson`, `FDHybrid`, `FDFiltered`, `FDMixed` and `FDSemiLagrangian` 2D only.
 - `Box`, `Disk` and `Ellipse` check their corners, centre and semi-axes with `floats`: a str (`Box("01", ...)` was `(0.0, 1.0)`) or a bool element now raises `TypeError`, and an empty `Box` raises `ValueError` "must hold one or more numbers" in place of "need the same length >= 1".
 - `UniformSampler`, and so `DirichletICNN`, supports a problem on an `Ellipse` with boundary points, since an `Ellipse` now samples its boundary; `PenaltyMLP` still does not, as its ansatz needs the boundary distance. `DirichletICNN.domains` lists `Ellipse` to match: its support comes from its parts, and the class variable only documents it.
 

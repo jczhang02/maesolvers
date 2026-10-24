@@ -12,7 +12,7 @@
 </p>
 
 > maesolvers collects published methods for `det D^2 u = f`, reproduces the numbers their papers report, and runs them on a fixed catalogue of test problems so that methods can be compared on equal terms.
-> It is alpha (0.1): `Problem`, `Result` and `evaluate` are frozen (ADR 0007), and the rest of the interface may still change in 0.x, never without a line in the [CHANGELOG](CHANGELOG.md); eight finite-difference solvers and five neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
+> It is alpha (0.2): `Problem`, `Result` and `evaluate` are frozen (ADR 0007), and the rest of the interface may still change in 0.x, never without a line in the [CHANGELOG](CHANGELOG.md); nine finite-difference solvers and five neural solvers are in, and the [comparison table](#comparison) runs each of them on the shared test set.
 > The figure above is the first reproduction: the standard-scheme column of Froese-Oberman 2011, Table 3, matched to the printed digits, and a Newton iteration on the same scheme that converges to the wrong root on the singular problem.
 
 ## Features
@@ -174,9 +174,9 @@ T21, the cone `|x - x0|` with `f` a Dirac mass, is not in the catalogue: `Proble
 | `FDMonotone` | the monotone wide-stencil scheme of Froese-Oberman 2011 (9, 17 or 33 points in 2D; 19 points in 3D with `stencil=19`), semi-smooth Newton | `Box` with equal sides, in the stencil's dimension | Dirichlet | monotone; a root is convex along every stencil direction, though its centred Hessian is not where `f = 0` (T20) |
 | `FDHybrid` | the hybrid scheme of Froese-Oberman 2011: the standard scheme where the data are regular, the monotone one near the boundary and where `f` is near 0 or infinite; Newton from the monotone root | `Box` with equal sides | Dirichlet | monotone near the possible singularities; the start puts Newton on the convex root |
 | `FDFiltered` | the filtered scheme of Froese-Oberman 2013: the standard 9-point scheme where it nearly agrees with the monotone one, the monotone scheme where they differ; Newton with the paper's approximate Jacobian | `Box` with equal sides | Dirichlet | nearly monotone; where the filter keeps the standard scheme it shares its non-convex roots (T20); its damped Newton often stalls (`converged` False on T1, T2, T4, T5, T7 and T20 at `n = 64`, on the cone), where on T2 the paper's undamped step converges with 9 points at every printed `N` (#56) |
+| `FDMixed` | the monotone mixed scheme of Chen-Wan-Lin 2018: the HJB form of the equation, each control with the standard 7-point stencil where it is monotone and the semi-Lagrangian wide stencil elsewhere; policy iteration | `Box` with equal sides | Dirichlet | convexity is built into the HJB form; monotone with `wide_search="everywhere"`; the default, the rule of the paper's tables, is not monotone everywhere: it can reach a second root (T2) and policy iteration can cycle ([Findings 2, 5 to 7](benchmarks/chen_wan_lin2018.md)), on T4 from `n = 48` on with residuals of order 1, where `wide_search="everywhere"` converges |
 | `FDMultigrid` | the standard centred scheme (9 points in 2D, 19 in 3D) solved by the full multigrid method of Liu-Froese-Oberman-Xiao 2017: FMG and FAS V-cycles with a nonlinear Gauss-Seidel smoother, lexicographic or red-black | 2D and 3D `Box` with equal sides | Dirichlet | the smoother takes the root with a positive definite discrete Hessian at each node, so its fixed points are convex |
 | `FDTransport` | the second boundary value problem by the method of Benamou-Froese-Oberman 2014: the transport condition as an upwind Hamilton-Jacobi equation on the boundary ring, the filtered compact scheme inside; Newton from the monotone root | any 2D domain embedded in a square grid (`box`); target `Box`, `Disk`, `Ellipse` or one with `support_function` | Transport | nearly monotone; Newton stalls on the filtered scheme where the domain is embedded, as `FDFiltered`'s does (#56) |
-| `FDMixed` | the monotone mixed scheme of Chen-Wan-Lin 2018: the HJB form of the equation, each control with the standard 7-point stencil where it is monotone and the semi-Lagrangian wide stencil elsewhere; policy iteration | `Box` with equal sides | Dirichlet | convexity is built into the HJB form; monotone with `wide_search="everywhere"`; the default, the rule of the paper's tables, is not monotone everywhere: it can reach a second root (T2) and policy iteration can cycle ([Findings 2, 5 to 7](benchmarks/chen_wan_lin2018.md)), on T4 from `n = 48` on with residuals of order 1, where `wide_search="everywhere"` converges |
 | `FDSemiLagrangian` | the semi-Lagrangian scheme of Feng-Jensen 2017: the HJB form of the equation, with second differences of stencil size `m h` along 64 directions whose ends are interpolated piecewise linearly, on grid nodes instead of the paper's unstructured grid; Howard's algorithm | `Box`, `Disk`, `Ellipse`, `CutQuarterDisk`, `DiskUnionSquare` | Dirichlet | monotone; a root is convex along every stencil direction; first order at best, and the best `m` grows as the grid is refined |
 | `PenaltyMLP` | the penalty MLP of Nystrom-Vestberg 2023: a sigmoid MLP in the ansatz `G + D N`, trained by L-BFGS on the summed residual (needs the `neural` extra) | 2D `Box`, `Disk`, `CutQuarterDisk` | Dirichlet | a penalty on negative `u_xx`, `u_yy` at the collocation points |
 | `DirichletICNN` | the input convex network of Nystrom-Vestberg 2023: a 5 x 10 softplus ICNN trained by dense BFGS (SciPy's) on the summed residual plus a boundary penalty (needs the `neural` extra) | `Box` in any dimension, `Disk`, `Ellipse`, `CutQuarterDisk` | Dirichlet | convex by construction (non-negative hidden weights, softplus) |
@@ -234,20 +234,19 @@ For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differe
 
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDMixed` | `FDMultigrid` | `FDTransport` | `FDSemiLagrangian` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 11.9 | 0.912 | Transport only | 27 | 418 | 991 | Transport only | 275 | Transport only |
-| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 81.8 | 3.93 | Transport only | 31.5 | 419 | 550 | Transport only | 37.9 | Transport only |
-| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 257 | 19.3 \* | Transport only | 36.4 | 416 | 1009 | Transport only | f(x0) <= 0 | Transport only |
-| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | 16.6 | 416 | 797 | Transport only | 41.2 | Transport only |
-| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 376 \* | Dirichlet only | Dirichlet only | Dirichlet only | 281 | Dirichlet only | 175 |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 155 | Transport only | 2D only | 2D only | 1450 | Transport only | 422 | Transport only |
-| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | 155 | Transport only | 217 | Transport only |
+| T1 | 6.96 | 2.48 | 52.3 | 62.3 | 30.9 \* | 11.2 | 0.765 | Transport only | 20.1 | 358 | 881 | Transport only | 275 | Transport only |
+| T2 | 35.2 | 4.77 | 122 | 129 | 39.9 \* | 78.6 | 3.64 | Transport only | 24.7 | 375 | 490 | Transport only | 39.9 | Transport only |
+| T20 | 62.9 | 32.6 | 110 | 200 | 123 \* | 258 | 18.8 \* | Transport only | 31.4 | 370 | 854 | Transport only | f(x0) <= 0 | Transport only |
+| T8 | 2.45 | 3.31 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | 17 | 345 | 750 | Transport only | 41.8 | Transport only |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 310 \* | Dirichlet only | Dirichlet only | Dirichlet only | 171 | Dirichlet only | 177 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 163 | Transport only | 2D only | 2D only | 1186 | Transport only | 398 | Transport only |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | 146 | Transport only | 211 | Transport only |
 
 A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2, T20 and T9, `h = 2/n` on T8 and T12 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took 1 CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
 A cell with a reason marks a preset that does not support the problem: `Transport only` on T1, T2, T20, T8, T9 and T10; `f(x0) <= 0` on T20; `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; `3D: stencil=19` on T9; `2D/3D only` on T10.
-The roadmap's 0.2 gives the finite-difference presets n-dimensional boxes (T9 and T10).
 <!-- comparison table end -->
 
 ## Reproduction
@@ -315,11 +314,11 @@ uv run benchmarks/plot_standard_fd.py     # reads the CSVs next to it, writes st
 
 A method enters the library when it can be implemented from its paper and fits `Problem -> Result`; methods without an error table are included and marked as such.
 The order puts first the methods the literature uses most, those that share infrastructure, and those with tables to reproduce.
-The design behind 0.1 is recorded in `docs/adr/`.
+The design behind 0.1 is recorded in `docs/adr/`; 0.2 added no ADR.
 
 - **0.0.2**, done. The solver lifecycle, composition and configuration of ADR 0003 to 0005, the frozen `Problem`, `Result` and `evaluate` of ADR 0007, and the catalogue under the T ids of the shared test set; the two existing solvers move over with their reproduction intact.
 - **0.1**, done (the ICNN loss reading waits for #13). Finite differences: Shortley-Weller boundaries for the standard 9-point scheme (so T8 runs on the disk), the monotone 17-point scheme (Froese-Oberman 2011), the filtered scheme (Froese-Oberman 2013), the hybrid scheme (Froese-Oberman 2011); neural: the shared training loop (ADR 0008) with the penalty MLP (Nystrom 2023) and ICNN; the comparison table generated from the runs.
-- **0.2**: n-dimensional boxes and the 19-point monotone scheme, transport boundary conditions (Benamou-Froese-Oberman 2014, Caboussat-Peruso 2025), a multigrid option, the semi-Lagrangian scheme, QS-PINN.
+- **0.2**, done (the default stencil of `FDMonotone` in 3D waits for a ruling in #27, Newton on the filtered scheme for #56). n-dimensional boxes and the 19-point monotone scheme, transport boundary conditions (Benamou-Froese-Oberman 2014, Caboussat-Peruso 2025), a multigrid option (Liu-Froese-Oberman-Xiao 2017), the monotone mixed scheme (Chen-Wan-Lin 2018), the semi-Lagrangian scheme (Feng-Jensen 2017), QS-PINN; the comparison table rerun from one commit with every preset.
 - **0.3**: finite elements through scikit-fem (Feng-Neilan, Brenner-Neilan C0 interior penalty, Awanou splines, two-scale, Dean-Glowinski least-squares and augmented Lagrangian).
 - **0.4**: Oliker-Prussner, MA-LBR, Froese 2017 point clouds, C-PINN, KAN, Deep Ritz splitting.
 
@@ -328,7 +327,7 @@ Out of scope, because `Problem -> Result` cannot hold them: semi-discrete and sa
 ## Layout
 
 - `src/maesolvers/core/`: `Problem`, the domains and boundary conditions, `Result`, the `Solver` lifecycle and `IterativeSolver`, callbacks, the parameter checks `integer`, `positive`, `nonnegative` and `boolean`, the part check `check_part`, and in `transport.py` the target geometry and mass balance of transport problems.
-- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` (2D, and 3D with 19 points), `Hybrid`, `Filtered`, `StandardBox`, `SecondBoundary` (transport problems, `second_boundary.py`) and `SemiLagrangian`, the iterations `Newton`, `PoissonIteration`, `Multigrid` and `Howard`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid`, `FDFiltered`, `FDMultigrid`, `FDTransport` and `FDSemiLagrangian`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
+- `src/maesolvers/classical/`: the schemes `Standard9`, `Monotone17` (2D, and 3D with 19 points), `Hybrid`, `Filtered`, `StandardBox`, `SecondBoundary` (transport problems, `second_boundary.py`), `MixedHJB` and `SemiLagrangian`, the iterations `Newton`, `PoissonIteration`, `Multigrid`, `PolicyIteration` and `Howard`, the presets `FDNewton`, `FDPoisson`, `FDMonotone`, `FDHybrid`, `FDFiltered`, `FDMixed`, `FDMultigrid`, `FDTransport` and `FDSemiLagrangian`, and `BoxGrid`, the grid of `n` cells per side over a box in any dimension, with its stencils and its tensor spline (`grid.py`).
 - `src/maesolvers/neural/`: `NeuralSolver` and its parts (networks, losses, samplers, optimizers), the torch kernels in `functional.py`, the Lightning training loop, and the presets `PenaltyMLP`, `DirichletICNN`, `TransportICNN`, `DirichletQSPINN` and `TransportQSPINN`.
 - `src/maesolvers/catalogue.py`: the test problems under their T ids; `metrics.py`: `evaluate`, `summarize` and the gradient-map error of transport problems; `registry.py`: `SOLVERS`.
 - `src/maesolvers/config.py` and `cli.py`: `from_config` and `maesolvers solve` (the `cli` extra); `tracking.py`: MLflow runs and `MLflowLogger`.
