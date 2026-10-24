@@ -557,6 +557,62 @@ Its DOFs are `(N - 2)^3` (`6^3 = 216` to `126^3 = 2,000,376`), not the `(N - 1)^
 Table 4 reprints, for Example 4.4, the wide-stencil hybrid finite differences of FO 2011 JCP (`N = 8` to 32, 1.51e-2 to 1.11e-2) and the quadratic and cubic interior-penalty elements of Brenner-Neilan 2012; it is not transcribed here.
 `multigrid.md` compares the tables with ours.
 
+## 7. Feng, Jensen, SIAM J. Numer. Anal. (2017)
+
+X. Feng, M. Jensen, "Convergent semi-Lagrangian methods for the Monge-Ampere equation on unstructured grids", SIAM J. Numer. Anal. 55(2) (2017) 691-712, DOI 10.1137/16M1061709.
+Read: local journal PDF (Zotero item PVLY7QYE, attachment YSSATHUT); every value below was checked against a rendered image of pp. 709-711 (journal page numbers).
+
+Method (Sections 3, 4, 7, 8): the HJB form `sup over B >= 0, tr B = 1 of (-B : D^2 u + f (det B)^(1/d)) = 0` of `det D^2 u = (f/d)^d`, so the paper's `f` is `2 sqrt(f)` in maesolvers' convention `det D^2 u = f` (2D).
+Each `B = sigma lambda sigma^T`; the second derivatives along the columns of `sigma` are the semi-Lagrangian differences `(u(x - k sigma_j) - 2 u(x) + u(x + k sigma_j)) / k^2` (eq. (18)), whose ends take the value of the continuous piecewise linear finite element function.
+Section 8: the control set is `SO(2) x {diag(a, 1 - a): a in [0, 1/2)}` together with `(Id, Id/2)`; `SO(2)` is discretised by the rotation angles `i pi / 64`, `i = 0, ..., 63`, and nothing is said about discretising `a`.
+The stencil size is `k = m h` with `h` the average mesh size, reduced near the boundary to stay inside the triangulated domain (Fig. 5(b)).
+Solved by Howard's algorithm (Algorithm 1), started with the control `B_0 = Id / d`, stopped when a step is below `10^-6` in the max norm.
+The domain is the union of the unit disk and the unit square `(0, 1)^2`; the quasi-uniform grid has 91 nodes at the coarsest level and 1,214,465 after 7 uniform refinements, computed with FEniCS.
+Problems: the quartic `u = |x|^4` (T39) and the nonsmooth `u = |x1|` with `f = 0` (T40), whose kink "is not aligned with the computational mesh".
+
+The paper prints no numbered table, but its Figure 6 is a table: the smallest relative error over `m in {2, 4, 8, 16, 32, 64}` at each level, with the minimising `m`.
+The errors are relative to the norm of `u` (`||u - u_h|| / ||u||`, the axis label of Figure 7).
+
+### Figure 6, quartic problem (T39)
+
+| DoFs | L2 error | m | Linf error | m | H1 error | m |
+|---|---|---|---|---|---|---|
+| 91 | 6.92e-2 | 2 | 9.26e-2 | 2 | 1.86e-1 | 2 |
+| 329 | 2.99e-2 | 2 | 3.85e-2 | 2 | 9.08e-2 | 2 |
+| 1,249 | 1.69e-2 | 4 | 2.15e-2 | 2 | 4.93e-2 | 4 |
+| 4,865 | 7.12e-3 | 4 | 9.59e-3 | 4 | 2.28e-2 | 4 |
+| 19,201 | 4.18e-3 | 8 | 5.63e-3 | 4 | 1.28e-2 | 8 |
+| 76,289 | 1.78e-3 | 8 | 2.44e-3 | 8 | 5.82e-3 | 8 |
+| 304,129 | 1.06e-3 | 16 | 1.51e-3 | 8 | 3.36e-3 | 8 |
+| 1,214,465 | 4.82e-4 | 16 | 6.59e-4 | 16 | 1.59e-3 | 16 |
+
+### Figure 6, nonsmooth problem (T40)
+
+| DoFs | L2 error | m | Linf error | m | H1 error | m |
+|---|---|---|---|---|---|---|
+| 91 | 4.50e-2 | 4 | 1.03e-1 | 4 | 2.02e-1 | 2 |
+| 329 | 1.62e-2 | 4 | 5.69e-2 | 4 | 1.51e-1 | 4 |
+| 1,249 | 7.11e-3 | 8 | 3.08e-2 | 8 | 1.21e-1 | 8 |
+| 4,865 | 3.35e-3 | 16 | 2.03e-2 | 16 | 9.80e-2 | 16 |
+| 19,201 | 1.70e-3 | 32 | 1.38e-2 | 32 | 7.91e-2 | 32 |
+| 76,289 | 9.63e-4 | 32 | 9.12e-3 | 32 | 6.33e-2 | 32 |
+| 304,129 | 5.10e-4 | 64 | 6.04e-3 | 64 | 5.12e-2 | 64 |
+| 1,214,465 | 3.12e-4 | 64 | 4.51e-3 | 64 | 4.25e-2 | 64 |
+
+### Rates (p. 711), "across the seven levels of refinement"
+
+| | quartic, in h | quartic, in k | nonsmooth, in h | nonsmooth, in k |
+|---|---|---|---|---|
+| L2 | h^1.02 | k^1.79 | h^1.02 | k^2.39 |
+| Linf | h^1.02 | k^1.78 | h^0.64 | k^1.50 |
+| H1 | h^0.98 | k^1.72 | h^0.33 | k^1.22 |
+
+The Linf rates are the end-to-end slopes of the Figure 6 columns: `log2(9.26e-2 / 6.59e-4) / 7 = 1.02` and `log2(1.03e-1 / 4.51e-3) / 7 = 0.64` in `h`, which halves at each refinement; in `k = m h`, which the best `m` makes shrink 16 and 8 times less, `7.13 / 4 = 1.78` and `4.51 / 3 = 1.50`.
+
+### Figure 8, Howard steps to a step below 10^-6
+
+Over all levels and all `m`, 4 to 16 steps; at the `m` that minimises the Linf error (the boxed entries), 5 to 8 on the quartic problem and 5 to 9 on the nonsmooth one.
+
 ## What a reproduction must match
 
 The only published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper.

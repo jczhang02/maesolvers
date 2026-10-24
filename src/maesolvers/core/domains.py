@@ -495,3 +495,43 @@ class CutQuarterDisk:
             ),
             axis=-1,
         )
+
+
+@dataclass(frozen=True)
+class DiskUnionSquare:
+    """The union of the unit disk and the unit square ``(0, 1)^2``.
+
+    The domain of Feng-Jensen 2017, Section 8: the unit disk with the
+    quarter in the first quadrant squared off. It is the convex hull of the
+    disk and the corner ``(1, 1)``, since the sides ``x = 1`` and ``y = 1``
+    of the square touch the circle at ``(1, 0)`` and ``(0, 1)``; so it is
+    convex, but not strictly convex along those two sides. It has no
+    parameters.
+    """
+
+    @property
+    def dim(self) -> int:
+        """Space dimension, always 2."""
+        return 2
+
+    @property
+    def bbox(self) -> Box:
+        """The box ``[-1, 1]^2``."""
+        return Box((-1.0, -1.0), (1.0, 1.0))
+
+    def contains(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the closed domain."""
+        x = points(x, 2)
+        square = np.all((x >= 0.0) & (x <= 1.0), axis=-1)
+        return (np.sum(x**2, axis=-1) <= 1.0) | square
+
+    def interior(self, x: np.ndarray) -> np.ndarray:
+        """Whether each point lies in the open domain.
+
+        The union of the open disk and the open square: the two boundaries
+        meet only at ``(1, 0)`` and ``(0, 1)``, which lie on the boundary of
+        the union.
+        """
+        x = points(x, 2)
+        square = np.all((x > 0.0) & (x < 1.0), axis=-1)
+        return (np.sum(x**2, axis=-1) < 1.0) | square

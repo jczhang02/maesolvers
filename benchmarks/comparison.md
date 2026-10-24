@@ -1,17 +1,19 @@
 # Comparison table: every preset on the shared test set
 
 The comparison table (GLOSSARY: 对比表) runs every preset of `maesolvers.SOLVERS` with its defaults on the shared test set T1, T2, T20, T8, T12, T9, T10, and measures each run with `evaluate` (ADR 0007).
-It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `multigrid.md`, `bfo2014.md`, `penalty_mlp.md`, `icnn.md`).
+It carries no published numbers; those are in the reproduction tables (`standard_fd.md`, `monotone17.md`, `hybrid.md`, `filtered.md`, `multigrid.md`, `bfo2014.md`, `feng_jensen2017.md`, `penalty_mlp.md`, `icnn.md`).
 README's section "Comparison" shows the tables; this file says how they were made and what they show.
 
 ## Receipt
 
-- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (192 runs and 45 unsupported pairs).
+- `comparison.csv`, one row per run: one per classical preset and problem, one per neural preset, problem and seed, and one row with status `unsupported` and the reason for each pair a preset does not support (199 runs and 52 unsupported pairs).
   The columns are the fields of `evaluate`, the run's `converged`, `stop` (neural), `device`, `threads`, `cpu` (the CPU's model name), `commit` and `hparams` (the preset's `hparams` as JSON); `comparison.py` lists them and the statuses.
 - Written on a100server by `run_comparison.py` at commit f15b98f, clean checkout, in 4853 s of wall time: `just remote-bg comparison-r1 python benchmarks/run_comparison.py --out /jczhang02/maesolvers-data/data/comparison.csv`, then copied here.
   It replaces the receipt of commit 5c423bc, which lacked the `cpu` and `hparams` columns; every field but `time` agrees with it to all digits, and the times differ by a factor of 0.31 to 1.23 (median 1.10) with the load of the shared server.
   The rows of `FDMultigrid` were added later on the branch of issue #30 by `run_comparison.py --solvers FDMultigrid` into a copy of this CSV, which left every other row as it was: first at commit fe47d9b, then again at commit 3d31695, after `FDMultigrid` changed its stopping rule (`multigrid.md`, Finding 5), with `--workers 3` (`just remote-bg multigrid-r3-comparison ...`) and the T9 row once more alone (`--problems T9 --workers 1`), since the first T9 run shared the machine with eight other multigrid runs and took 3335 s against 155 s alone.
   The commits this file cites are on the branch of PR #58, which was squash-merged into `next` as 4cc6712, so they are not in its history; GitHub keeps them under `refs/pull/58/head`.
+  The `FDSemiLagrangian` rows (4 runs, 3 unsupported pairs) came later, from `run_comparison.py --solvers FDSemiLagrangian --workers 4` at commit dde1578, clean checkout, in 41 s, merged into a copy of this receipt; every other row is unchanged.
+  A first run at 2afd0fb, before the hull distance got faster, gave the same values to every printed digit and longer times.
   The runs took 16 worker processes, each with one CPU thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and torch's threads set to 1), neural runs first.
 - The rows of `TransportICNN` (issue #29) came later, from the same script at commit 21970e5, clean checkout, merged into the receipt in 496 s of wall time with 10 worker processes of one CPU thread each: `just remote-bg comparison-transport-icnn env CUDA_VISIBLE_DEVICES= python benchmarks/run_comparison.py --solvers TransportICNN --workers 10`.
   The merge replaces only that preset's rows, so every other row is as it was before it.
@@ -69,7 +71,7 @@ The two devices round differently, and 1800 L-BFGS steps carry the difference in
 The exact solution of T8, `(|x|^2 - 1) / 2`, is quadratic, and `FDNewton` and `FDPoisson` reach it to rounding at the nodes (3.3e-13 and 1.6e-12): on this `u` the discrete equations of `Standard9`, the Shortley-Weller stencils next to the circle included, hold exactly.
 Their secondary value on the shared grid, 2.61e-6, is the error of the Clough-Tocher interpolant, not of the scheme.
 Both reach the convex branch (non-convex fraction 0), from the Poisson start; T8 tests branch selection, and on it neither iteration picks the concave solution.
-The monotone, hybrid and filtered schemes are box-only in 0.1 (`not on a Disk`).
+The monotone, hybrid and filtered schemes are box-only in 0.1 (`not on a Disk`); the semi-Lagrangian scheme, monotone too, runs on the disk, with 9.0e-6 at the nodes, the error of its piecewise linear interpolation of the quadratic `u` at the stencil ends (Finding 9).
 
 ### Finding 2: `FDFiltered` stops before its tolerance on T1, T2 and T20
 
@@ -81,6 +83,9 @@ On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the 
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
 On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` and `FDMultigrid` have none (`FDMultigrid` had 6 when it stopped after two cycles, `multigrid.md`, Finding 4).
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
+`FDSemiLagrangian`'s 8.8% on T20 (smallest eigenvalue -2.5e-2) measures its Hessian fit, not its solution: its discrete Hessian is the least-squares fit of a symmetric matrix to its second differences along 64 directions, and a fit to nonnegative differences can be indefinite (one unit difference and the others 0 fit the eigenvalues `-1/64` and `3/64`), worst where they are nearly all 0, in the flat disk and next to kinks.
+At its root every second difference is at least -8.1e-4 (a trace of Howard's stopping tolerance, `1e-6` in `u` divided by `k^2 / 2`), and at the 95.2% of the nodes where all of them are at least `-1e-8`, 4.0% still have a fitted eigenvalue below `-1e-6`, down to -2.5e-2 (`feng_jensen2017_checks.csv`, row `fit` T20, a solve with 4 threads whose fraction is 8.9%, the rounding of the Krylov solves differing; `feng_jensen2017.md`, Finding 3).
+So its cell in the non-convex column is not comparable with the other classical presets' centred Hessians; #73 proposes the Hessian of the maximising frame instead.
 
 ### Finding 4: no neural seed meets the threshold on T2 and T20
 
@@ -113,6 +118,12 @@ The first receipt of these rows (fe47d9b) stopped by the paper's relative residu
 ### Finding 8: `FDMixed` on T2 ends on its second root
 
 `FDMixed` reaches 7.0e-7 on T1 with the 7-point stencil at every node, but 2.13e-4 on T2, the second root of `chen_wan_lin2018.md`, Finding 5: from the paper's start, policy iteration ends with the wide stencil at a few nodes next to the corner `(1, 1)` (28 policy iterations; 18 non-convex nodes, 0.014%), as it does there from `N = 256` on; its 7-point root, which it reaches from the exact solution, is more accurate.
+
+### Finding 9: `FDSemiLagrangian` at its default stencil factor is accurate to about 1e-3
+
+At `n = 361` and `m = 4`, `FDSemiLagrangian` reaches 3.9e-3 on T1, 2.2e-3 on T2 and 1.1e-3 on T20, in 4 to 8 steps of Howard's algorithm and 27 s to 36 s; on T8, 9.0e-6 in 3 steps and 17 s.
+The error is that of the interpolation at the stencil ends, of order `(h / k)^2 = 1/16` times the second derivatives, which does not fall with `h` at a fixed `m`; `feng_jensen2017.md` shows that the paper's best `m` grows with the refinement for the same reason.
+On T2 it is the third most accurate of the classical presets that converge, after `FDHybrid` and `FDMonotone`, and it is the only monotone preset that runs on the disk of T8.
 
 ## Rerun
 

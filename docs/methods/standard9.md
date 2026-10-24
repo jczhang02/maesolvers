@@ -67,6 +67,7 @@ Six details make the stencils robust:
 
 `Result.nodes` lists the nodes with unknowns, then the boundary points, with `Result.interior` True at the first; `Result.node_hessian` is NaN at the boundary points.
 The pure function `shortley_weller_operators(domain, n)` in `maesolvers.classical.schemes` returns them as the named tuple `ShortleyWellerOperators`: the nodes, the mask, the three operators and the smallest step fraction `t` of each stencil.
+`shortley_weller_nodes(domain, n)` returns the nodes and the mask alone, which `SemiLagrangian` triangulates (`docs/methods/feng_jensen2017.md`).
 
 On T8 the stencils are exact for the solution `(|x|^2 - 1)/2`, so the convex root of the discrete equation is the exact solution at the nodes, and so is its mirror image, the concave root `(1 - |x|^2)/2`.
 `FDNewton` starts from `laplace u = 2 sqrt(f) = 2`, which here is already the convex root, and stops after one step; from `laplace u = -2` it reaches the concave root.

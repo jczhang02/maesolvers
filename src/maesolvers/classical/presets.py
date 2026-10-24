@@ -15,12 +15,18 @@ from typing import ClassVar, Generic, Literal, TypeVar
 
 from maesolvers.classical.filtered import Filtered
 from maesolvers.classical.hybrid import Hybrid
-from maesolvers.classical.iterations import Newton, PoissonIteration, PolicyIteration
+from maesolvers.classical.iterations import (
+    Howard,
+    Newton,
+    PoissonIteration,
+    PolicyIteration,
+)
 from maesolvers.classical.mixed import MixedHJB
 from maesolvers.classical.monotone import Monotone17, stencil_dimension
 from maesolvers.classical.multigrid import Multigrid
 from maesolvers.classical.schemes import Standard9
 from maesolvers.classical.second_boundary import SecondBoundary
+from maesolvers.classical.semilagrangian import SemiLagrangian
 from maesolvers.classical.standard_box import StandardBox
 from maesolvers.core._params import integer
 from maesolvers.core.domains import Box
@@ -716,3 +722,57 @@ class FDTransport(_SecondBoundaryPreset, Newton):
                 UserWarning,
                 stacklevel=3,
             )
+
+
+@dataclass(frozen=True, kw_only=True)
+class _SemiLagrangianPreset:
+    """The fields and support of a preset on :class:`SemiLagrangian`.
+
+    Listed first among a preset's bases, so its ``__post_init__`` builds the
+    scheme from the flat fields before the iteration checks it.
+    """
+
+    domains: ClassVar[tuple[type, ...]] = SemiLagrangian.domains
+    boundaries: ClassVar[tuple[type, ...]] = SemiLagrangian.boundaries
+    dims: ClassVar[tuple[int, ...] | None] = SemiLagrangian.dims
+
+    scheme: SemiLagrangian = field(init=False, repr=False)
+    n: int = SemiLagrangian.n
+    stencil_factor: float = SemiLagrangian.stencil_factor
+    directions: int = SemiLagrangian.directions
+
+    def __post_init__(self) -> None:
+        scheme = SemiLagrangian(
+            n=self.n, stencil_factor=self.stencil_factor, directions=self.directions
+        )
+        object.__setattr__(self, "scheme", scheme)
+        for name in ("n", "stencil_factor", "directions"):
+            object.__setattr__(self, name, getattr(scheme, name))
+        super().__post_init__()  # type: ignore[misc]
+
+
+@dataclass(frozen=True, kw_only=True)
+class FDSemiLagrangian(_SemiLagrangianPreset, Howard):
+    """The semi-Lagrangian scheme of Feng and Jensen (2017) solved by Howard's algorithm.
+
+    ``FDSemiLagrangian(n=n, stencil_factor=m, directions=d, ...)`` is
+    ``Howard(scheme=SemiLagrangian(n=n, stencil_factor=m, directions=d),
+    ...)``: the HJB form of the equation, with semi-Lagrangian second
+    differences of stencil size ``m h`` along ``d`` directions, on the
+    nodes of a uniform grid instead of the paper's unstructured triangular
+    grid (``docs/methods/feng_jensen2017.md``).
+
+    Parameters
+    ----------
+    n
+        Cells per side of the grid over the domain's bounding box
+        (``h = 1/n`` on the unit square, ADR 0001), at least 2.
+    stencil_factor
+        ``m`` in the stencil size ``k = m h``, positive.
+    directions
+        Number of stencil directions over ``[0, pi)``, even and at least 4.
+    max_iter
+        Most steps of Howard's algorithm.
+    tol
+        Stop when a step changes no unknown by more than ``tol``.
+    """

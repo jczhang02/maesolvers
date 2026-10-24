@@ -18,6 +18,7 @@ from maesolvers.classical import (
     FDMultigrid,
     FDNewton,
     FDPoisson,
+    FDSemiLagrangian,
     FDTransport,
 )
 from maesolvers.core.solver import Solver
@@ -41,6 +42,7 @@ SOLVERS: Mapping[str, type[Solver]] = MappingProxyType(
             FDMixed,
             FDMultigrid,
             FDTransport,
+            FDSemiLagrangian,
             PenaltyMLP,
             DirichletICNN,
             TransportICNN,

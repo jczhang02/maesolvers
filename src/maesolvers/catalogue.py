@@ -32,6 +32,7 @@ from maesolvers.core.domains import (
     Box,
     CutQuarterDisk,
     Disk,
+    DiskUnionSquare,
     Domain,
     Ellipse,
     Field,
@@ -56,6 +57,8 @@ __all__ = [
     "T20",
     "T22",
     "T28",
+    "T39",
+    "T40",
     "T46",
     "T20c",
 ]
@@ -282,6 +285,23 @@ def _t28_f(x: np.ndarray) -> np.ndarray:
         return _r2(x) ** -0.75 / 16.0
 
 
+# T39, T40: Feng-Jensen 2017, Section 8, on the union of the unit disk and
+# the unit square.
+
+
+def _t39_exact(x: np.ndarray) -> np.ndarray:
+    return _r2(x) ** 2
+
+
+def _t39_f(x: np.ndarray) -> np.ndarray:
+    # u = r^4: u_rr = 12 r^2 and u_r / r = 4 r^2, so det D^2 u = 48 r^4.
+    return 48.0 * _r2(x) ** 2
+
+
+def _t40_exact(x: np.ndarray) -> np.ndarray:
+    return np.abs(x[..., 0])
+
+
 # T46: u = |x|^2/2 - sum_k sin x_k on (0, pi)^3, so D^2 u = diag(1 + sin x_k).
 
 
@@ -453,6 +473,28 @@ T28 = _dirichlet(
     "and the definition are the survey's.",
 )
 
+T39 = _dirichlet(
+    "T39",
+    DiskUnionSquare(),
+    _t39_f,
+    _t39_exact,
+    "u = |x|^4, f = 48 |x|^4, vanishing at the origin, on the union of the "
+    "unit disk and the unit square (0, 1)^2, a convex domain that is not "
+    "strictly convex (Feng-Jensen 2017, Section 8, the quartic problem). "
+    "From the survey; the shared test-set specification does not define it yet.",
+)
+
+T40 = _dirichlet(
+    "T40",
+    DiskUnionSquare(),
+    _const(0.0, 2),
+    _t40_exact,
+    "u = |x1|, f = 0: a degenerate equation whose viscosity solution has a "
+    "kink along x1 = 0, on the domain of T39 (Feng-Jensen 2017, Section 8, "
+    "the nonsmooth problem). From the survey; the shared test-set "
+    "specification does not define it yet.",
+)
+
 T46 = _dirichlet(
     "T46",
     Box((0.0,) * 3, (np.pi,) * 3),
@@ -484,6 +526,8 @@ CATALOGUE: Mapping[str, Problem] = MappingProxyType(
             T20c,
             T22,
             T28,
+            T39,
+            T40,
             T46,
         )
     }
