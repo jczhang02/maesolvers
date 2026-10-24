@@ -491,7 +491,9 @@ class FDMixed(_MixedPreset, PolicyIteration):
     stencil competes only where neither 7-point stationary point, eq. (30),
     lies in its region, the rule the paper's tables follow; that rule is
     not monotone everywhere, and policy iteration can then cycle or reach a
-    second root (``benchmarks/chen_wan_lin2018.md``, Findings 2 and 5).
+    second root (``benchmarks/chen_wan_lin2018.md``, Findings 2, 5 to 7): on
+    the catalogue's T4 it cycles from ``n = 48`` on, the default ``n = 64``
+    included, where ``wide_search="everywhere"`` converges.
     ``wide_search="everywhere"`` is the monotone maximum over all controls
     (``docs/methods/chen_wan_lin2018.md``).
 

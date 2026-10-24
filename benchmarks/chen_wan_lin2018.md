@@ -17,7 +17,7 @@ Each policy's linear system is solved by sparse LU, except in the columns where 
 The paper uses GMRES with an incomplete LU throughout; where the LU is cheap it stays, because that tolerance moves the fourth digit of a 7-point error at `N = 512` (T1: `4.70448e-6` by BiCGSTAB, an MLflow run at commit 1f96a1b, against `4.70454e-6` by LU and the published `4.705e-6`).
 The errors are the paper's: `||e||_inf`, the max at the nodes, and `||e||_2 = sqrt(h^2 sum e^2)` over the nodes (Finding 1).
 
-Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` and `chen_wan_lin2018_checks.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 63b3dc1, which added the "everywhere" column; its mixed and standard rows are those of the earlier runs at 9c24bcb and 55da491 to every digit, apart from the run times) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb and 63b3dc1, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 55da491; some KILLED), which the receipts do not use.
+Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv`, `chen_wan_lin2018_checks.csv` and `chen_wan_lin2018_cycling.csv` (the evidence for the findings), all from `run_chen_wan_lin2018.py` on a100server at commit fb57cfb (Table 5 at 63b3dc1, which added the "everywhere" column; its mixed and standard rows are those of the earlier runs at 9c24bcb and 55da491 to every digit, apart from the run times; the cycling rows at 06a4bdf) with a clean checkout; every solve is one run in the MLflow experiment `maesolvers-mixed-<problem>` (`T1-square`, `T2`, `T4`, `T20c`, `T21`, `T7-half`); the receipts' runs carry the commit tags fb57cfb, 63b3dc1 and 06a4bdf, and the same experiments also hold the runs of earlier attempts (commits 386c6ea to 55da491; some KILLED), which the receipts do not use.
 
 ## Verdict
 
@@ -27,7 +27,7 @@ Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv` 
 | 2 | T2 | mismatch (ADR 0002 level 5): every printed digit at `N = 32` to 128, but at 256 and 512 policy iteration from the paper's start reaches a second root of the scheme, 10 to 65 times less accurate, with orders of -1.33 and 0.15 (Finding 5) | order of magnitude: within 3% |
 | 3 | T20c | order of magnitude: 6 of the 10 printed values exact, the rest within 0.7% (Finding 4) | order of magnitude: within 3% |
 | 4 | T21 | mismatch for the paper's `f = pi delta`: with the mass `pi/h^2` the error is `0.039` at every `N`; with `(4 sqrt 2 - 2)/h^2`, a mass fitted to the exact solution, within 19%, orders within 0.11 (Finding 3) | not printed |
-| 5 | `f = 1`, `g = 0` | the mixed scheme: order of magnitude with `wide_search="everywhere"`, converged at every `N`, `u_h(0, 0)` within `1.0e-4` and the published value at `N = 256` and 512; the default rule gives the same values where it converges, but cycles at `N = 256` | the standard 9-point scheme: order of magnitude, within `2e-5`, the published value at `N = 256` and 512, every `N` converged |
+| 5 | `f = 1`, `g = 0` | mismatch (ADR 0002 level 5): with the default rule, the paper's (Finding 2), `u_h(0, 0)` lies within `1.0e-4` of the published value at `N = 32`, 64, 128 and 512, but at `N = 256` policy iteration cycles and stops after 100 steps with a residual of `7.3e-2`, so that cell has no root; `wide_search="everywhere"` converges at every `N` to within `1.0e-4`, evidence for Finding 6, not a reproduction | the standard 9-point scheme: order of magnitude, within `2e-5`, the published value at `N = 256` and 512, every `N` converged |
 
 ### Table 1 (1), T1 on [-1, 1]^2, mixed scheme
 
@@ -117,7 +117,7 @@ The tables follow the cost estimate.
 - on T1 the wide stencil never wins, and on T20c the same few nodes take it under either rule, so both solutions are unchanged;
 - on T2 it takes the wide stencil at 0.7% of the nodes, next to the corner `(1, 1)`, where the Hessian of the solution is near the edge of diagonal dominance: the max error is `8.82e-4`, `7.77e-4`, `5.10e-4` at `N = 32`, 64, 128 against the published `2.359e-4`, `8.211e-5`, `2.882e-5`, and the order drops from 1.5 to 0.2 and 0.6;
 - on the cone it fails, with max errors of 1.5 to 3.7 that grow with `N`: near the tip the wide stencil's arms of length `sqrt(h)` see smaller second differences of the cone than the 7-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by `O(1)`;
-- on Table 5's problem both rules give the same `u_h(0, 0)` to 6 digits wherever the default converges, so Table 5 does not show which rule the paper used (the "everywhere" column of `chen_wan_lin2018_table5.csv`); Tables 2 and 4 do.
+- on Table 5's problem both rules give the same `u_h(0, 0)` to 6 digits wherever the default converges, so Table 5 does not show which rule the paper used (the "everywhere" column of `chen_wan_lin2018_table5.csv`); Tables 2 and 4 do, and Table 5 is judged with the same rule (Finding 6).
 
 The skip makes the scheme switch between two stencils at a node as `u` moves a stationary point across the edge of its region, so it is no longer the maximum of monotone operators everywhere that the paper's Section 6 proves convergent; Finding 5 shows the consequences, a second root and policy iteration that cycles.
 
@@ -143,24 +143,54 @@ From the exact solution at the nodes it reaches, in 3 policy iterations, the roo
 A maximum of monotone operators has one root; the skip of Finding 2 breaks that, and which root policy iteration reaches depends on its path, here on how the early iterates near the singular corner fall on either side of the edge of a 7-point region.
 The paper's 5 policy iterations from `N = 64` on suggest its path never left the 7-point stencil.
 Ours from the same start already differs at `N = 128`, with 15 policy iterations against the printed 5 and the errors still exact, the first sign of the split; it takes 21 at `N = 256` and does not converge in 100 at 512, where the policy cycles with a residual near `0.09`.
+The cycling is not confined to fine grids or small residuals: on Table 5's problem at `N = 256` it persists from the root of the monotone maximum (Finding 6), and on the catalogue's T4 it starts at `n = 48` with residuals of 1.5 to 7.9 (Finding 7).
 Level for Table 2: a mismatch (ADR 0002 level 5), since the paper's method from the paper's start misses `N = 256` and 512 by 10 to 65 times.
 The agreement at `N = 32` to 128, and the exact 7-point root from the exact solution, which is not the paper's start, are the evidence for this finding, not a reproduction.
 
+## Finding 6: on Table 5 the published values are roots of the monotone maximum, not of the default rule at `N = 256`
+
+`wide_search="everywhere"`, the maximum over all controls of Section 5.2, converges at every `N` of Table 5 in 8 to 26 policy iterations to residuals below `1e-6`, and its `u_h(0, 0)` is the published value at `N = 256` and 512 and within `1.0e-4` at the coarser grids (the "everywhere" rows of `chen_wan_lin2018_table5.csv`).
+At `N = 32`, 64, 128 and 512 the default rule reaches the same `u_h(0, 0)` to 6 digits; at `N = 256` it cycles from the paper's start (Table 5 above).
+The default rule started from the converged root of the maximum at `N = 256` (row `everywhere start` of `chen_wan_lin2018_cycling.csv`) measures a residual of `4.66e-2` there, so that root is not a root of the default scheme: at some nodes the default skips the wide-stencil search that the maximum takes.
+From there policy iteration cycles again, between residuals of `7.34e-2` and `2.04e-2`, and stops after 100 steps with `u_h(0, 0) = -0.184855`, which prints the published value.
+So the failure at `N = 256` is not only the path from the paper's start, as on T2 (Finding 5): from both starts the default rule finds no root, and whether its scheme has one at `N = 256` is open.
+The "everywhere" column is evidence that the published `u_h(0, 0)` is the root of the monotone maximum at every `N`, not a reproduction: Tables 2 and 4 rule that rule out for the paper's tables (Finding 2), and choosing it for Table 5 alone would choose the rule per table; the level of Table 5's mixed column stays a mismatch.
+
+## Finding 7: on T4 the default rule cycles from `n = 48` on
+
+The catalogue's T4, `f` equal to 1 outside a disk and 0 inside (Benamou-Froese-Oberman 2010), is not a problem of the paper, but `FDMixed(n=n).solve(T4)` at the preset's own default `n = 64` does not converge (`chen_wan_lin2018_cycling.csv`):
+
+| n | default rule: policy iterations | residual at the last step | max error | `eigmin` | everywhere: policy iterations | residual | max error | `eigmin` |
+|---|---|---|---|---|---|---|---|---|
+| 16 | 7 | `7.6e-13` | `3.694e-3` | -0.44 | 6 | `1.9e-8` | `5.561e-3` | -0.50 |
+| 32 | 17 | `1.3e-9` | `6.880e-3` | -0.90 | 8 | `8.2e-10` | `6.880e-3` | -0.90 |
+| 48 | 100, not converged | 1.51 | `7.112e-3` | -1.23 | 7 | `3.9e-10` | `7.118e-3` | -1.16 |
+| 64 | 100, not converged | 7.89 | `6.368e-3` | -7.89 | 9 | `1.4e-11` | `6.678e-3` | -1.67 |
+| 96 | 100, not converged | 2.48 | `6.033e-3` | -2.64 | 12 | `3.5e-11` | `6.071e-3` | -2.35 |
+| 128 | 100, not converged | 1.70 | `5.534e-3` | -3.47 | 13 | `1.7e-10` | `5.542e-3` | -2.95 |
+
+From `n = 48` on the default rule stops after 100 policy iterations with a residual of 1.5 to 7.9, against residuals near `0.07` to `0.09` where it cycles on Table 5 and T2; its last iterate's max error lies within 5% of the root of the maximum, but it is not a root, and its smallest Hessian eigenvalue at `n = 64` is `-7.9` against `-1.7`.
+`wide_search="everywhere"` converges at every `n` in 6 to 13 policy iterations.
+Which steps the cycle takes depends on the rounding of the sparse LU: on a laptop at the PR head the default converged at `n = 48` in 19 steps and stopped at `n = 64` with a residual of `5.35`, against `7.89` on a100server; from `n = 64` on it cycles on both.
+`tests/test_mixed.py` (`test_policy_iteration_cycles_on_t4_under_the_default_rule_only`) asserts the pattern at `n = 64`: the default unconverged after 100 steps with a residual above 1, the maximum converged in fewer than 20.
+The comparison set (T1, T2, T20) does not include T4, so the comparison table does not show this.
+
 ## Table 5
 
-| N | mixed, paper | everywhere, ours | policy iterations | default rule, ours | policy iterations | standard, paper | standard, ours (`-u_min` of `FDPoisson`) |
+| N | mixed, paper | default rule, ours | policy iterations | everywhere, ours (Finding 6) | policy iterations | standard, paper | standard, ours (`-u_min` of `FDPoisson`) |
 |---|---|---|---|---|---|---|---|
 | 32 | -0.18380 | -0.18370 | 8 | -0.18370 | 8 | 0.18063 | 0.18065 |
-| 64 | -0.18444 | -0.18447 | 10 | -0.18447 | 11 | 0.18312 | 0.18313 |
-| 128 | -0.18461 | -0.18463 | 14 | -0.18463 | 15 | 0.18436 | 0.18437 |
-| 256 | -0.18485 | -0.18485 | 18 | | 100, not converged | 0.18499 | 0.18499 |
-| 512 | -0.18507 | -0.18507 | 26 | -0.18507 | 24 | 0.18530 | 0.18530 |
+| 64 | -0.18444 | -0.18447 | 11 | -0.18447 | 10 | 0.18312 | 0.18313 |
+| 128 | -0.18461 | -0.18463 | 15 | -0.18463 | 14 | 0.18436 | 0.18437 |
+| 256 | -0.18485 | | 100, not converged | -0.18485 | 18 | 0.18499 | 0.18499 |
+| 512 | -0.18507 | -0.18507 | 24 | -0.18507 | 26 | 0.18530 | 0.18530 |
 
-Table 5 prints `u_h(0, 0)`, not an error, so ADR 0002's level 2 is judged on the ratio ours / published of `u_h(0, 0)` at every printed `N`, and its clause on the convergence orders has nothing to compare.
-With `wide_search="everywhere"` policy iteration converges at every `N` in 8 to 26 policy iterations, to residuals below the tolerance `1e-6`, and `u_h(0, 0)` is the published value at `N = 256` and 512 and within `1.0e-4` at the coarser grids, a ratio within `6e-4` of 1: order of magnitude, the level of the column, although the agreement is much closer than the level asks.
+Table 5 prints `u_h(0, 0)`, not an error, so ADR 0002's levels are judged on the ratio ours / published of `u_h(0, 0)` at every printed `N`, and the clause on the convergence orders has nothing to compare.
+The mixed column is judged with the default rule, the one Tables 2 and 4 single out as the paper's (Finding 2); judging Table 5 alone with another rule would choose the rule per table.
+With it, `u_h(0, 0)` lies within `1.0e-4` of the published value at `N = 32`, 64 and 128, a ratio within `6e-4` of 1, and is the published value at `N = 512`.
+At `N = 256` policy iteration cycles between policies with a residual near `0.07` (`7.3e-2` at its last step) and stops after 100 steps unconverged; its last iterate prints the published value, but it is not a root of the scheme, so the cell is left empty.
+Level of the mixed column: a mismatch (ADR 0002 level 5), since the paper's method gives no solution at one of the five printed `N`.
 At every `N` the wide stencil enters at 7% to 17% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
-The default rule gives the same `u_h(0, 0)` to 6 digits at `N = 32`, 64, 128 and 512, so Table 5 does not show which rule the paper used (Finding 2).
-At `N = 256` it cycles between policies with a residual near `0.07` and stops after 100 steps unconverged, the default rule's cycling of Finding 5; its last iterate prints the published value, but it is not a root of the scheme, so the cell is left empty, and with the default rule alone the column would be a mismatch at `N = 256`.
 The non-monotone column is the standard 9-point scheme, whose equation is even in `u` when `g = 0`: its concave solution is minus its convex one, which `FDPoisson` computes, so the column prints `-u_h(0, 0)` of `FDPoisson`; it matches within `2e-5`, and to every digit at `N = 256` and 512.
 The Poisson iteration takes 952, 3338, 11 593, 39 438 and 130 107 steps until successive iterates agree to `1e-12`, so `run_chen_wan_lin2018.py` gives it 300 000 (its default of 10 000 stopped it unconverged from `N = 128` on in an earlier run, with the same printed values).
 `T7-half` is T7 scaled, so Benamou-Froese-Oberman's `u_min = 0.2682` of T7 at 61 nodes per side gives `(0.2682 - 1)/4 = -0.1830` here, consistent with both columns.
