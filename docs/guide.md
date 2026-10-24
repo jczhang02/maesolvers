@@ -50,7 +50,7 @@ for name in SHARED_TEST_SET:
     problem = CATALOGUE[name]
     supported = [key for key, preset in SOLVERS.items() if preset().supports(problem)]
     print(name, supported)
-    # T1 ['FDNewton', 'FDPoisson', 'FDMonotone', 'FDHybrid', 'FDFiltered', 'FDMultigrid', ...], ...
+    # T1 ['FDNewton', 'FDPoisson', 'FDMonotone', 'FDHybrid', 'FDFiltered', 'FDMixed', 'FDMultigrid', 'FDSemiLagrangian', ...], ...
 ```
 
 Solving an unsupported problem raises `UnsupportedProblemError`, before any work is done.
