@@ -36,6 +36,7 @@ from maesolvers import (  # noqa: E402
     Problem,
     QuadraticForm,
     Switch,
+    T20c,
     TransportICNN,
     TransportQSPINN,
     TransportSampler,
@@ -240,6 +241,7 @@ def _f_at_the_centre(value):
         (QuadraticForm(), T8, None),
         (QuadraticForm(), T20, "f(x0) <= 0"),  # f = 0 on a disk around (1/2, 1/2)
         (QuadraticForm(), T4, "f(x0) <= 0"),
+        (QuadraticForm(), T20c, "f(x0) <= 0"),  # f = 0 on a disk around (0, 0)
         (QuadraticForm(), _f_at_the_centre(-1.0), "f(x0) <= 0"),
         (QuadraticForm(), _f_at_the_centre(np.inf), "f(x0) not finite"),
         (QuadraticForm(), _f_at_the_centre(np.nan), "f(x0) not finite"),
@@ -374,7 +376,8 @@ def test_support_of_the_presets():
     dirichlet, transport = DirichletQSPINN(), TransportQSPINN()
     assert dirichlet.supports(T8) and dirichlet.supports(T9)
     assert not dirichlet.supports(T12) and not dirichlet.supports(T20)
-    assert not dirichlet.supports(T4)
+    assert not dirichlet.supports(T4) and not dirichlet.supports(T20c)
+    assert DirichletQSPINN(reference=(0.1, 0.1)).supports(T20c)
     assert transport.supports(T12) and not transport.supports(T8)
     with pytest.raises(UnsupportedProblemError, match=r"Transport boundary$"):
         dirichlet.solve(T12)  # not the reference point: the message is the usual one

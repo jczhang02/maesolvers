@@ -445,8 +445,8 @@ class DirichletQSPINN(NeuralSolver):
     samples its boundary, with ``x0`` inside the domain and ``f(x0) > 0``
     (:meth:`QuadraticForm.supports
     <maesolvers.neural.networks.QuadraticForm.supports>`). With the default
-    reference it refuses T4 and T20, whose ``f`` vanishes on a disk around
-    the centre of their box, and :meth:`check` says so;
+    reference it refuses T4, T20 and T20c, whose ``f`` vanishes on a disk
+    around the centre of their box, and :meth:`check` says so;
     ``reference=(0.1, 0.1)`` takes them. The training runs on the CPU
     unless ``accelerator`` says otherwise.
 
