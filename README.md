@@ -234,13 +234,13 @@ For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differe
 
 | Problem | `FDNewton` | `FDPoisson` | `FDMonotone` | `FDHybrid` | `FDFiltered` | `FDMixed` | `FDMultigrid` | `FDTransport` | `FDSemiLagrangian` | `PenaltyMLP` | `DirichletICNN` | `TransportICNN` | `DirichletQSPINN` | `TransportQSPINN` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 7.19 | 2.63 | 60.5 | 68.3 | 36.1 \* | 11.9 | 0.912 | Transport only | 27 | 418 | 991 | Transport only | 275 | Transport only |
-| T2 | 37.4 | 5.75 | 147 | 152 | 45 \* | 81.8 | 3.93 | Transport only | 31.5 | 419 | 550 | Transport only | 37.9 | Transport only |
-| T20 | 67.5 | 36.3 | 132 | 240 | 142 \* | 257 | 19.3 \* | Transport only | 36.4 | 416 | 1009 | Transport only | f(x0) <= 0 | Transport only |
-| T8 | 2.98 | 3.9 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | 16.6 | 416 | 797 | Transport only | 41.2 | Transport only |
-| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 376 \* | Dirichlet only | Dirichlet only | Dirichlet only | 281 | Dirichlet only | 175 |
-| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 155 | Transport only | 2D only | 2D only | 1450 | Transport only | 422 | Transport only |
-| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | 155 | Transport only | 217 | Transport only |
+| T1 | 6.96 | 2.48 | 52.3 | 62.3 | 30.9 \* | 11.2 | 0.765 | Transport only | 20.1 | 358 | 881 | Transport only | 275 | Transport only |
+| T2 | 35.2 | 4.77 | 122 | 129 | 39.9 \* | 78.6 | 3.64 | Transport only | 24.7 | 375 | 490 | Transport only | 39.9 | Transport only |
+| T20 | 62.9 | 32.6 | 110 | 200 | 123 \* | 258 | 18.8 \* | Transport only | 31.4 | 370 | 854 | Transport only | f(x0) <= 0 | Transport only |
+| T8 | 2.45 | 3.31 | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | 17 | 345 | 750 | Transport only | 41.8 | Transport only |
+| T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | 310 \* | Dirichlet only | Dirichlet only | Dirichlet only | 171 | Dirichlet only | 177 |
+| T9 | 2D only | 2D only | 3D: stencil=19 | 2D only | 2D only | 2D only | 163 | Transport only | 2D only | 2D only | 1186 | Transport only | 398 | Transport only |
+| T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | 146 | Transport only | 211 | Transport only |
 
 A classical cell is one run on the grid `n` in parentheses, the largest `N` of the papers, with `h = 1/n` on T1, T2, T20 and T9, `h = 2/n` on T8 and T12 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds 0 to 9: the median, the 5% to 95% band and the number of seeds whose max error on the shared evaluation grid is below 1% of the exact solution's oscillation `max u - min u` there; a failed seed counts as an infinite error (ADR 0007).
