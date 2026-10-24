@@ -82,7 +82,9 @@ On T20, `f = 0` on the disk `|x - x0| < 0.2`, where the exact Hessian is 0; the 
 `DirichletICNN` is convex by construction (0 on every problem); `PenaltyMLP` penalises only negative `u_xx` and `u_yy` and has non-convex points on T1, T2 and T20.
 On T2, `FDNewton` reaches its known non-convex root (1.09% of the nodes, `standard_fd.md`, Finding 2); the monotone, hybrid and filtered schemes have 10 non-convex nodes (0.0077%), while `FDPoisson` and `FDMultigrid` have none (`FDMultigrid` had 6 when it stopped after two cycles, `multigrid.md`, Finding 4).
 In one solve of `FDMonotone` outside this receipt, not recorded, these nodes lay within four grid steps of the corner `(1, 1)`, where the gradient blows up.
-`FDSemiLagrangian`'s discrete Hessian is a least-squares fit to its second differences along 64 directions, which are nonnegative at its root; where `f = 0` they vanish up to rounding, and the fit has a negative smallest eigenvalue of rounding size at 8.8% of the nodes of T20.
+`FDSemiLagrangian`'s 8.8% on T20 (smallest eigenvalue -2.5e-2) measures its Hessian fit, not its solution: its discrete Hessian is the least-squares fit of a symmetric matrix to its second differences along 64 directions, and a fit to nonnegative differences can be indefinite (one unit difference and the others 0 fit the eigenvalues `-1/64` and `3/64`), worst where they are nearly all 0, in the flat disk and next to kinks.
+At its root every second difference is at least -8.1e-4 (a trace of Howard's stopping tolerance, `1e-6` in `u` divided by `k^2 / 2`), and at the 95.2% of the nodes where all of them are at least `-1e-8`, 4.0% still have a fitted eigenvalue below `-1e-6`, down to -2.5e-2 (`feng_jensen2017_checks.csv`, row `fit` T20, a solve with 4 threads whose fraction is 8.9%, the rounding of the Krylov solves differing; `feng_jensen2017.md`, Finding 3).
+So its cell in the non-convex column is not comparable with the other classical presets' centred Hessians; #73 proposes the Hessian of the maximising frame instead.
 
 ### Finding 4: no neural seed meets the threshold on T2 and T20
 

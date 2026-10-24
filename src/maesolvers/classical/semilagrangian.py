@@ -648,7 +648,14 @@ class SemiLagrangian(Scheme):
             of its boundary, the paper's constant extension along the
             normal. ``node_hessian`` at an unknown is the least-squares fit
             to its second differences along every direction
-            (:func:`fit_hessian`), NaN at the boundary points. ``info`` holds
+            (:func:`fit_hessian`), NaN at the boundary points. A fit to
+            nonnegative second differences can be indefinite, worst where
+            they are nearly all 0 (flat regions, kinks), so ``evaluate``'s
+            ``nonconvex_fraction`` and ``eigmin`` measure the fit: a root is
+            convex along every stencil direction, yet on T40 at ``n = 80``,
+            ``m = 16``, exact to rounding, a quarter of the nodes have a
+            fitted eigenvalue below ``-1e-6``
+            (``benchmarks/feng_jensen2017.md``, Finding 3). ``info`` holds
             the spacing ``h``, ``residual_max``, the max absolute residual,
             ``min_reach``, the smallest stencil size over ``h``, and
             ``interpolant``, ``"linear"``.

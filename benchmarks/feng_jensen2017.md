@@ -4,11 +4,15 @@
 **Levels (ADR 0002): figure only on T39**, against Figure 6, a table of the best relative error over the stencil factor `m` at each level under a figure caption, and the rate `h^1.02` of p. 711; **mismatch on T40**, which our structured grid solves to the rounding level (Finding 1).
 The paper's nonsmooth behaviour is compared on T40 turned off the grid, a test-local problem without a T id (Finding 2).
 
-Receipt: `feng_jensen2017.csv`, written by `run_feng_jensen2017.py` on a100server at commit cf16a7c, clean checkout (tmux `maesolvers-feng-jensen3`), 6 worker processes with one thread each: T39, T40 and T40 turned on `n = 10 2^l`, `l = 0, ..., 7`, with `m = 2, 4, ..., 64`, 141 of the 144 solves.
-The three missing rows are at `n = 1280` with small `m`, where Howard's linear solves are slowest (Conventions, Linear solver): T40 at `m = 2`, T40 turned at `m = 2` and 4; none of them can be the best `m` at its level (T40 is at the rounding level for every `m`; T40 turned has 5.76e-3 at `m = 64` against 3.95e-2 at `m = 4`), so the tables below do not depend on them.
-A first run of the same scheme code at dde1578 (tmux `maesolvers-feng-jensen2`) gave the same errors, to the four printed digits, in all 141 shared solves, and the `m = 4` row in its log (3.954e-2); its solve of T40 turned at `n = 1280`, `m = 2` was still running after 13 hours, and its rows existed only in memory, which is why the runner now writes each row as it finishes.
+Receipt: `feng_jensen2017.csv`, written by `run_feng_jensen2017.py --levels 8` on a100server at commit cf16a7c, clean checkout (tmux `maesolvers-feng-jensen3`), 6 worker processes with one thread each: T39, T40 and T40 turned on `n = 10 2^l`, `l = 0, ..., 7`, with `m = 2, 4, ..., 64`, 141 solves.
+The runner leaves out three solves at `n = 1280` with small `m` (`EXCLUDED`, with the reason in its docstring), where Howard's linear solves are slowest (Conventions, Linear solver; #72): T40 at `m = 2`, T40 turned at `m = 2` and 4.
+None of them can be the best `m` at its level, so the tables below do not depend on them: T40 is at the rounding level for every `m`, and the run at dde1578 below solved T40 at `m = 2` to 8.0e-13 in 2 steps (MLflow run 99394efcf4db4f45b2a37c24e874cb94, 2.5 hours) and T40 turned at `m = 4` to 3.954e-2 in 17 steps (run 49e68b077354419b8f261c7f03b66ca0, 3.6 hours), against 5.76e-3 at `m = 64`; T40 turned at `m = 2` was never solved (more than 13 hours, stopped).
+The runs of cf16a7c for these three rows were stopped, and MLflow marks them `KILLED`, as it does the six runs of the first runner at 119b73f in `-T39` and the unfinished `m = 2` run of dde1578 in `-T40_turned`.
+A first run of the same scheme code at dde1578 (tmux `maesolvers-feng-jensen2`) gave the same errors, to the four printed digits, in all 141 shared solves; its rows existed only in memory when it was stopped, which is why the runner now writes each row as it finishes.
 Every solve in the receipt converged (Howard's step below `1e-6`).
-Every solve is an MLflow run named `n=<n> m=<m>` in `maesolvers-feng_jensen2017-T39`, `-T40` and `-T40_turned`; the tag `mlflow.source.git.commit` tells the two runs apart.
+Every solve is an MLflow run named `n=<n> m=<m>` in `maesolvers-feng_jensen2017-T39`, `-T40` and `-T40_turned`, status `FINISHED`; the tag `mlflow.source.git.commit` tells the two runs apart.
+The receipt's `nonconvex_fraction` column measures the least-squares Hessian fit, not the solution (Finding 3).
+Diagnostics behind Finding 3 and the timing of `Newton` (Howard's algorithm): `feng_jensen2017_checks.csv`, written by `run_feng_jensen2017.py --checks` on a100server at commit 87566d9, clean checkout (`just remote`, 4 threads), each row also an MLflow run named `check=<kind> n=<n> m=<m>` in `maesolvers-feng_jensen2017-<problem>` (T20's in `-T20`).
 `python benchmarks/run_feng_jensen2017.py --summary benchmarks/feng_jensen2017.csv` prints the tables below from the CSV.
 
 ## The comparison
@@ -75,10 +79,33 @@ So, as in the paper, a finer grid helps only with a wider stencil, and the best 
 At the finest two levels, where the paper's best `m` is 64 too, ours is within a factor 1.3 of its T40 error (5.85e-3 against 6.04e-3, 5.76e-3 against 4.51e-3); at the first six levels ours is 1.5 to 5.5 times smaller; there the wide stencils, clipped at the boundary, already do well on our grids, where the paper's errors at `m = 64` are about 0.24 on its first three levels (its Figure 7).
 This is a comparison with a different problem, not a reproduction; it shows that the nonsmooth behaviour of Figure 7 comes from a kink across the mesh, which T40 on our grid lacks.
 
+## Finding 3: the receipt's non-convex fraction measures the Hessian fit, not the solution
+
+`node_hessian`, from which `evaluate` takes `nonconvex_fraction` and `eigmin`, is the least-squares fit of a symmetric matrix to the second differences along all 64 stencil directions (`fit_hessian`).
+At a root of the scheme every second difference is nonnegative (the scheme's root conditions), but a fit to nonnegative data can be indefinite: one unit difference and the others 0 fit the eigenvalues `-1/D` and `3/D` for `D` directions (`tests/test_semilagrangian.py`).
+The fit is worst where the differences are nearly all 0, in a flat region or next to a kink, so the receipt's `nonconvex_fraction` is 0.46 to 0.76 on T40 for solutions exact to 1e-12 (0.31 to 0.78 on T40 turned, 0 to 0.014 on T39).
+`run_feng_jensen2017.py --checks` measures it at the root (`feng_jensen2017_checks.csv`, rows `fit`, commit 87566d9, 4 threads):
+
+| problem | n | m | max error (absolute) | nonconvex_fraction | eigmin | nodes with all `d >= -1e-8` | of those, fitted eigenvalue `< -1e-6` | smallest `d` |
+|---|---|---|---|---|---|---|---|---|
+| T20 | 361 | 4 | 1.06e-3 | 8.9% | -2.52e-2 | 95.2% | 4.0% (down to -2.49e-2) | -8.1e-4 |
+| T39 | 320 | 8 | 8.47e-3 | 0 | 1.1e-4 | 99.999% | 0 | -5.4e-7 |
+| T40 | 80 | 16 | 1.0e-15 | 65% | -2.34 | 100% | 25% (down to -2.34) | -1.2e-10 |
+| T40 | 320 | 16 | 5.8e-15 | 64% | -9.25 | 100% | 7.8% (down to -9.25) | -1.9e-9 |
+| T40 turned | 320 | 16 | 2.16e-2 | 58% | -4.67 | 100% | 16% (down to -4.67) | -9.3e-10 |
+
+The second differences are nonnegative up to rounding on T39 and T40, and on T20 down to -8.1e-4, a trace of Howard's stopping tolerance (`1e-6` in `u`, divided by `k^2 / 2`); the fit's negative eigenvalues are 30 times larger there and of order 1 on T40.
+The Hessian of the maximising frame, `d1 s1 s1^T + d2 s2 s2^T`, has the eigenvalues `d1`, `d2`, so its smallest eigenvalue is the smallest `d` of that frame: the same values as the last column here.
+Reporting it as `node_hessian` (#73) would change the `nonconvex_fraction` and `eigmin` columns of this receipt and of `comparison.csv`, so it is left for that issue.
+The T20 row's 8.9% differs from the comparison receipt's 8.8%, solved with one thread: the rounding of the Krylov solves depends on the thread count, and these two metrics are sensitive to it (the max error agrees to six digits).
+
 ## Howard's algorithm
 
 Fig. 8 of the paper gives 4 to 16 steps to a step below `1e-6` over all levels and `m`, 5 to 8 (quartic) and 5 to 9 (nonsmooth) at the best `m`.
 Ours, over all levels and `m` of the receipt: 4 to 7 on T39 (4 or 5 at the best `m`), 2 to 9 on T40, and 4 to 27 on T40 turned, the most at `m = 2` and 4, where the narrow stencil sees the kink; at the best `m`, 4 to 8.
+
+`Newton(scheme=SemiLagrangian(n))` reaches the same root, but `Newton` solves its linear systems by LU, which fills in on wide stencils: on T39 it took 0.85 s against 0.37 s for `FDSemiLagrangian` at `n = 64`, `m = 4`, and 64.1 s against 1.3 s at `n = 128`, `m = 8`, with the same error to 1e-10 (`feng_jensen2017_checks.csv`, rows `newton` and `howard`, 4 threads).
+#72 proposes to let the scheme choose its linear solve.
 
 ## Conventions that differ
 
@@ -87,7 +114,7 @@ Ours, over all levels and `m` of the receipt: 4 to 7 on T39 (4 or 5 at the best 
 - **Stencil size near the boundary.** The paper shrinks the stencil where `m h` exceeds the distance to the boundary of the triangulated domain, and its Figure 5(b) shows a size that depends on the direction; ours is `min(m h, distance)` at each node, the same for every direction.
 - **Split.** The paper discretises the rotations of the frames by `i pi / 64` and says nothing about the split `a` of `diag(a, 1 - a)`; we take the supremum over `a` in closed form, which any fine discretisation of `a` approaches.
 - **Error measure.** Ours is the max error at the nodes relative to `max |u|` over the domain; the paper's `L^inf` error is that of the finite element function, whose maximum over the domain is at most the nodal one plus the interpolation error, `O(h^2)` for T39.
-- **Linear solver.** The paper used FEniCS without naming its linear solver; ours is BiCGSTAB with diagonal scaling, then GMRES, then LU (`Howard`). The discrete solution is the one an LU factorisation gives, but at small `m` on fine grids the Krylov methods need many steps (Rerun).
+- **Linear solver.** The paper used FEniCS without naming its linear solver; ours is BiCGSTAB with diagonal scaling, then GMRES, then LU (`Howard`). The discrete solution is the one an LU factorisation gives, but at small `m` on fine grids the Krylov methods need many steps, and their budget of `10 N` steps each keeps the LU fallback out of reach (Rerun; #72).
 
 ## Not compared
 
@@ -104,8 +131,15 @@ just remote-bg feng-jensen env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_
 # when the log ends:
 scp a100server:/jczhang02/maesolvers-data/data/feng_jensen2017.csv benchmarks/
 uv run python benchmarks/run_feng_jensen2017.py --summary benchmarks/feng_jensen2017.csv
+# the checks of Finding 3 and of Newton's LU, about 3 minutes:
+just remote env OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 \
+    python benchmarks/run_feng_jensen2017.py --checks \
+    --out /jczhang02/maesolvers-data/data/feng_jensen2017_checks.csv
+scp a100server:/jczhang02/maesolvers-data/data/feng_jensen2017_checks.csv benchmarks/
 ```
 
-The solves at `n = 1280` take 7 to 47 minutes each at `m >= 4`, 2 hours for T39 at `m = 2`, and more than 13 hours for T40 turned at `m = 2`, where BiCGSTAB needs thousands of steps and often breaks down into GMRES; each worker at `n = 1280` holds about 10 GB.
+The 141 solves end; those at `n = 1280` take 7 to 47 minutes each at `m >= 4` and 2 hours for T39 at `m = 2`; each worker at `n = 1280` holds about 10 GB.
+The three excluded solves take hours (Receipt), because BiCGSTAB needs thousands of steps and often breaks down into GMRES, whose budget of `10 N` steps keeps the LU fallback out of reach (#72).
 The 141 rows took 2.5 hours with 6 workers.
-A rerun with the same `--out` solves only the rows it lacks, so the three missing rows can be added by running the command again and stopping it when they are written.
+A rerun with the same `--out` solves only the rows it lacks.
+The checks run their solves one after the other, in about 3 minutes; each is an MLflow run named `check=<kind> n=<n> m=<m>` in `maesolvers-feng_jensen2017-<problem>`, T20's in `maesolvers-feng_jensen2017-T20`.

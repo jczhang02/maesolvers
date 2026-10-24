@@ -59,7 +59,8 @@ and at a root `d1 d2 >= f`, `d1 >= 0`, `d2 >= 0` in every frame: the discrete so
 ### Nodes and stencil size
 
 The paper works on a quasi-uniform unstructured triangulation.
-`SemiLagrangian` uses the nodes of the finite-difference family instead: a uniform grid with `n` cells per side over the domain's bounding box (`h = 1/n` on the unit square, ADR 0001), the grid nodes in the open domain carrying the unknowns, and as boundary points the grid nodes on the boundary and the points where grid lines and diagonals cross it, as `shortley_weller_operators` places them; the Dirichlet data are imposed there.
+`SemiLagrangian` uses the nodes of the finite-difference family instead: a uniform grid with `n` cells per side over the domain's bounding box (`h = 1/n` on the unit square, ADR 0001), the grid nodes in the open domain carrying the unknowns, and as boundary points the grid nodes on the boundary and the points where grid lines and diagonals cross it, as `shortley_weller_nodes` places them; the Dirichlet data are imposed there.
+The method `place_nodes(domain)` returns them, so a subclass that overrides it puts the scheme on other nodes, as long as their triangulation spans the domain.
 The interpolant lives on the Delaunay triangulation of these nodes, whose union is a polygon `Omega_h` inscribed in the domain; every supported domain is convex, so `Omega_h` is their convex hull.
 
 The stencil size is `k = stencil_factor * h` (the paper's `k = m h`, with `h` the larger spacing), reduced near the boundary to the distance from the node to the boundary of `Omega_h`, so that both ends stay in the triangulation (the paper's Remark 4.1 and Section 8).
@@ -69,6 +70,7 @@ Convergence needs `k -> 0` and `h / k -> 0`: for a fixed `m` the error stops fal
 ### Solution
 
 `solution` returns the nodal values, the piecewise linear interpolant as `u` (outside `Omega_h`, in slivers of width `O(h^2)` along a curved boundary, the value at the nearest point of `Omega_h`'s boundary, the paper's constant extension along the normal, its Figure 1), and as `node_hessian` at each unknown the least-squares fit of a symmetric matrix to its second differences along every direction (`fit_hessian`).
+The fit can be indefinite where every second difference is nonnegative (Known limits), so `evaluate`'s `nonconvex_fraction` and `eigmin` measure the fit, not the convexity of the solution.
 `info` holds `h`, `residual_max`, `min_reach` (the smallest stencil size over `h`) and `interpolant` (`"linear"`).
 
 ## Howard's algorithm
@@ -81,7 +83,7 @@ In the reproduction it takes 4 to 7 steps on T39 and 2 to 9 on T40, against 4 to
 The linear systems are wide-stencil M-matrices, which a sparse LU factorisation fills in (35 s at `n = 121`, `m = 32`, against 0.01 s for the Krylov solve); `Howard` solves them by BiCGSTAB preconditioned with the diagonal, then restarted GMRES, then the LU factorisation where a Krylov method stops short of a relative residual of `1e-8`.
 The Krylov methods need fewer steps the wider the stencil, since the condition number grows like `(diam / k)^2`.
 
-`Howard` takes any scheme with `residual`, `jacobian` and `solve_laplace`, so `Howard(scheme=Standard9(n))` is undamped Newton, and `Newton(scheme=SemiLagrangian(n))` solves the semi-Lagrangian scheme too, with a line search, reaching the same (unique) root.
+`Howard` takes any scheme with `residual`, `jacobian` and `solve_laplace`, so `Howard(scheme=Standard9(n))` is undamped Newton, whose Jacobian is not an M-matrix, so its steps rest on the LU fallback; and `Newton(scheme=SemiLagrangian(n))` solves the semi-Lagrangian scheme too, with a line search, reaching the same (unique) root, but `Newton` factorises by LU, which is much slower on wide stencils (Known limits).
 
 ## Parameters
 
@@ -98,10 +100,15 @@ The default `m = 4` is the paper's best `m` on T39 around 5,000 nodes; on a nons
 
 ## Known limits
 
-- Structured nodes, not the paper's unstructured grid; the triangulation is a Delaunay triangulation of the grid nodes and boundary points, and the 0.3 finite-element infrastructure will bring meshes.
+- Structured nodes by default, not the paper's unstructured grid; the triangulation is a Delaunay triangulation of the grid nodes and boundary points, and the 0.3 finite-element infrastructure will bring meshes.
   The alignment matters: T40's kink `x1 = 0` runs along the grid columns and along the stencil direction `(0, 1)`, so the interpolant of `|x1|` solves the scheme and the error at the nodes is at the rounding level for every `n` (`benchmarks/feng_jensen2017.md`, Finding 1).
 - Convex 2D domains only (`Box`, `Disk`, `Ellipse`, `CutQuarterDisk`, `DiskUnionSquare`) with a Dirichlet boundary.
 - The accuracy depends on `stencil_factor`, and the best value depends on the grid and the problem; the error at a fixed `m` levels off as `h` falls.
 - Memory and setup grow with `directions`: the scheme stores 7 entries per unknown and direction, and locates `2 directions` stencil ends per unknown in the triangulation; a solve at `n = 1280` with 64 directions holds about 10 GB.
-- Time grows with `n` at a fixed `stencil_factor`, since the Krylov methods need more steps the smaller `k / diam`: on a100server, one thread, a solve of T40 turned off the grid at `m = 2` took 82 s at `n = 320` and 1767 s at `n = 640` (25 and 27 Howard steps), and more than 13 hours at `n = 1280` (`benchmarks/feng_jensen2017.md`, Rerun).
-- `node_hessian` is a fit, and where `k < h` next to the boundary the second differences behind it are not consistent.
+- Time grows with `n` at a fixed `stencil_factor`, since the Krylov methods need more steps the smaller `k / diam`: on a100server, one thread, a solve of T40 turned off the grid at `m = 2` took 82 s at `n = 320` and 1767 s at `n = 640` (25 and 27 Howard steps), and more than 13 hours at `n = 1280` (`benchmarks/feng_jensen2017.md`, Rerun): each Krylov method has a budget of `10 N` steps before the LU fallback, which keeps that fallback out of reach; #72 proposes a cap.
+- `node_hessian` is a least-squares fit, and a fit to nonnegative second differences can be indefinite: one unit difference and the others 0 fit the eigenvalues `-1/D` and `3/D` for `D` directions.
+  It is worst where the differences are nearly all 0, in flat regions and next to kinks: on T40 the solution is exact to rounding, yet the fit gives a quarter of the nodes an eigenvalue below `-1e-6` at `n = 80`, `m = 16`, down to -2.3; on T20 the comparison table's 8.8% of non-convex nodes comes mostly from the fit: at the 95% of the nodes where every second difference is at least `-1e-8`, 4% still have a fitted eigenvalue below `-1e-6`, down to -2.5e-2, while the smallest second difference, a trace of Howard's tolerance, is -8.1e-4 ([`benchmarks/feng_jensen2017.md`](../../benchmarks/feng_jensen2017.md), Finding 3).
+  So `evaluate`'s `nonconvex_fraction` and `eigmin` measure the fit for this scheme; #73 proposes the Hessian of the maximising frame, whose eigenvalues are the frame's second differences.
+  Where `k < h` next to the boundary the second differences behind the fit are not consistent either.
+- `Newton(scheme=SemiLagrangian(n))` solves the linear systems by LU, which fills in on wide stencils: on T39 it took 64 s against 1.3 s for `FDSemiLagrangian` at `n = 128`, `m = 8`. Use `Howard` or the preset; #72 proposes to let the scheme choose its linear solve.
+- T39 and T40 lie on `DiskUnionSquare`, which only this scheme supports for now; the other presets refuse them (#74).
