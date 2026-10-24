@@ -2,7 +2,10 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## Unreleased
+## 0.2.0 (2026-10-23)
+
+This release gives the finite-difference schemes a grid on boxes of any dimension (`BoxGrid`), with the 19-point monotone scheme and full multigrid in 3D, adds the second boundary value problem (`Transport`) to the classical and neural families, the monotone mixed scheme of Chen-Wan-Lin 2018, the semi-Lagrangian scheme of Feng-Jensen 2017 and QS-PINN, and reruns the comparison table with all fourteen presets.
+The fields of `evaluate` are those of 0.1 (ADR 0007): the quantities some papers report beyond them, such as the error of the transport map, come from functions next to it in `maesolvers.metrics`.
 
 ### Added
 
