@@ -29,7 +29,7 @@ functions; :class:`SemiLagrangian` composes them into a
 The paper works on unstructured triangular grids; here the nodes are those
 of the finite-difference family (a uniform grid over the bounding box and
 the points where its lines cross a curved boundary, as
-:func:`~maesolvers.classical.schemes.shortley_weller_operators` places them),
+:func:`~maesolvers.classical.schemes.shortley_weller_nodes` places them),
 and the piecewise linear interpolant lives on their Delaunay triangulation.
 """
 
@@ -47,7 +47,7 @@ from maesolvers.classical._linear import solve_m_matrix
 from maesolvers.classical.schemes import (
     Scheme,
     _nearest_on_segments,
-    shortley_weller_operators,
+    shortley_weller_nodes,
 )
 from maesolvers.core._params import integer, positive
 from maesolvers.core.boundary import Dirichlet
@@ -56,6 +56,7 @@ from maesolvers.core.domains import (
     CutQuarterDisk,
     Disk,
     DiskUnionSquare,
+    Domain,
     Ellipse,
     Field,
 )
@@ -70,12 +71,15 @@ def stencil_directions(count: int) -> np.ndarray:
     frames by the angles ``i pi / 64``. With an even ``count`` the
     perpendicular of direction ``i`` is direction ``i + count / 2``, so the
     directions form ``count / 2`` orthogonal frames: frame ``p`` is the
-    pair of directions ``p`` and ``p + count / 2``.
+    pair of directions ``p`` and ``p + count / 2``. At least 4 directions
+    (two frames) are needed: with the axis frame alone the scheme is
+    consistent only for Hessians aligned with the axes, and
+    :func:`fit_hessian` needs three pairwise independent directions.
 
     Parameters
     ----------
     count
-        Number of directions, even and at least 2.
+        Number of directions, even and at least 4.
 
     Returns
     -------
@@ -86,9 +90,9 @@ def stencil_directions(count: int) -> np.ndarray:
     Raises
     ------
     ValueError
-        If ``count`` is not an even integer of at least 2.
+        If ``count`` is not an even integer of at least 4.
     """
-    count = integer("directions", count, 2)
+    count = integer("directions", count, 4)
     if count % 2:
         raise ValueError(f"directions must be even, got {count}")
     angles = np.pi * np.arange(count) / count
@@ -174,6 +178,13 @@ def fit_hessian(directions: np.ndarray, second: np.ndarray) -> np.ndarray:
 def linear_weights(tri: Delaunay, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Return the piecewise linear interpolation weights of points in a triangulation.
 
+    A point that lies on the boundary of the convex hull in exact arithmetic
+    can come out outside it by rounding, such as a stencil end whose reach
+    is exactly its distance to the hull. A point outside by at most
+    ``1e-9`` times the size of the triangulation takes the weights of the
+    nearest point of the hull's boundary, interpolated along that edge, so
+    the weights stay nonnegative and the scheme monotone.
+
     Parameters
     ----------
     tri
@@ -185,26 +196,48 @@ def linear_weights(tri: Delaunay, points: np.ndarray) -> tuple[np.ndarray, np.nd
     -------
     tuple of numpy.ndarray
         The vertex indices and the barycentric weights of the triangle that
-        holds each point, each of shape ``(q, 3)``; the weights are
-        nonnegative and add up to 1.
+        holds each point, or of the hull edge next to it, each of shape
+        ``(q, 3)``; the weights are nonnegative and add up to 1.
 
     Raises
     ------
     ValueError
-        If a point lies outside the triangulation.
+        If a point lies outside the triangulation by more than rounding.
     """
     simplex = tri.find_simplex(points)
-    if np.any(simplex < 0):
-        raise ValueError(
-            f"{np.count_nonzero(simplex < 0)} points lie outside the triangulation"
-        )
+    outside = simplex < 0
     transform = tri.transform[simplex]
     first = np.einsum("qij,qj->qi", transform[:, :2], points - transform[:, 2])
     weights = np.concatenate([first, 1.0 - first.sum(axis=1, keepdims=True)], axis=1)
     # A point on an edge may come out a rounding error outside; clip, so the
     # weights stay nonnegative and the scheme monotone.
     weights = np.clip(weights, 0.0, None)
-    return tri.simplices[simplex], weights / weights.sum(axis=1, keepdims=True)
+    vertices = tri.simplices[simplex]
+    if np.any(outside):
+        start, end = (
+            tri.points[tri.convex_hull[:, 0]],
+            tri.points[tri.convex_hull[:, 1]],
+        )
+        edge, s = _nearest_on_segments(points[outside], start, end)
+        gap = np.linalg.norm(
+            start[edge] + s[:, None] * (end[edge] - start[edge]) - points[outside],
+            axis=-1,
+        )
+        size = np.max(np.ptp(tri.points, axis=0))
+        if np.any(gap > _ROUNDING * size):
+            raise ValueError(
+                f"{np.count_nonzero(gap > _ROUNDING * size)} points lie outside "
+                "the triangulation"
+            )
+        hull = tri.convex_hull[edge]
+        vertices[outside] = np.stack([hull[:, 0], hull[:, 1], hull[:, 0]], axis=-1)
+        weights[outside] = np.stack([1.0 - s, s, np.zeros_like(s)], axis=-1)
+    return vertices, weights / weights.sum(axis=1, keepdims=True)
+
+
+_ROUNDING = 1e-9
+"""How far, relative to the triangulation's size, :func:`linear_weights` lets a
+point lie outside it and still interpolates it from the nearest hull edge."""
 
 
 def semi_lagrangian_operators(
@@ -267,18 +300,19 @@ class SemiLagrangianGrid:
 
     Only :class:`SemiLagrangian` reads the fields; they are not a stable
     interface and may change with the scheme. The unknowns are the values at
-    the ``m`` nodes in the open domain; the boundary nodes carry the
-    Dirichlet data.
+    the ``m`` nodes that :meth:`SemiLagrangian.place_nodes` marks interior;
+    the ``b`` boundary nodes carry the Dirichlet data.
 
     Attributes
     ----------
     h
         The grid spacing ``(hx, hy)``.
     nodes
-        Shape ``(m + b, 2)``: the ``m`` nodes with unknowns, then the ``b``
-        boundary points.
+        Shape ``(m + b, 2)``, from :meth:`SemiLagrangian.place_nodes`: by
+        default the ``m`` nodes with unknowns, then the ``b`` boundary
+        points.
     interior
-        Shape ``(m + b,)``, boolean: True at the first ``m``.
+        Shape ``(m + b,)``, boolean: True at the ``m`` nodes with unknowns.
     f
         The right-hand side at the unknowns.
     boundary_values
@@ -332,9 +366,10 @@ class SemiLagrangian(Scheme):
     Section 8). The paper's nodes are those of an unstructured
     triangulation; here they are the grid nodes in the open domain and the
     boundary points of
-    :func:`~maesolvers.classical.schemes.shortley_weller_operators` (the
-    grid nodes on the boundary and the points where grid lines and
-    diagonals cross it), triangulated by Delaunay.
+    :func:`~maesolvers.classical.schemes.shortley_weller_nodes` (the grid
+    nodes on the boundary and the points where grid lines and diagonals
+    cross it), triangulated by Delaunay; a subclass places other nodes by
+    overriding :meth:`place_nodes`.
 
     Parameters
     ----------
@@ -348,8 +383,8 @@ class SemiLagrangian(Scheme):
         convergence needs ``k -> 0`` and ``h / k -> 0``.
     directions
         Number of stencil directions, evenly spaced in angle over
-        ``[0, pi)``, even, so they form ``directions / 2`` orthogonal frames
-        (:func:`stencil_directions`); the paper's 64.
+        ``[0, pi)``, even and at least 4, so they form ``directions / 2``
+        orthogonal frames (:func:`stencil_directions`); the paper's 64.
 
     Attributes
     ----------
@@ -401,6 +436,30 @@ class SemiLagrangian(Scheme):
             and problem.dim in self.dims
         )
 
+    def place_nodes(self, domain: Domain) -> tuple[np.ndarray, np.ndarray]:
+        """Place the nodes and mark those that carry unknowns.
+
+        By default the nodes of
+        :func:`~maesolvers.classical.schemes.shortley_weller_nodes`. A
+        subclass that overrides it changes the nodes and keeps the rest of
+        the scheme. The stencil size still uses the spacing of the grid
+        of ``n`` cells per side over ``domain.bbox``.
+
+        Parameters
+        ----------
+        domain
+            A domain the scheme supports.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            ``nodes``, shape ``(N, 2)``, and ``interior``, shape ``(N,)``,
+            True at the nodes that carry unknowns; the others carry the
+            Dirichlet data. The nodes must span the domain, since the
+            triangulation of all of them is where the stencil ends go.
+        """
+        return shortley_weller_nodes(domain, self.n)
+
     def discretize(self, problem: Problem) -> SemiLagrangianGrid:
         """Place the nodes, triangulate them and build the second differences.
 
@@ -427,8 +486,7 @@ class SemiLagrangian(Scheme):
                 "Dirichlet boundary"
             )
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
-        placed = shortley_weller_operators(problem.domain, self.n)
-        nodes, interior = placed.nodes, placed.interior
+        nodes, interior = self.place_nodes(problem.domain)
         box = problem.domain.bbox
         h = (
             (box.hi[0] - box.lo[0]) / self.n,

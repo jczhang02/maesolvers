@@ -89,7 +89,7 @@ The Krylov methods need fewer steps the wider the stencil, since the condition n
 |---|---|---|---|
 | `SemiLagrangian` | `n` | 64 | cells per side of the grid over the bounding box, at least 2 |
 | | `stencil_factor` | 4.0 | `m` in `k = m h`, positive |
-| | `directions` | 64 | stencil directions over `[0, pi)`, even; the paper's 64 |
+| | `directions` | 64 | stencil directions over `[0, pi)`, even and at least 4; the paper's 64 |
 | `Howard` | `max_iter` | 50 | most steps |
 | | `tol` | `1e-6` | largest change of an unknown in the last step; the paper's |
 

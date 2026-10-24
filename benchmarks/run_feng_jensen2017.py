@@ -14,6 +14,13 @@ feng_jensen2017.md: the smallest relative error over m at each grid, with
 its m, next to the paper's Figure 6, and the convergence rates in h and in
 the best k, end to end as the paper takes them and by least squares.
 
+The sweep (``sweep``) leaves out the solves in EXCLUDED: T40 at n = 1280,
+m = 2, and T40 turned at n = 1280, m = 2 and 4. At these narrow stencils on
+the finest grid Howard's Krylov solves need millions of steps before the LU
+fallback (T40 turned at m = 2 ran for more than 13 hours unfinished), and
+none of them can be the best m at its level (feng_jensen2017.md, Receipt),
+so ``--levels 8`` ends and writes the receipt's 141 rows.
+
 Every solve is one MLflow run in maesolvers-feng_jensen2017-<problem>
 unless --no-mlflow is given. The solves run in --processes worker processes
 (default 12), each with one thread, the largest grids first; --levels sets
@@ -25,7 +32,7 @@ it dirty, then copy the CSV back::
 
     just remote-bg feng-jensen env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \\
         python benchmarks/run_feng_jensen2017.py \\
-        --out /jczhang02/maesolvers-data/data/feng_jensen2017.csv
+        --levels 8 --out /jczhang02/maesolvers-data/data/feng_jensen2017.csv
 """
 
 from __future__ import annotations
@@ -44,6 +51,11 @@ from maesolvers.metrics import evaluate
 HERE = Path(__file__).parent
 FACTORS = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
 """The stencil factors m of the paper's Figures 6 to 8."""
+
+EXCLUDED = frozenset(
+    {("T40", 1280, 2.0), ("T40 turned", 1280, 2.0), ("T40 turned", 1280, 4.0)}
+)
+"""Solves (problem, n, m) the sweep leaves out: see the module docstring."""
 
 TURN = 0.3
 """Angle of the normal of the turned kink, in radians; no stencil direction is
@@ -71,6 +83,22 @@ U_MAX = {"T39": 4.0, "T40": 1.0, "T40 turned": float(np.sum(_NORMAL))}
 """max |u| over the domain, at the corner (1, 1) or on the circle: |x|^4 is 4
 at (1, 1), |x1| is 1 at (+-1, 0) and (1, y), and |x . nu| is
 cos 0.3 + sin 0.3 at (1, 1), more than 1 on the circle."""
+
+
+def sweep(levels: int) -> list[tuple[str, int, float]]:
+    """The solves (problem, n, m) of ``levels`` grids, the largest grids first.
+
+    Every problem and stencil factor on ``n = 10 2^l``, ``l < levels``, but
+    the solves in :data:`EXCLUDED`.
+    """
+    grids = [10 * 2**level for level in range(levels)]
+    return [
+        (name, n, m)
+        for n in reversed(grids)
+        for name in PROBLEMS
+        for m in FACTORS
+        if (name, n, m) not in EXCLUDED
+    ]
 
 
 def run(task: tuple[str, int, float, bool]) -> dict[str, Any]:
@@ -226,14 +254,11 @@ def main() -> None:
     if args.summary is not None:
         print(summary(read(args.summary)))
         return
-    grids = [10 * 2**level for level in range(args.levels)]
     done = read(args.out) if args.out.exists() else []
     finished = {(r["problem"], int(r["n_cells"]), float(r["m"])) for r in done}
     tasks = [
         (name, n, m, not args.no_mlflow)
-        for n in reversed(grids)  # the largest first
-        for name in PROBLEMS
-        for m in FACTORS
+        for name, n, m in sweep(args.levels)
         if (name, n, m) not in finished
     ]
     rows: list[dict[str, Any]] = list(done)

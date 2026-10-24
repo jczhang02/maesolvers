@@ -684,7 +684,7 @@ class FDSemiLagrangian(_SemiLagrangianPreset, Howard):
     stencil_factor
         ``m`` in the stencil size ``k = m h``, positive.
     directions
-        Number of stencil directions over ``[0, pi)``, even.
+        Number of stencil directions over ``[0, pi)``, even and at least 4.
     max_iter
         Most steps of Howard's algorithm.
     tol

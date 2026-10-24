@@ -1,7 +1,10 @@
 """The semi-Lagrangian scheme of Feng-Jensen 2017, Howard's algorithm and the preset."""
 
+import csv
 import dataclasses
+import importlib.util
 import itertools
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -19,6 +22,7 @@ from maesolvers import (
     T40,
     Box,
     Dirichlet,
+    Disk,
     FDNewton,
     FDSemiLagrangian,
     Howard,
@@ -83,7 +87,7 @@ def test_stencil_directions_form_orthogonal_frames():
     np.testing.assert_allclose(np.diff(angles), np.pi / 8)
 
 
-@pytest.mark.parametrize("count", [3, 0, 2.5])
+@pytest.mark.parametrize("count", [3, 0, 2, 2.5])
 def test_stencil_directions_must_be_an_even_count(count):
     with pytest.raises((ValueError, TypeError), match="directions"):
         stencil_directions(count)
@@ -142,6 +146,17 @@ def test_fit_hessian_recovers_a_quadratic():
     np.testing.assert_allclose(fitted, [HESSIAN, 2 * HESSIAN], atol=1e-13)
 
 
+@pytest.mark.parametrize("count", [4, 16, 64])
+def test_a_fit_to_nonnegative_second_differences_can_be_indefinite(count):
+    """Why node_hessian can report a node non-convex where every second
+    difference is >= 0 (docs/methods/feng_jensen2017.md, Known limits): one
+    unit difference and the others 0 fit eigenvalues -1/D and 3/D."""
+    second = np.zeros((count, 1))
+    second[0] = 1.0
+    eigenvalues = np.linalg.eigvalsh(fit_hessian(stencil_directions(count), second))
+    np.testing.assert_allclose(eigenvalues, [[-1.0 / count, 3.0 / count]])
+
+
 def test_linear_weights_reproduce_linear_functions_with_nonnegative_weights():
     rng = np.random.default_rng(3)
     tri = Delaunay(rng.uniform(size=(40, 2)))
@@ -155,6 +170,23 @@ def test_linear_weights_reproduce_linear_functions_with_nonnegative_weights():
     np.testing.assert_allclose(weights.sum(axis=1), 1.0)
     with pytest.raises(ValueError, match="outside the triangulation"):
         linear_weights(tri, np.array([[5.0, 5.0]]))
+
+
+def test_linear_weights_take_a_point_outside_by_rounding_from_the_hull_edge():
+    tri = Delaunay(np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]))
+    # Just right of the edge x = 1, as a rounding error can put a point there.
+    point = np.array([[1.0 + 1e-12, 0.25]])
+    assert tri.find_simplex(point)[0] < 0
+    vertices, weights = linear_weights(tri, point)
+    linear = tri.points @ [2.0, -3.0] + 0.5
+    np.testing.assert_allclose(
+        np.sum(weights * linear[vertices], axis=1), [2.0 - 0.75 + 0.5]
+    )
+    assert np.all(weights >= 0.0)
+    np.testing.assert_allclose(weights.sum(axis=1), 1.0)
+    assert set(vertices[0][weights[0] > 0]) == {1, 3}  # the edge's two ends
+    with pytest.raises(ValueError, match="1 points lie outside"):
+        linear_weights(tri, np.array([[1.0 + 1e-6, 0.25]]))
 
 
 def test_operators_vanish_on_linear_functions_and_have_the_m_matrix_signs():
@@ -204,6 +236,41 @@ def test_the_stencil_stays_in_the_triangulation_and_is_m_h_inside(problem):
     centre = np.mean([box.lo, box.hi], axis=0)
     near_centre = np.linalg.norm(grid.nodes[grid.interior] - centre, axis=1) < 0.1
     np.testing.assert_allclose(grid.reach[near_centre], 2.0 * h)
+
+
+def test_a_stencil_end_on_the_hull_by_rounding_is_interpolated_on_its_edge():
+    """The reach is the distance to the hull, so the end normal to the nearest
+    edge lies on it; on this disk rounding puts three such ends outside, which
+    raised ValueError before."""
+    disk = Disk(center=(0.3, 0.1), radius=0.77)
+    problem = Problem(
+        "off-centre disk",
+        disk,
+        _constant(1.0),
+        Dirichlet(lambda x: 0.5 * np.sum(x**2, axis=-1)),
+        exact=lambda x: 0.5 * np.sum(x**2, axis=-1),
+    )
+    result = FDSemiLagrangian(n=51, stencil_factor=64).solve(problem)
+    assert result.info["converged"]
+    assert evaluate(result)["max"] < 1e-3
+
+
+def test_a_subclass_places_other_nodes_and_keeps_the_scheme():
+    @dataclasses.dataclass(frozen=True, kw_only=True)
+    class Lattice(SemiLagrangian):
+        """The plain lattice of the box, its edge nodes on the boundary."""
+
+        def place_nodes(self, domain):
+            x = np.linspace(domain.bbox.lo[0], domain.bbox.hi[0], self.n + 1)
+            y = np.linspace(domain.bbox.lo[1], domain.bbox.hi[1], self.n + 1)
+            nodes = np.stack(np.meshgrid(x, y, indexing="ij"), -1).reshape(-1, 2)
+            return nodes, domain.interior(nodes)
+
+    scheme = Lattice(n=12, stencil_factor=2.0)
+    result = Howard(scheme=scheme).solve(QUADRATIC)
+    assert len(result.nodes) == 13**2 and result.info["unknowns"] == 11**2
+    assert result.info["converged"]
+    assert np.max(np.abs(result.values - _quadratic(result.nodes))) < 0.02
 
 
 def test_second_differences_of_a_quadratic_are_accurate_where_the_stencil_is_full():
@@ -283,6 +350,7 @@ def test_supports_convex_2d_dirichlet_problems(problem, supported):
         ({"stencil_factor": 0.0}, ValueError, "stencil_factor"),
         ({"directions": 7}, ValueError, "even"),
         ({"directions": 0}, ValueError, "directions"),
+        ({"directions": 2}, ValueError, "directions"),
     ],
 )
 def test_semi_lagrangian_validates_its_parameters(kwargs, error, message):
@@ -345,7 +413,7 @@ def test_howard_on_the_standard_scheme_is_undamped_newton():
 
 
 def test_howard_converges_in_a_few_steps_and_the_error_falls_with_h():
-    """Fig. 8 of the paper: 5 to 16 steps."""
+    """Fig. 8 of the paper: 4 to 16 steps."""
     errors = []
     for n in (16, 32):
         result = FDSemiLagrangian(n=n, stencil_factor=2.0).solve(T39)
@@ -383,6 +451,27 @@ def test_the_receipt_rows_at_n_20_rerun(problem, error, steps):
     result = FDSemiLagrangian(n=20, stencil_factor=4.0).solve(problem)
     assert result.info["iterations"] == steps
     assert evaluate(result)["max"] == pytest.approx(error, rel=1e-9)
+
+
+def _runner():
+    """benchmarks/run_feng_jensen2017.py as a module."""
+    path = Path(__file__).parent.parent / "benchmarks" / "run_feng_jensen2017.py"
+    spec = importlib.util.spec_from_file_location("run_feng_jensen2017", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_runner_sweep_of_eight_levels_is_the_receipt_row_for_row():
+    runner = _runner()
+    with (runner.HERE / "feng_jensen2017.csv").open(newline="") as fh:
+        rows = [
+            (r["problem"], int(r["n_cells"]), float(r["m"])) for r in csv.DictReader(fh)
+        ]
+    assert len(rows) == len(set(rows)) == 141
+    assert set(runner.sweep(8)) == set(rows)
+    assert len(runner.sweep(8)) == 8 * 3 * 6 - len(runner.EXCLUDED)
 
 
 # The solution
