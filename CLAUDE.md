@@ -16,6 +16,8 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   The neural tests run on CPU through the `neural-cpu` dependency group; do not `uv sync --extra neural` on a machine without a GPU (it downloads the CUDA build of torch).
 - `pyproject.toml` sets the line rules: the formatter wraps at 88 columns, E501 fails a line over 100.
 - Markdown: one sentence per line, no fixed width, so a diff shows only the sentences that changed.
+  Mathematics and numbers in Markdown (docs, benchmarks, README, CHANGELOG, issues, PR bodies) are written as math, `$...$` inline and `$$...$$` for a display, never as inline code: $h = 1/N$, $\det D^2 u = f$, $5.41 \times 10^{-3}$.
+  Inline code is for code only: names, parameters, commands and paths.
 - `just` lists the common commands (`justfile`).
 
 ## Interface
