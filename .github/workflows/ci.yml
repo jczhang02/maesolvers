@@ -2,11 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
 
 jobs:
-  test:
+  # Without extras (ADR 0006): `import maesolvers` and every classical solver
+  # need numpy and scipy only. Tests of an extra skip here.
+  core:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -17,6 +19,26 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --group dev
+      - run: uv run --exact python -c "import maesolvers"
+      - run: uv run --exact pytest -q -m "not neural"
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      # Every extra, and the neural one on CPU (ADR 0006): the neural-cpu group
+      # takes torch from the CPU index, so no CUDA wheel is downloaded.
+      - run: uv sync --group dev --extra cli --group experiments --group neural-cpu
+      - run: "! uv pip list | grep -i -E '^(nvidia|triton)'"
       - run: uv run ruff format --check .
       - run: uv run ruff check .
-      - run: uv run pytest -q
+      # mlflow and torch are installed so pyright checks maesolvers.tracking and
+      # maesolvers.neural.
+      - run: uv run pyright
+      - run: uv run pytest -q  # the neural tests among them, on CPU

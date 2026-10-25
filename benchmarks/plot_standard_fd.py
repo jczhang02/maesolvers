@@ -15,11 +15,11 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 HERE = Path(__file__).parent
 PUBLISHED = {
-    "P4": {
+    "T1": {
         31: 7.14e-5,
         45: 3.39e-5,
         63: 1.73e-5,
@@ -29,7 +29,7 @@ PUBLISHED = {
         255: 0.11e-5,
         361: 0.05e-5,
     },
-    "P5": {
+    "T2": {
         31: 17.15e-3,
         45: 14.59e-3,
         63: 12.53e-3,
@@ -43,7 +43,7 @@ PUBLISHED = {
 
 
 def read(name, convention_col=None):
-    out = {"P4": {}, "P5": {}}
+    out = {"T1": {}, "T2": {}}
     with open(HERE / name, newline="") as fh:
         for row in csv.DictReader(fh):
             if convention_col and row[convention_col] != "1/N":
@@ -60,10 +60,10 @@ plt.rcParams.update(
 )
 fig, axes = plt.subplots(1, 2, figsize=(9, 3.4), constrained_layout=True)
 titles = {
-    "P4": "P4: smooth, u = exp(|x|^2/2)",
-    "P5": "P5: corner blow-up, u = -sqrt(2 - |x|^2)",
+    "T1": "T1: smooth, u = exp(|x|^2/2)",
+    "T2": "T2: corner blow-up, u = -sqrt(2 - |x|^2)",
 }
-for ax, prob in zip(axes, ("P4", "P5")):
+for ax, prob in zip(axes, ("T1", "T2"), strict=True):
     for data, label, style in (
         (
             poisson[prob],

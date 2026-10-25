@@ -1,38 +1,73 @@
 import numpy as np
 import pytest
 
-from maesolvers import P1, P2, P4, P5, FDNewton
+from maesolvers import (
+    T1,
+    T2,
+    T7,
+    T12,
+    Box,
+    Dirichlet,
+    FDNewton,
+    Problem,
+    UnsupportedProblemError,
+)
 from maesolvers.metrics import evaluate
 
 
-@pytest.mark.parametrize("problem", [P2, P4])
-def test_second_order_convergence(problem):
+def test_second_order_convergence():
     errors = []
     for n in (16, 32, 64):
-        result = FDNewton(n=n).solve(problem)
+        result = FDNewton(n=n).solve(T1)
         assert result.info["converged"]
-        errors.append(evaluate(result)["max_nodes"])
+        errors.append(evaluate(result)["max"])
     rates = np.log2(np.array(errors[:-1]) / np.array(errors[1:]))
     assert np.all(rates > 1.7), rates
 
 
-def test_solution_is_convex_on_p4():
-    m = evaluate(FDNewton(n=32).solve(P4))
-    assert m["nonconvex_fraction"] == 0.0
-    assert m["residual_max"] < 1e-8
+def test_solution_is_convex_on_t1():
+    result = FDNewton(n=32).solve(T1)
+    assert evaluate(result)["nonconvex_fraction"] == 0.0
+    assert result.info["residual_max"] < 1e-8
 
 
 def test_corner_blowup_breaks_the_standard_scheme():
     """Characterisation, not a goal: the non-monotone scheme converges in the
     residual but to a discrete solution that is non-convex near the corner,
     and the max error does not decrease with the grid (see benchmarks/)."""
-    results = {n: FDNewton(n=n).solve(P5) for n in (32, 64)}
+    results = {n: FDNewton(n=n).solve(T2) for n in (32, 64)}
     assert all(r.info["converged"] for r in results.values())
     metrics = {n: evaluate(r) for n, r in results.items()}
     assert metrics[64]["nonconvex_fraction"] > 0.0
-    assert metrics[64]["max_nodes"] > 0.5 * metrics[32]["max_nodes"]
+    assert metrics[64]["max"] > 0.5 * metrics[32]["max"]
 
 
-def test_disk_domain_is_rejected():
-    with pytest.raises(TypeError):
-        FDNewton().solve(P1)
+def test_t7_convex_root_at_n20_nonconvex_root_at_n40():
+    """Regression, not a reproduction: at n = 20 Newton lands on the convex
+    root that matches BFO 2010 Table 7 (0.2892); at n = 40 it converges to a
+    non-convex root well above the printed 0.2734 (benchmarks/standard_fd.md,
+    T7)."""
+    coarse = evaluate(FDNewton(n=20).solve(T7))
+    assert round(coarse["u_origin"], 4) == 0.2892
+    assert coarse["nonconvex_fraction"] == 0.0
+    result = FDNewton(n=40).solve(T7)
+    fine = evaluate(result)
+    assert result.info["converged"]
+    assert fine["nonconvex_fraction"] > 0.0
+    assert fine["u_origin"] > 0.2734 + 0.01
+
+
+def test_transport_problem_is_rejected():
+    assert not FDNewton().supports(T12)
+    with pytest.raises(UnsupportedProblemError, match="T12"):
+        FDNewton().solve(T12)
+
+
+def test_a_start_that_meets_tol_is_converged():
+    """For u = |x|^2 / 2 the scheme is exact, so the Poisson start is the solution."""
+    half_r2 = lambda x: 0.5 * np.sum(np.asarray(x) ** 2, axis=-1)  # noqa: E731
+    one = lambda x: np.ones(np.shape(x)[:-1])  # noqa: E731
+    problem = Problem("Q", Box((0, 0), (1, 1)), one, Dirichlet(half_r2), exact=half_r2)
+    result = FDNewton(n=8, tol=1e-8).solve(problem)
+    assert result.info["converged"] and result.info["iterations"] == 1
+    assert evaluate(result)["max"] < 1e-12

@@ -1,16 +1,21 @@
-# Published finite-difference benchmarks for the 2D Dirichlet Monge-Ampere problem
+# Published finite-difference benchmarks for the Monge-Ampere equation
 
-Target problem: det D^2 u = f on (0,1)^2 with Dirichlet data from the exact solution.
-Target solution (a): u = exp(|x|^2 / 2), f = (1 + |x|^2) exp(|x|^2).
-Target solution (b): u = -sqrt(2 - |x|^2), f = 2 (2 - |x|^2)^(-2), gradient unbounded at the corner (1,1).
+This file holds the published finite-difference tables that maesolvers reproduces, in 2D and 3D, with Dirichlet data and with the transport boundary condition: sections 1 to 7 transcribe them here, and sections 8 and 9 point to their transcriptions in the method's own benchmark page.
+Most of the 2D Dirichlet tables share two problems, det D^2 u = f on (0,1)^2 with Dirichlet data from the exact solution:
+solution (a), T1: u = exp(|x|^2 / 2), f = (1 + |x|^2) exp(|x|^2);
+solution (b), T2: u = -sqrt(2 - |x|^2), f = 2 (2 - |x|^2)^(-2), gradient unbounded at the corner (1,1).
 
 All numbers below were copied from the journal versions, read from local PDF copies in the Zotero library.
 Each value was checked against a rendered image of the printed page.
 The arXiv and Numdam links are public equivalents; their tables were not checked against the journal tables.
 Values keep the printed scaling (for example "24.45 x 10^-5", not 2.445e-4).
 A "--" means the paper printed a dash: the run was not done, or it was too slow to report.
+The neural sources are transcribed next to their comparison: Nystrom-Vestberg 2023 in `penalty_mlp.md` (the penalty MLP) and `icnn.md` (the input convex network), and Caboussat-Peruso 2025 in `icnn.md` (T12).
 
-## Grid convention (unresolved)
+## Grid convention (settled by ADR 0001)
+
+ADR 0001 settles the convention at `h = 1/N`, `N` cells per side: on T1 at N = 31 only `h = 1/N` matches the published 7.14 x 10^-5 (`standard_fd.md`, Finding 1).
+The quotes below are what the papers say; the last two lines list the tables that count nodes instead.
 
 Benamou-Froese-Oberman 2010, Section 3.3, says verbatim: "The solutions are computed on an N x N grid ... By convention, h is the spatial discretization parameter h = L/N where L is the length of one side of the square domain."
 Froese-Oberman JCP 2011, Section 8, says only: "These computations are performed on an N x N grid on the square [0, 1]^2."
@@ -18,7 +23,9 @@ Froese-Oberman SIAM 2011, Section 6, says only: "We perform the computations usi
 SIAM Table 2 adds: "Here M = N^2 is the total number of grid points."
 None of the 2011 papers defines h in terms of N.
 The odd N values (21, 41, ...; 31, 63, 127, 255) suggest N points per side including the boundary, so h = 1/(N-1), but no paper says so.
-A useful check: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, and it should tell h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
+The check that decided it: the standard-scheme max error for (a) at N = 31 is 7.14 x 10^-5, which tells h = 1/(N-1) apart from h = 1/N or h = 1/(N+1).
+One table does not follow h = L/N: on [-1, 1]^2, BFO 2010 Table 7 matches our solvers at n = N - 1 cells (`standard_fd.md`, Finding 3).
+Froese-Oberman 2013 (section 5 below) counts nodes too, in every table: its values match n = N - 1 cells (`filtered.md`, Finding 1).
 
 ## 1. Benamou, Froese, Oberman (2010)
 
@@ -75,14 +82,48 @@ Table 1 also gives the CPU time ratio (M1)/(M2) for (a) (Section 4.1 column): 6.
 | 121 | 31 445 | 113 | 120.1 | 15.0 |
 | 141 | 42 202 | 119 | 218.3 | 21.3 |
 
+### T7 (Section 5.3): Table 7, minimum value of u when f = 1 with constant boundary values 1 on an N x N grid
+
+| N | (M1), (M2) | 9-point stencil | 17-point stencil | 33-point stencil |
+|---|---|---|---|---|
+| 21 | 0.2892 | 0.3115 | 0.2815 | 0.2839 |
+| 41 | 0.2734 | 0.3090 | 0.2807 | 0.2732 |
+| 61 | 0.2682 | 0.3082 | 0.2803 | 0.2711 |
+| 81 | 0.2655 | 0.3078 | 0.2802 | 0.2704 |
+| 101 | 0.2639 | 0.3076 | 0.2800 | 0.2700 |
+| 121 | 0.2629 | 0.3075 | 0.2798 | 0.2697 |
+| 141 | 0.2621 | 0.3074 | 0.2796 | 0.2695 |
+
+### T7 (Section 5.3): Table 8, computation times
+
+| N | Iterations (M1) | Iterations (M2) | CPU time (s) (M1) | CPU time (s) (M2) |
+|---|---|---|---|---|
+| 21 | 1615 | 535 | 0.1 | 1.7 |
+| 41 | 6366 | 1917 | 0.6 | 33.6 |
+| 61 | 14 049 | 4070 | 2.8 | 254.0 |
+| 81 | 24 560 | 6944 | 8.1 | 1170.0 |
+| 101 | 37 824 | 10 503 | 19.9 | 3730.0 |
+| 121 | 53 778 | 14 711 | 41.2 | 6820.0 |
+| 141 | 72 377 | 19 571 | 99.7 | 8560.0 |
+
+Our comparison, and the node-count convention of Table 7: `standard_fd.md`, section "T7" and Finding 3.
+
 ### Other test solutions in this paper
 
 - Section 4.2: u = (2 sqrt(2)/3)(x^2+y^2)^(3/4) on [0,1]^2, f = 1/sqrt(x^2+y^2); max error in Table 3 (5.5 x 10^-4 at N = 21 to 1.5 x 10^-5 at N = 221), order 1.5.
 - Section 5.1: solution (a) with high-frequency sinusoidal noise added to f and to the boundary data (Table 5, times only).
 - Section 5.2: discontinuous f (1 outside a circle of radius 0.16 about (0.5,0.5), 0 inside), u = max(|x - (0.5,0.5)|^2 / 2, 0.08) (Table 6, times only).
-- Section 5.3: f = 1 with boundary value 1 on [-1,1]^2, no exact solution; Table 7 gives u_min, also for the 9-, 17- and 33-point wide-stencil schemes.
+- Section 5.3 (T7): f = 1 with boundary value 1 on [-1,1]^2, no exact solution; Tables 7 and 8 above; the 9-, 17- and 33-point columns of Table 7 are the monotone wide-stencil method of the paper's reference [21].
 - Section 6.1: the cone u = sqrt(x^2+y^2), f = 4/h^2 at the origin grid point; max error in Tables 10 and 13, order about 0.8.
 - Section 6.2: u = |x|, f = 0; the discrete error goes to zero (Table 12, times only).
+
+### Caveat on the printed solution (maesolvers catalogue, T4)
+
+- Section 5.2 (T4): the printed u = max(|x - x0|^2 / 2, 0.08) does not solve the printed problem.
+  Its gradient jumps from 0 to the radial vector of length 0.4 on the circle r = 0.4, so its Monge-Ampere measure has a singular part of mass 0.16 pi on that circle, and the printed f (integral 1 - 0.16 pi on the unit square) omits it.
+  A correct solver of the printed f with the trace of the printed u as Dirichlet data converges to a different function, with no known closed form, so the printed u is no reference for an error.
+  The catalogue's T4 keeps the printed f and replaces u with the C^1 radial Alexandrov solution of that f, 0.08 on the disk and 0.08 + (r s - 0.16 ln((r + s)/0.4))/2 with s = sqrt(r^2 - 0.16) beyond, and takes its Dirichlet data from it; so T4's boundary data differ from the paper's.
+  `tests/test_catalogue.py` checks that the area of grad u(Omega) equals the integral of f, which fails for the printed u (area 1 against 1 - 0.16 pi).
 
 ## 2. Froese, Oberman, SIAM J. Numer. Anal. (2011)
 
@@ -91,11 +132,12 @@ Read: local journal PDF from the Zotero folder (two copies of the same journal v
 Open copy: https://arxiv.org/abs/1007.0765 (not checked).
 
 Method: a wide-stencil monotone discretisation MA_M[u] = min over orthogonal grid-direction pairs (nu_1, nu_2) of the product of the positive parts of D_{nu nu} u.
-For Newton, the max and min are replaced by smooth monotone versions (MA^delta).
+Section 3.5 defines a regularised scheme MA^delta, with max^delta(a, b) = (a + b + sqrt((a - b)^2 + delta^2))/2 and min^delta likewise (delta^2 read in arXiv 1007.0765; the journal text layer garbles it), the positive parts max^delta(D u, 0) and the minimum over pairs a succession of min^delta; Theorem 9 proves that Newton converges for MA^delta.
+No value of delta is printed, and Section 5 states Newton for MA_M itself, with Danskin's theorem for the Jacobian, so the tables need not come from MA^delta.
 The equations are solved by damped Newton, with the step reduced until the residual decreases.
 The linear systems are solved by MATLAB backslash (sparse LU).
 The initial guess is one step of the semi-implicit scheme, Laplacian u^0 = sqrt(2f) in 2D, convexified only for the most singular example.
-The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon) with a small epsilon; the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{nu nu} -> max(u_{nu nu}, epsilon), with epsilon = 10^-8 / (2 dx^2) (Section 5.3, read from the page image; the text layer garbles it).
 Section 6 uses a 17-point stencil for Table 1; Table 3 also uses 9- and 33-point stencils.
 No Newton stopping tolerance is stated.
 The "F.D." columns of Table 3 are the standard 9-point scheme "using the results of [5]" ([5] is Benamou-Froese-Oberman 2010).
@@ -152,11 +194,55 @@ Table 1: Newton on the 17-point monotone scheme.
 
 Table 2 gives the CPU time scaling, with M = N^2: Gauss-Seidel about O(M^1.8) on C^{2,alpha} and O(M^1.9) on C^{1,alpha}; Poisson about O(M^1.4), "blowup" on less regular solutions; Newton about O(M^1.3) for all regularities.
 
+### C^1 example (11), T20 in the catalogue
+
+Table 3: max error; the F.D. column prints a dash at N = 255 and 361.
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | F.D. |
+|---|---|---|---|---|
+| 31 | 3.0 x 10^-3 | 1.7 x 10^-3 | 1.5 x 10^-3 | 2.6 x 10^-4 |
+| 63 | 2.5 x 10^-3 | 1.0 x 10^-3 | 0.6 x 10^-3 | 1.5 x 10^-4 |
+| 127 | 2.3 x 10^-3 | 0.8 x 10^-3 | 0.3 x 10^-3 | 0.6 x 10^-4 |
+| 255 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+| 361 | 2.2 x 10^-3 | 0.7 x 10^-3 | 0.3 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 4, 7, 11, 16, 20 at N = 31, 63, 127, 255, 361.
+
+### C^{0,1} (Lipschitz) example (13), the cone T21
+
+Table 3: max error; the Standard F.D. column prints a dash at N = 255 and 361.
+f is the Dirac mass pi delta_{x0} averaged over the disk |x - x0| <= h/2: 4/h^2 there, 0 elsewhere (Section 6.1).
+
+| N | Monotone 9 Point | Monotone 17 Point | Monotone 33 Point | Standard F.D. |
+|---|---|---|---|---|
+| 31 | 12 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 | 10 x 10^-3 |
+| 63 | 11 x 10^-3 | 3 x 10^-3 | 2 x 10^-3 | 6 x 10^-3 |
+| 127 | 11 x 10^-3 | 4 x 10^-3 | 2 x 10^-3 | 3 x 10^-3 |
+| 255 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+| 361 | 11 x 10^-3 | 4 x 10^-3 | 1 x 10^-3 | -- |
+
+Table 1, Newton iterations on the 17-point scheme: 9, 15, 32, 34, 29 at N = 31, 63, 127, 255, 361.
+
 ### Other test solutions in this paper
 
 - "C^1 example" (11): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5).
 - "C^{0,1} (Lipschitz) example" (13): the cone u = |x - x0|, f = pi delta_{x0}, discretised as 4/h^2 on |x - x0| <= h/2.
 - 3D (Table 4, 19-point stencil, N^3 grid on [0,1]^3): u = exp(|x|^2/2) with f = (1+|x|^2) exp(3|x|^2/2); a C^1 example; and the ball u = -sqrt(3 - |x|^2), f = 3 (3 - |x|^2)^(-5/2).
+
+### Table 4, three dimensions (`monotone19.md`)
+
+Section 7: "These computations are done using a 19 point stencil on an N^3 grid on the square [0, 1]^3", by Newton's method; x0 = (.5, .5, .5).
+"N^3 grid" does not say whether N counts nodes or cells per side.
+The examples: (14) u = exp(|x|^2/2), f = (1 + |x|^2) exp(3 |x|^2/2), T9 in the catalogue; (15) u = ((|x - x0| - 0.2)^+)^2 / 2, f = 1 - 0.4/|x - x0| + 0.04/|x - x0|^2 for |x - x0| > 0.2 and 0 otherwise, no T id (`C1_3D` in `run_monotone19.py`); (16) u = -sqrt(3 - |x|^2), f = 3 (3 - |x|^2)^(-5/2), T22.
+Max error, Newton iterations and CPU seconds, as printed (checked against the page image, p. 1712):
+
+| N | (14) max error | its | CPU s | (15) max error | its | CPU s | (16) max error | its | CPU s |
+|---|---|---|---|---|---|---|---|---|---|
+| 7 | 0.0151 | 2 | 0.1 | 0.0034 | 1 | 0.02 | 9.6 x 10^-3 | 1 | 0.02 |
+| 11 | 0.0140 | 3 | 0.1 | 0.0022 | 1 | 0.06 | 5.3 x 10^-3 | 3 | 0.12 |
+| 15 | 0.0132 | 5 | 0.5 | 0.0019 | 1 | 0.17 | 4.7 x 10^-3 | 3 | 0.34 |
+| 21 | 0.0127 | 6 | 3.6 | 0.0020 | 2 | 1.42 | 4.3 x 10^-3 | 6 | 3.65 |
+| 31 | 0.0125 | 5 | 34.7 | 0.0019 | 2 | 16.70 | 3.9 x 10^-3 | 8 | 54.70 |
 
 ## 3. Froese, Oberman, J. Comput. Phys. (2011)
 
@@ -171,7 +257,7 @@ Methods: three discretisations, each solved by damped Newton.
 On the square, the monotone scheme is used near the boundary, so the hybrid scheme is less accurate than the standard one for (a).
 The linear systems are solved by LU decomposition.
 The initial guess is one semi-implicit step followed by a convex envelope on a coarse grid, interpolated to the fine grid.
-The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon); the printed value of epsilon is garbled in the text layer and was not confirmed.
+The Jacobian is regularised by u_{mm} -> max(u_{mm}, epsilon), with epsilon = 10^-8 / (2 dx^2) as in the SIAM paper (Section 7.2).
 Hardware: a laptop with a 2 GHz Intel processor, MATLAB, Windows Vista.
 No Newton stopping tolerance is stated.
 Section 8.1 reports that Newton on the standard scheme fails for solution (b): started from the exact solution, after two iterations it oscillates and becomes non-convex (Fig. 2).
@@ -243,11 +329,55 @@ Table 1: Newton on the hybrid scheme.
 
 Table 2 gives the same CPU time scalings as the SIAM paper (Newton about O(M^1.3), M = N^2).
 
+### C^1 Example (15), T20 in the catalogue
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 2.6 x 10^-4 | 17.5 x 10^-4 | 12.2 x 10^-4 |
+| 45 | 1.8 x 10^-4 | 11.6 x 10^-4 | 5.9 x 10^-4 |
+| 63 | 1.5 x 10^-4 | 9.8 x 10^-4 | 4.2 x 10^-4 |
+| 89 | 0.9 x 10^-4 | 8.4 x 10^-4 | 2.6 x 10^-4 |
+| 127 | 0.6 x 10^-4 | 7.9 x 10^-4 | 2.0 x 10^-4 |
+| 181 | 0.4 x 10^-4 | 7.4 x 10^-4 | 1.2 x 10^-4 |
+| 255 | -- | 7.2 x 10^-4 | 1.0 x 10^-4 |
+| 361 | -- | 7.0 x 10^-4 | 0.7 x 10^-4 |
+
+### C^{0,1} (Lipschitz) Example (17), the cone T21
+
+Table 3: maximum error; the Standard column prints a dash at N = 255 and 361.
+
+| N | Standard | Monotone | Hybrid |
+|---|---|---|---|
+| 31 | 10 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 45 | 8 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 63 | 6 x 10^-3 | 3 x 10^-3 | 3 x 10^-3 |
+| 89 | 4 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 127 | 3 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 181 | 2 x 10^-3 | 4 x 10^-3 | 4 x 10^-3 |
+| 255 | -- | 4 x 10^-3 | 4 x 10^-3 |
+| 361 | -- | 4 x 10^-3 | 4 x 10^-3 |
+
 ### Other test solutions in this paper
 
 - "C^1 Example" (15): u = ((|x - x0| - 0.2)^+)^2 / 2, f = (1 - 0.2/|x - x0|)^+, x0 = (0.5, 0.5); hybrid accuracy O(h).
 - "C^{0,1} (Lipschitz) Example" (17): the cone centred at x0 with f = pi delta_{x0}, discretised as 4/h^2 on |x - x0| <= h/2; the hybrid scheme equals the monotone scheme there.
 - 3D (Table 4, hybrid Newton, 19-point stencil, N^3 grid on [0,1]^3): exp(|x|^2/2), a C^1 example, and the ball -sqrt(3 - |x|^2).
+
+### Table 4, three dimensions, hybrid scheme (`monotone19.md`, cross-check only)
+
+Section 9: "These computations are performed on an N x N x N grid on the square [0, 1]^3. The monotone scheme used a 19 point stencil."
+The examples are the SIAM paper's (14), (15) and (16), numbered (18), (19) and (20) here; the paper calls the single Newton step on (19) "simply an artifact".
+Max error, Newton iterations and CPU seconds of the hybrid Newton's method, as printed (text layer of the PDF, p. 831):
+
+| N | (18) max error | its | CPU s | (19) max error | its | CPU s | (20) max error | its | CPU s |
+|---|---|---|---|---|---|---|---|---|---|
+| 7 | 0.0151 | 2 | 0.04 | 0.0034 | 1 | 0.02 | 9.6 x 10^-3 | 1 | 0.03 |
+| 11 | 0.0140 | 3 | 0.10 | 0.0022 | 1 | 0.09 | 5.2 x 10^-3 | 3 | 0.11 |
+| 15 | 0.0129 | 5 | 0.71 | 0.0016 | 1 | 0.22 | 4.6 x 10^-3 | 3 | 0.48 |
+| 21 | 0.0121 | 6 | 6.72 | 0.0009 | 1 | 1.03 | 4.0 x 10^-3 | 6 | 7.42 |
+| 31 | 0.0111 | 5 | 86.63 | 0.0005 | 1 | 17.12 | 2.9 x 10^-3 | 8 | 138.74 |
 
 ## 4. Loeper, Rapetti (2005)
 
@@ -263,9 +393,248 @@ Results are only in figures: about 10 Newton iterations reach an L2 error on rho
 The only printed numbers are in the Fig. 2 caption (beta = 0.8, k = 2, N = 64): "The highest absolute value is 0.0609 (n = 1, top left), 0.0239 (n = 2, top right), 0.00949 (n = 3, bottom left) and 0.00379 (n = 4, bottom right)".
 Fig. 4 shows the L2 and L-infinity error of u for u_ex = beta sin(2 pi k x) sin(2 pi k y), beta = 0.02, k = 1, at N = 16, 32, 64, 128, 256 after 10 Newton iterations; the text gives order O(1/N^2) but prints no values.
 
+## 5. Froese, Oberman, SIAM J. Numer. Anal. (2013)
+
+B. D. Froese, A. M. Oberman, "Convergent filtered schemes for the Monge-Ampere partial differential equation", SIAM J. Numer. Anal. 51(1) (2013) 423-444, DOI 10.1137/120875065.
+Read: local journal PDF (Zotero item Y55FLDKL, attachment 2BQN6YP2); every value below was checked against a rendered image of pp. 438-442 (journal page numbers).
+
+Method (Section 4.1): the filtered scheme `F_H = F_M + eps S((F_A - F_M) / eps)`, with `F_M` the monotone wide-stencil scheme of their Section 1.7 (`min over pairs of prod max{D_vv u, delta} + sum min{D_vv u, delta}`, `delta` not printed), `F_A` the standard 9-point scheme ("see [FO11b] for details"), the filter `S` of eq. (1.3) (identity on `[-1, 1]`, `sign(x)(2 - |x|)` for `1 <= |x| <= 2`, zero beyond) and `eps(h, dtheta) = sqrt(h) + dtheta / 10`.
+`dtheta` is not given a value, neither here nor in FO 2011 (SINUM p. 1700 names it the parameter of the directional discretisation); Oberman 2008, eq. (3.3), defines it as `max over theta of min over i |theta - theta_i|`, the largest angle between a direction and the nearest stencil direction, half the largest gap between stencil directions.
+maesolvers takes the full gap (`pi/4`, `atan(1/2)`, `atan(1/3)`), which the T2 filtered columns of Table 4.1 fit (`filtered.md`, Finding 3).
+Solved by Newton, `u^{n+1} = u^n - (grad F_H[u^n])^{-1} F_H[u^n]`, with the Jacobian approximated by `(1 - S') grad F_M + max{S', 0} grad F_A` "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
+"We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
+[FO11b] is the JCP 2011 hybrid paper (section 3 above; the reference list, and p. 424, "In [FO11b] a hybrid solver was built"), not the SINUM paper [FO11a]; its Section 7.2 replaces `u_vv` by `max{u_vv, eps}` in the Jacobian, `eps = 10^-8 / (2 dx^2)`, which leaves the scheme and its roots unchanged.
+The Newton iteration is printed with the full step, no damping; no start or stopping rule is stated.
+Section 4.2: "All computations are performed on the domain [0, 1] x [0, 1], which is discretized on an N x N grid."
+No definition of `h` in terms of `N`; the values match `h = 1/(N - 1)`, `N` nodes per side (`filtered.md`, Finding 1).
+
+Name map (Section 4.2, `x0 = (0.5, 0.5)`):
+- "C^2 example", eq. (4.1): `u = exp(|x - x0|^2 / 2)`, `f = (1 + |x - x0|^2) exp(|x - x0|^2)`. Centred at `x0`, so not T1 (`exp(|x|^2 / 2)`), although the text says the four examples are those of [FO11a].
+- "C^1 example", eq. (4.2): T20.
+- "Example with blow-up", eq. (4.3): T2, `u = -sqrt(2 - |x|^2)`, uncentred.
+- "C^{0,1} (Lipschitz) example", eq. (4.4): the cone T21, `f = 4/h^2` on `|x - x0| <= h/2`, 0 elsewhere.
+
+### Table 4.1, "Accuracy of the monotone and filtered schemes", max error
+
+C^2 example (4.1), all values `x 10^-5`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 9.45 | 4.54 | 9.12 | 4.54 | 9.38 | 4.54 |
+| 63 | 4.91 | 1.04 | 3.42 | 1.04 | 3.40 | 1.04 |
+| 127 | 3.79 | 0.26 | 1.67 | 0.26 | 1.39 | 0.26 |
+| 255 | 3.51 | 0.06 | 1.17 | 0.06 | 0.66 | 0.06 |
+| 361 | 3.48 | 0.03 | 1.08 | 0.03 | 0.51 | 0.03 |
+
+C^1 example (4.2), all values `x 10^-4`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 21.54 | 3.73 | 8.66 | 3.99 | 6.39 | 3.67 |
+| 63 | 21.33 | 1.51 | 6.82 | 1.40 | 3.18 | 1.46 |
+| 127 | 21.55 | 0.92 | 6.63 | 0.76 | 2.49 | 0.78 |
+| 255 | 21.51 | 0.38 | 6.58 | 0.46 | 2.36 | 0.37 |
+| 361 | 21.53 | 0.23 | 6.62 | 0.31 | 2.37 | 0.28 |
+
+Example with blow-up (4.3), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 | 1.74 |
+| 63 | 0.86 | 0.59 | 0.59 | 0.59 | 0.59 | 0.59 |
+| 127 | 0.83 | 0.20 | 0.35 | 0.20 | 0.20 | 0.20 |
+| 255 | 0.83 | 0.15 | 0.33 | 0.13 | 0.16 | 0.08 |
+| 361 | 0.83 | 0.17 | 0.33 | 0.13 | 0.15 | 0.08 |
+
+C^{0,1} (Lipschitz) example (4.4), all values `x 10^-3`:
+
+| N | 9 Monotone | 9 Filtered | 17 Monotone | 17 Filtered | 33 Monotone | 33 Filtered |
+|---|---|---|---|---|---|---|
+| 31 | 11.83 | 10.42 | 3.56 | 4.16 | 1.61 | 1.23 |
+| 63 | 11.10 | 11.56 | 3.49 | 2.82 | 1.65 | 1.90 |
+| 127 | 11.80 | 10.97 | 3.45 | 2.83 | 1.64 | 1.11 |
+| 255 | 10.47 | 11.03 | 3.46 | 3.06 | 1.64 | 1.15 |
+| 361 | 10.40 | 10.37 | 3.45 | 3.22 | 1.64 | 1.12 |
+
+### Table 4.2, "Newton iterations, computation time, and accuracy for the hybrid and filtered schemes on a 17-point stencil"
+
+The "Standard" column prints a dash at `N = 255` and 361 for the C^1 and the Lipschitz examples.
+The hybrid columns are the a priori hybrid scheme of FO 2011 JCP.
+
+| Example | N | Iterations Hybrid | Iterations Filtered | CPU s Hybrid | CPU s Filtered | Max error Hybrid | Max error Filtered | Max error Standard |
+|---|---|---|---|---|---|---|---|---|
+| C^2 (`x 10^-5`) | 31 | 3 | 2 | 0.1 | 0.1 | 6.76 | 4.54 | 4.54 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 1.46 | 1.06 | 1.06 |
+| | 127 | 3 | 2 | 2.4 | 2.0 | 0.35 | 0.26 | 0.26 |
+| | 255 | 3 | 2 | 12.5 | 9.9 | 0.09 | 0.06 | 0.06 |
+| | 361 | 3 | 2 | 28.2 | 22.5 | 0.04 | 0.03 | 0.03 |
+| C^1 (`x 10^-4`) | 31 | 2 | 2 | 0.1 | 0.1 | 6.62 | 3.99 | 3.78 |
+| | 63 | 3 | 2 | 0.6 | 0.5 | 2.75 | 1.40 | 1.34 |
+| | 127 | 5 | 3 | 3.8 | 2.6 | 1.68 | 0.76 | 0.59 |
+| | 255 | 5 | 3 | 19.1 | 12.9 | 0.85 | 0.46 | -- |
+| | 361 | 5 | 6 | 48.3 | 50.6 | 0.60 | 0.31 | -- |
+| Blow-up (`x 10^-3`) | 31 | 6 | 7 | 0.3 | 0.3 | 1.74 | 1.74 | 17.38 |
+| | 63 | 9 | 9 | 1.4 | 1.5 | 0.59 | 0.59 | 12.62 |
+| | 127 | 11 | 11 | 8.6 | 8.4 | 0.20 | 0.20 | 9.04 |
+| | 255 | 7 | 8 | 30.5 | 32.4 | 0.07 | 0.13 | 6.43 |
+| | 361 | 11 | 12 | 101.5 | 108.7 | 0.04 | 0.13 | 5.42 |
+| Lipschitz (`x 10^-3`) | 31 | 6 | 7 | 0.2 | 0.2 | 3.57 | 4.16 | 5.19 |
+| | 63 | 6 | 9 | 1.0 | 1.4 | 3.49 | 2.82 | 2.86 |
+| | 127 | 8 | 8 | 6.6 | 6.4 | 3.45 | 2.83 | 1.54 |
+| | 255 | 9 | 10 | 47.1 | 38.2 | 3.46 | 3.06 | -- |
+| | 361 | 10 | 9 | 155.8 | 81.7 | 3.45 | 3.22 | -- |
+
+The two tables print different filtered values for the C^2 example at `N = 63` (1.04 in Table 4.1, 1.06 in Table 4.2); every other filtered 17-point value appears in both and agrees.
+
+## 6. Liu, Froese, Oberman, Xiao, Int. J. Comput. Math. (2017)
+
+J. Liu, B. D. Froese, A. M. Oberman, M. Xiao, "A multigrid scheme for 3D Monge-Ampere equations", Int. J. Comput. Math. 94(9) (2017) 1850-1866, DOI 10.1080/00207160.2016.1247443.
+Read: local journal PDF (Zotero item RWA942I8, attachment EEEVIK3A); every value below was checked against a rendered image of pp. 1861-1864 (journal page numbers).
+The PDF's text layer garbles the first row of Tables 5 to 7 ("86.8e -08") and prints Example 4.5's `|x|^2 / 2` as `(x + y + z) / 2`; the page image has `(x^2 + y^2 + z^2) / 2`.
+
+Method (Sections 2 and 3): the standard centred differences (9 points in 2D, 19 in 3D) in `det D^2 u = f`, solved by FMG-FAS multigrid (Algorithms 1 and 2) with the nonlinear Gauss-Seidel smoother that takes the smallest real root of each node's quadratic (2D, from [2], BFO 2010) or cubic (3D, eq. (12)); 2 pre- and 2 post-sweeps, one sweep on the coarsest grid `h_0 = 1/2` from 0, half-weighting and injection down, (tri)linear interpolation up, "cubic interpolation" in the FMG step.
+Stopping rule: `||r_l||_2 / ||r_0||_2 <= 10^-6`, `r_0` not defined for FMG-FAS.
+Grid: `x_i = i h`, `h = 1/N`, `i = 0, ..., N` (Section 2), so ADR 0001's convention is printed here; Example 4.5 is on `(0, pi)^3`.
+The stand-alone Gauss-Seidel solver starts from `1.01 u`.
+
+Name map: Example 4.1 is T1, 4.2 T3, 4.3 T2 (2D); 4.4 is T9, 4.5 T46, 4.6 T28, 4.7 T22 (3D).
+
+### Tables 1 and 2, FMG-FAS in 2D: max error, iterations, CPU s
+
+Table 1, red-black ordering:
+
+| N | 4.1 Error | Iter | CPU | 4.2 Error | Iter | CPU | 4.3 Error | Iter | CPU |
+|---|---|---|---|---|---|---|---|---|---|
+| 128 | 4.5e-06 | 1 | 0.1 | 3.8e-05 | 1 | 0.1 | 8.9e-03 | 2 | 0.1 |
+| 256 | 1.1e-06 | 1 | 0.1 | 1.3e-05 | 1 | 0.1 | 6.4e-03 | 2 | 0.2 |
+| 512 | 2.8e-07 | 1 | 0.3 | 4.7e-06 | 1 | 0.3 | 4.5e-03 | 1 | 0.3 |
+| 1024 | 7.0e-08 | 1 | 1.0 | 1.7e-06 | 1 | 1.1 | 3.2e-03 | 1 | 1.1 |
+| 2048 | 1.7e-08 | 1 | 3.6 | 5.9e-07 | 1 | 4.0 | 2.3e-03 | 1 | 3.8 |
+| 4096 | 4.3e-09 | 1 | 16.2 | 2.1e-07 | 1 | 16.5 | 1.6e-03 | 1 | 18.0 |
+| 8192 | 1.0e-09 | 1 | 67.1 | 7.4e-08 | 1 | 69.1 | 1.1e-03 | 1 | 70.3 |
+
+Table 2, lexicographic ordering:
+
+| N | 4.1 Error | Iter | CPU | 4.2 Error | Iter | CPU | 4.3 Error | Iter | CPU |
+|---|---|---|---|---|---|---|---|---|---|
+| 128 | 5.1e-06 | 1 | 0.1 | 4.3e-05 | 1 | 0.1 | 8.9e-03 | 3 | 0.1 |
+| 256 | 1.3e-06 | 1 | 0.2 | 1.5e-05 | 1 | 0.3 | 6.3e-03 | 2 | 0.2 |
+| 512 | 3.3e-07 | 1 | 0.8 | 5.4e-06 | 1 | 0.9 | 4.4e-03 | 1 | 0.8 |
+| 1024 | 8.2e-08 | 1 | 3.2 | 1.9e-06 | 1 | 3.27 | 3.2e-03 | 1 | 3.1 |
+| 2048 | 2.1e-08 | 1 | 12.7 | 6.8e-07 | 1 | 12.9 | 2.2e-03 | 1 | 12.6 |
+| 4096 | 5.1e-09 | 1 | 53.2 | 2.4e-07 | 1 | 54.6 | 1.6e-03 | 1 | 53.5 |
+| 8192 | 1.3e-09 | 1 | 245.6 | 8.5e-08 | 1 | 259.4 | 1.1e-03 | 1 | 250.7 |
+
+The order columns print 2.0 (4.1; 2.1 at `N = 8192` in Table 1), 1.5 (4.2) and 0.5 (4.3).
+
+### Tables 3, 5, 6 and 7, 3D: FMG-FAS and Gauss-Seidel
+
+RelRes, max error, iterations and CPU s for FMG-FAS, then for the stand-alone Gauss-Seidel solver (`N <= 32` only); Table 3 alone prints a DOFs column.
+Its DOFs are `(N - 2)^3` (`6^3 = 216` to `126^3 = 2,000,376`), not the `(N - 1)^3` interior nodes of the grid of Section 2 (`h = 1/N`, nodes `i = 0, ..., N`), which Table 4's DOFs column is (`multigrid.md`, Conventions).
+
+| Example | N | DOFs | RelRes | Error | Iter | CPU | GS RelRes | GS Error | GS Iter | GS CPU |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 4.4 (T9) | 8 | 216 | 3.1e-07 | 1.2e-03 | 1 | 0.1 | 9.3e-07 | 1.2e-03 | 72 | 0.4 |
+| | 16 | 2,744 | 9.5e-09 | 2.7e-04 | 1 | 0.2 | 9.9e-07 | 3.0e-04 | 270 | 11.5 |
+| | 32 | 27,000 | 2.1e-10 | 5.7e-05 | 1 | 2.0 | 1.0e-06 | 8.1e-05 | 867 | 324.6 |
+| | 64 | 238,328 | 4.1e-12 | 1.4e-05 | 1 | 16.9 | | | | |
+| | 128 | 2,000,376 | 5.2e-13 | 6.2e-06 | 1 | 136.9 | | | | |
+| 4.5 (T46) | 8 | | 6.8e-08 | 1.7e-02 | 2 | 0.1 | 9.2e-07 | 1.7e-02 | 82 | 0.4 |
+| | 16 | | 2.1e-08 | 3.3e-03 | 1 | 0.2 | 9.8e-07 | 4.3e-03 | 296 | 12.9 |
+| | 32 | | 2.7e-10 | 8.1e-04 | 1 | 2.0 | 1.0e-06 | 1.1e-03 | 954 | 356.2 |
+| | 64 | | 3.7e-12 | 2.1e-04 | 1 | 16.4 | | | | |
+| | 128 | | 4.8e-13 | 5.2e-05 | 1 | 134.1 | | | | |
+| 4.6 (T28) | 8 | | 2.7e-07 | 5.3e-04 | 1 | 0.1 | 9.7e-07 | 4.0e-04 | 86 | 0.4 |
+| | 16 | | 1.1e-08 | 2.1e-04 | 1 | 0.2 | 9.9e-07 | 1.4e-04 | 312 | 13.2 |
+| | 32 | | 4.8e-10 | 7.4e-05 | 1 | 2.0 | 9.9e-07 | 5.1e-05 | 925 | 345.8 |
+| | 64 | | 2.0e-11 | 2.6e-05 | 1 | 16.4 | | | | |
+| | 128 | | 1.2e-12 | 9.3e-06 | 1 | 133.9 | | | | |
+| 4.7 (T22) | 8 | | 1.7e-07 | 1.4e-03 | 1 | 0.1 | 8.9e-07 | 1.4e-03 | 75 | 0.4 |
+| | 16 | | 2.1e-08 | 1.4e-03 | 1 | 0.2 | 9.7e-07 | 1.4e-03 | 266 | 12.2 |
+| | 32 | | 2.7e-08 | 4.3e-03 | 1 | 2.0 | 9.9e-07 | 1.1e-03 | 854 | 320.2 |
+| | 64 | | 4.9e-09 | 2.2e-03 | 1 | 16.3 | | | | |
+| | 128 | | 1.7e-09 | 1.6e-03 | 1 | 133.1 | | | | |
+
+Table 4 reprints, for Example 4.4, the wide-stencil hybrid finite differences of FO 2011 JCP (`N = 8` to 32, 1.51e-2 to 1.11e-2) and the quadratic and cubic interior-penalty elements of Brenner-Neilan 2012; it is not transcribed here.
+`multigrid.md` compares the tables with ours.
+
+## 7. Feng, Jensen, SIAM J. Numer. Anal. (2017)
+
+X. Feng, M. Jensen, "Convergent semi-Lagrangian methods for the Monge-Ampere equation on unstructured grids", SIAM J. Numer. Anal. 55(2) (2017) 691-712, DOI 10.1137/16M1061709.
+Read: local journal PDF (Zotero item PVLY7QYE, attachment YSSATHUT); every value below was checked against a rendered image of pp. 709-711 (journal page numbers).
+
+Method (Sections 3, 4, 7, 8): the HJB form `sup over B >= 0, tr B = 1 of (-B : D^2 u + f (det B)^(1/d)) = 0` of `det D^2 u = (f/d)^d`, so the paper's `f` is `2 sqrt(f)` in maesolvers' convention `det D^2 u = f` (2D).
+Each `B = sigma lambda sigma^T`; the second derivatives along the columns of `sigma` are the semi-Lagrangian differences `(u(x - k sigma_j) - 2 u(x) + u(x + k sigma_j)) / k^2` (eq. (18)), whose ends take the value of the continuous piecewise linear finite element function.
+Section 8: the control set is `SO(2) x {diag(a, 1 - a): a in [0, 1/2)}` together with `(Id, Id/2)`; `SO(2)` is discretised by the rotation angles `i pi / 64`, `i = 0, ..., 63`, and nothing is said about discretising `a`.
+The stencil size is `k = m h` with `h` the average mesh size, reduced near the boundary to stay inside the triangulated domain (Fig. 5(b)).
+Solved by Howard's algorithm (Algorithm 1), started with the control `B_0 = Id / d`, stopped when a step is below `10^-6` in the max norm.
+The domain is the union of the unit disk and the unit square `(0, 1)^2`; the quasi-uniform grid has 91 nodes at the coarsest level and 1,214,465 after 7 uniform refinements, computed with FEniCS.
+Problems: the quartic `u = |x|^4` (T39) and the nonsmooth `u = |x1|` with `f = 0` (T40), whose kink "is not aligned with the computational mesh".
+
+The paper prints no numbered table, but its Figure 6 is a table: the smallest relative error over `m in {2, 4, 8, 16, 32, 64}` at each level, with the minimising `m`.
+The errors are relative to the norm of `u` (`||u - u_h|| / ||u||`, the axis label of Figure 7).
+
+### Figure 6, quartic problem (T39)
+
+| DoFs | L2 error | m | Linf error | m | H1 error | m |
+|---|---|---|---|---|---|---|
+| 91 | 6.92e-2 | 2 | 9.26e-2 | 2 | 1.86e-1 | 2 |
+| 329 | 2.99e-2 | 2 | 3.85e-2 | 2 | 9.08e-2 | 2 |
+| 1,249 | 1.69e-2 | 4 | 2.15e-2 | 2 | 4.93e-2 | 4 |
+| 4,865 | 7.12e-3 | 4 | 9.59e-3 | 4 | 2.28e-2 | 4 |
+| 19,201 | 4.18e-3 | 8 | 5.63e-3 | 4 | 1.28e-2 | 8 |
+| 76,289 | 1.78e-3 | 8 | 2.44e-3 | 8 | 5.82e-3 | 8 |
+| 304,129 | 1.06e-3 | 16 | 1.51e-3 | 8 | 3.36e-3 | 8 |
+| 1,214,465 | 4.82e-4 | 16 | 6.59e-4 | 16 | 1.59e-3 | 16 |
+
+### Figure 6, nonsmooth problem (T40)
+
+| DoFs | L2 error | m | Linf error | m | H1 error | m |
+|---|---|---|---|---|---|---|
+| 91 | 4.50e-2 | 4 | 1.03e-1 | 4 | 2.02e-1 | 2 |
+| 329 | 1.62e-2 | 4 | 5.69e-2 | 4 | 1.51e-1 | 4 |
+| 1,249 | 7.11e-3 | 8 | 3.08e-2 | 8 | 1.21e-1 | 8 |
+| 4,865 | 3.35e-3 | 16 | 2.03e-2 | 16 | 9.80e-2 | 16 |
+| 19,201 | 1.70e-3 | 32 | 1.38e-2 | 32 | 7.91e-2 | 32 |
+| 76,289 | 9.63e-4 | 32 | 9.12e-3 | 32 | 6.33e-2 | 32 |
+| 304,129 | 5.10e-4 | 64 | 6.04e-3 | 64 | 5.12e-2 | 64 |
+| 1,214,465 | 3.12e-4 | 64 | 4.51e-3 | 64 | 4.25e-2 | 64 |
+
+### Rates (p. 711), "across the seven levels of refinement"
+
+| | quartic, in h | quartic, in k | nonsmooth, in h | nonsmooth, in k |
+|---|---|---|---|---|
+| L2 | h^1.02 | k^1.79 | h^1.02 | k^2.39 |
+| Linf | h^1.02 | k^1.78 | h^0.64 | k^1.50 |
+| H1 | h^0.98 | k^1.72 | h^0.33 | k^1.22 |
+
+The Linf rates are the end-to-end slopes of the Figure 6 columns: `log2(9.26e-2 / 6.59e-4) / 7 = 1.02` and `log2(1.03e-1 / 4.51e-3) / 7 = 0.64` in `h`, which halves at each refinement; in `k = m h`, which the best `m` makes shrink 16 and 8 times less, `7.13 / 4 = 1.78` and `4.51 / 3 = 1.50`.
+
+### Figure 8, Howard steps to a step below 10^-6
+
+Over all levels and all `m`, 4 to 16 steps; at the `m` that minimises the Linf error (the boxed entries), 5 to 8 on the quartic problem and 5 to 9 on the nonsmooth one.
+
+## 8. Benamou, Froese, Oberman, J. Comput. Phys. (2014)
+
+J.-D. Benamou, B. D. Froese, A. M. Oberman, "Numerical solution of the optimal transportation problem using the Monge-Ampere equation", J. Comput. Phys. 260 (2014) 107-126, DOI 10.1016/j.jcp.2013.12.015.
+Read: local journal PDF (Zotero item W5FIFMRA, attachment ZGDPYBIE).
+
+The transport boundary condition as an upwind Hamilton-Jacobi equation on the boundary, the filtered scheme inside, solved by Newton.
+Tables 1 to 3 print the max error of the gradient map: Table 1 on T16, the square onto itself, against `N`, with the L2 error and the Newton iterations; Table 2 an ellipse onto a rotated ellipse and Table 3 two half-disks onto a disk (neither has a T id), against `N` and the number `N_Y` of target directions.
+They are transcribed, checked against rendered images of pp. 118-120, in `bfo2014.md`, next to our values, where each table's grid convention is stated (Table 1's max column counts `N` nodes per side, Finding 1 there).
+
+## 9. Chen, Wan, Lin, J. Sci. Comput. (2018)
+
+Y. Chen, J. W. L. Wan, J. Lin, "Monotone mixed finite difference scheme for Monge-Ampere equation", J. Sci. Comput. 76 (2018) 1839-1867, DOI 10.1007/s10915-018-0685-y.
+Read: local journal PDF (Zotero attachments 3XWEWWT6, 9WII8MMM; the survey calls the paper "Chen-Wan-Wang 2018").
+
+The HJB form, each control on the standard 7-point stencil where it is monotone and on the semi-Lagrangian wide stencil elsewhere, solved by policy iteration; grid: `N` cells per side (ADR 0001), so `h = 1/N` except on Table 1's `[-1, 1]^2`, where `h = 2/N` (Finding 1 there).
+Tables 1 to 4 print the L2 and max errors, their orders and the policy iterations against `N`, for the mixed scheme and, in Tables 1 to 3, the pure semi-Lagrangian scheme: Table 1 on T1 moved to `[-1, 1]^2`, Table 2 on T2, Table 3 on T20c, Table 4 on the cone T21; Table 5 prints `u_h(0, 0)` for `f = 1`, `g = 0` on `(-0.5, 0.5)^2`, monotone against non-monotone.
+They are transcribed, checked against the PDF's page images, in `chen_wan_lin2018.md`, next to our values.
+
 ## What a reproduction must match
 
-The only published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper.
+For the standard 9-point, 17-point monotone and hybrid schemes, the published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper; sections 5, 6 and 9 add the tables of other schemes on T1 and T2.
 They report the max norm of u minus the exact solution at the grid points, on an N x N grid with N in {31, 45, 63, 89, 127, 181, 255, 361} (SIAM uses the subset 31, 63, 127, 255, 361).
 For the standard 9-point scheme, solved to its fixed point by Gauss-Seidel, Poisson or any other convergent iteration, the targets are:
 for (a), from 7.14 x 10^-5 at N = 31 down to 0.05 x 10^-5 at N = 361, order O(h^2);
