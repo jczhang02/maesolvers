@@ -2,7 +2,7 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
-## 0.2.0 (2026-10-23)
+## 0.2.0 (2026-10-24)
 
 This release gives the finite-difference schemes a grid on boxes of any dimension (`BoxGrid`), with the 19-point monotone scheme and full multigrid in 3D, adds the second boundary value problem (`Transport`) to the classical and neural families, the monotone mixed scheme of Chen-Wan-Lin 2018, the semi-Lagrangian scheme of Feng-Jensen 2017 and QS-PINN, and reruns the comparison table with all fourteen presets.
 The fields of `evaluate` are those of 0.1 (ADR 0007): the quantities some papers report beyond them, such as the error of the transport map, come from functions next to it in `maesolvers.metrics`.
@@ -123,7 +123,7 @@ The fields of `evaluate` are those of 0.1 (ADR 0007): the quantities some papers
 
 - A neural solve on the CPU, the default `accelerator`, no longer prints Lightning's warning "GPU available but not used" on a host with a GPU.
 
-## 0.1.0 (2026-10-23)
+## 0.1.0 (2026-10-24)
 
 This release freezes `Problem`, `Result` and `evaluate` (ADR 0007): the research code builds on them, so from 0.1 on they change only together with a change to ADR 0007, listed here.
 The rest of the interface (solvers, schemes, iterations, the neural parts and the presets) may still change in 0.x, never silently.
@@ -211,7 +211,7 @@ The rest of the interface (solvers, schemes, iterations, the neural parts and th
 
 - `tracking.run` starts its run in the experiment it names, by id: worker processes that opened runs in the same new experiment at once could log to `Default`, because `mlflow.set_experiment` does not make the experiment active when it loses the race to create it (#54).
 
-## 0.0.2 (2026-10-22)
+## 0.0.2 (2026-10-24)
 
 ### Added
 
