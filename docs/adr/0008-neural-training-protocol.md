@@ -8,7 +8,7 @@ So the neural family shares what makes results comparable, and each method keeps
 |---|---|
 | the training loop (`NeuralSolver` on a Lightning `Trainer`) | network architecture and size |
 | the collocation point set of each problem, generated from the seed, stored, and used by every method | loss terms and their weights |
-| seeds 0 to 9 | optimizer, learning-rate schedule, step budget |
+| seeds $0$ to $9$ | optimizer, learning-rate schedule, step budget |
 | the evaluation grid and the metrics (ADR 0007) | adaptive resampling, reported as a separate variant |
 | float64 (`precision="64-true"`) | |
 | the names of logged metrics | |

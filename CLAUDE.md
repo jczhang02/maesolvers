@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classical and neural, behind one interface and measured on one catalogue of test problems.
+Python library of solvers for the Monge-Ampere equation $\det D^2 u = f$, classical and neural, behind one interface and measured on one catalogue of test problems.
 `README.md` maps the directories and the public interface.
 `AGENTS.md` is a symlink to this file, so Codex reads the same rules: edit `CLAUDE.md` only.
 
@@ -36,7 +36,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 
 - A reproduction is judged against the source paper's own table, on the paper's own test problem, at one of the five levels of ADR 0002 (exact, order of magnitude, statistical, figure only, mismatch); `benchmarks/<method>.md` states the level.
 - `benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours; the CSVs and `plot_standard_fd.py` next to them draw the README figure.
-- The papers' grid convention is `h = 1/N`, `N` cells per side; none of them states it (ADR 0001).
+- The papers' grid convention is $h = 1/N$, $N$ cells per side; none of them states it (ADR 0001).
 - A mismatch is recorded as a finding in the comparison file, not tuned away.
 - `tests/test_reproduction.py` pins the published numbers; change a pinned value only together with the finding that justifies it.
 

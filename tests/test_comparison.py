@@ -94,12 +94,14 @@ def _seeds(errors: list[float | None], problem: str = "T1") -> list[dict[str, st
 
 
 def test_numbers_print_with_three_significant_digits():
-    assert comparison.scientific(7.0612e-3) == "7.06e-3"
-    assert comparison.scientific(12.5) == "1.25e1"
+    assert comparison.scientific(7.0612e-3) == r"7.06 \times 10^{-3}"
+    assert comparison.scientific(12.5) == r"1.25 \times 10^{1}"
     assert comparison.scientific(0.0) == "0"
-    assert comparison.scientific(math.inf) == "inf"
+    assert comparison.scientific(math.inf) == r"\infty"
     assert comparison.percent(0.0) == "0"
-    assert comparison.percent(0.06693) == "6.69%"
+    assert comparison.percent(0.06693) == r"6.69\%"
+    assert comparison.math_span(comparison.percent(0.06693)) == "$6.69$%"
+    assert comparison.math_span(r"7.06 \times 10^{-3}") == r"$7.06 \times 10^{-3}$"
     assert comparison.seconds(911.02) == "911"
     assert comparison.seconds(0.05124) == "0.0512"
 
@@ -190,20 +192,20 @@ def test_threshold_ignores_a_constant_added_to_the_solution():
 
 def test_classical_cell_gives_the_error_and_its_grid():
     row = _classical()
-    assert comparison.cell([row], "max") == "5.28e-7 (361)"
-    assert comparison.cell([row], "nonconvex_fraction") == "0"
-    assert comparison.cell([row], "time") == "12.3"
+    assert comparison.cell([row], "max") == r"$5.28 \times 10^{-7}$ ($361$)"
+    assert comparison.cell([row], "nonconvex_fraction") == "$0$"
+    assert comparison.cell([row], "time") == "$12.3$"
 
 
 def test_classical_cell_marks_an_unconverged_run():
     row = _classical(converged=False)
-    assert comparison.cell([row], "max") == "5.28e-7 (361) \\*"
-    assert comparison.cell([row], "time") == "12.3 \\*"
+    assert comparison.cell([row], "max") == "$5.28 \\times 10^{-7}$ ($361$) \\*"
+    assert comparison.cell([row], "time") == "$12.3$ \\*"
 
 
 def test_classical_cell_of_a_failed_run():
     row = _classical(status="failed", max="", reason="LinAlgError: singular")
-    assert comparison.cell([row], "max") == "failed (361)"
+    assert comparison.cell([row], "max") == "failed ($361$)"
     assert comparison.cell([row], "time") == "failed"
 
 
@@ -218,22 +220,24 @@ def test_neural_cell_gives_the_band_and_the_successes():
     rows = _seeds(errors)
     expected = np.quantile(errors, [0.5, 0.05, 0.95])
     median, q05, q95 = (comparison.scientific(x) for x in expected)
-    assert comparison.cell(rows, "max") == f"{median} [{q05}, {q95}], 4/10"
-    assert comparison.cell(rows, "nonconvex_fraction") == "4.5%"
-    assert comparison.cell(rows, "time") == "404"
+    assert comparison.cell(rows, "max") == f"${median}$ $[{q05}, {q95}]$, $4/10$"
+    assert comparison.cell(rows, "nonconvex_fraction") == "$4.5$%"
+    assert comparison.cell(rows, "time") == "$404$"
 
 
 def test_neural_cell_counts_a_failed_seed_as_infinite():
     rows = _seeds([1e-3] * 9 + [None])
-    assert comparison.cell(rows, "max") == "1.00e-3 [1.00e-3, inf], 9/10"
+    assert comparison.cell(rows, "max") == (
+        r"$1.00 \times 10^{-3}$ $[1.00 \times 10^{-3}, \infty]$, $9/10$"
+    )
     # the medians of the other metrics leave the failed seed out
-    assert comparison.cell(rows, "time") == "404"
+    assert comparison.cell(rows, "time") == "$404$"
 
 
 def test_neural_cell_fails_when_half_the_seeds_fail():
     rows = _seeds([1e-3] * 5 + [None] * 5)
     for key in ("max", "nonconvex_fraction", "time"):
-        assert comparison.cell(rows, key) == "failed (5/10)"
+        assert comparison.cell(rows, key) == "failed ($5/10$)"
 
 
 def test_unsupported_cell_gives_the_reason():
@@ -264,10 +268,10 @@ def test_notes_derive_from_the_rows():
         ),
     ]
     notes = comparison.notes(comparison.group(map(_machine, rows)))
-    assert "`h = 1/n` on T1, `h = 2/n` on T8 (ADR 0001)" in notes[0]
-    assert "over seeds 0 to 1:" in notes[1]
+    assert "$h = 1/n$ on T1, $h = 2/n$ on T8 (ADR 0001)" in notes[0]
+    assert "over seeds $0$ to $1$:" in notes[1]
     assert notes[3] == (
-        "Every run took 1 CPU thread and ran on the device `cpu`; CPU: Some CPU."
+        "Every run took $1$ CPU thread and ran on the device `cpu`; CPU: Some CPU."
     )
     assert notes[4].endswith(
         ": `r` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10."

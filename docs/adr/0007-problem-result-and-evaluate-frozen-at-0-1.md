@@ -5,11 +5,11 @@ They are therefore shaped now for what v0.2 needs, even though 0.1 ships two-dim
 
 ## Problem
 
-- `Box` is d-dimensional: `lo` and `hi` are tuples of length d, and points are arrays of shape `(..., d)`.
+- `Box` is $d$-dimensional: `lo` and `hi` are tuples of length $d$, and points are arrays of shape `(..., d)`.
 - A boundary condition is a typed object, `Dirichlet(g)` or `Transport(target)`, not a string with two optional fields.
-- `observables` holds named quantities for problems without an exact solution (for T7, `u(0, 0)`, the number the literature prints).
+- `observables` holds named quantities for problems without an exact solution (for T7, $u(0, 0)$, the number the literature prints).
 - The catalogue uses the T ids of the shared test-set specification (`docs/test-set.md` in the research repository), with its definitions and point-value tests.
-  P1 to P5 are retired, with no aliases (pre-alpha), and their numbers are not reused: P4 is T1, P5 is T2, P1 is T8 with `g = 0`, P3 is T12, and P2 leaves the catalogue.
+  P1 to P5 are retired, with no aliases (pre-alpha), and their numbers are not reused: P4 is T1, P5 is T2, P1 is T8 with $g = 0$, P3 is T12, and P2 leaves the catalogue.
 
 ## Result
 
@@ -18,7 +18,7 @@ A grid method also carries `nodes`, its `values` there, and its own discrete Hes
 
 ## evaluate
 
-The primary points are the method's `nodes` when it has them, otherwise the shared evaluation grid (the bounding-box grid, points in the domain only: 201 x 201 in 2D; 51^3 and 21^4 provisional).
+The primary points are the method's `nodes` when it has them, otherwise the shared evaluation grid (the bounding-box grid, points in the domain only: $201 \times 201$ in 2D; $51^3$ and $21^4$ provisional).
 This is the literature's practice: classical methods report at their own nodes, neural methods never at their training points.
 The fields are:
 
@@ -29,8 +29,8 @@ The fields are:
 - the problem's `observables`, evaluated on the solution.
 
 Errors for T12 (transport, solution unique up to a constant) are computed after subtracting each side's mean over the points.
-The relative L2 errors of 0.0.x are dropped, because no paper prints them.
+The relative $L^2$ errors of 0.0.x are dropped, because no paper prints them.
 
-`summarize(results, threshold)` aggregates the seeds of one method on one problem: median, 5% and 95% quantiles, and success rate.
-A failed seed (divergence, NaN, timeout) enters the quantiles with error `+inf` and is never dropped, so a method that fails on more than half the seeds has an infinite median, printed as "failed".
+`summarize(results, threshold)` aggregates the seeds of one method on one problem: median, $5$% and $95$% quantiles, and success rate.
+A failed seed (divergence, NaN, timeout) enters the quantiles with error $+\infty$ and is never dropped, so a method that fails on more than half the seeds has an infinite median, printed as "failed".
 The success threshold is a parameter, with no default in 0.1.
