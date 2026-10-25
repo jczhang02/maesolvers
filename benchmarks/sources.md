@@ -1,6 +1,6 @@
 # Published finite-difference benchmarks for the Monge-Ampere equation
 
-This file holds the published finite-difference tables that maesolvers reproduces, in 2D and 3D, with Dirichlet data and with the transport boundary condition: sections 1 to 7 transcribe them here, and sections 8 and 9 point to their transcriptions in the method's own benchmark page.
+This file holds the published finite-difference tables that maesolvers reproduces, in 2D and 3D, with Dirichlet data and with the transport boundary condition: sections 1 to 9 transcribe them here.
 Most of the 2D Dirichlet tables share two problems, $\det D^2 u = f$ on $(0,1)^2$ with Dirichlet data from the exact solution:
 solution (a), T1: $u = \exp(\lvert x \rvert^2 / 2)$, $f = (1 + \lvert x \rvert^2) \exp(\lvert x \rvert^2)$;
 solution (b), T2: $u = -\sqrt{2 - \lvert x \rvert^2}$, $f = 2 (2 - \lvert x \rvert^2)^{-2}$, gradient unbounded at the corner $(1,1)$.
@@ -620,8 +620,90 @@ J.-D. Benamou, B. D. Froese, A. M. Oberman, "Numerical solution of the optimal t
 Read: local journal PDF (Zotero item W5FIFMRA, attachment ZGDPYBIE).
 
 The transport boundary condition as an upwind Hamilton-Jacobi equation on the boundary, the filtered scheme inside, solved by Newton.
-Tables 1 to 3 print the max error of the gradient map: Table 1 on T16, the square onto itself, against $N$, with the $L^2$ error and the Newton iterations; Table 2 an ellipse onto a rotated ellipse and Table 3 two half-disks onto a disk (neither has a T id), against $N$ and the number $N_Y$ of target directions.
-They are transcribed, checked against rendered images of pp. 118-120, in `bfo2014.md`, next to our values, where each table's grid convention is stated (Table 1's max column counts $N$ nodes per side, Finding 1 there).
+Our values next to these are in `bfo2014.md`, which states each table's grid convention (Table 1's max column counts $N$ nodes per side, Finding 1 there).
+Every value below was read from the text layer and checked against rendered images of pp. 118-123.
+
+Grid: the paper's $N_X$ is "the number of grid points $N_X$ along each dimension" (Section 5.2.1, p. 117), so it counts nodes; Table 4 says "$N_X$" in the header too.
+Norm: the maximum over $x \in X$ of $\lVert \nabla u_{ex}(x) - \nabla u_{comp}(x) \rVert_2$ (Section 6, p. 118); the $L^2$ column of Table 1 does not say over which nodes it is summed.
+Each of Tables 1 to 3 gives the number of Newton iterations and the time for the largest $N_Y$ ($512$) only; the paper notes that the time hardly varies with $N_Y$.
+The time is MATLAB on a $2.2$ GHz Intel Core i7 laptop with $8$ GB (Section 6.6).
+
+Text-layer problems: the matrix $M_Y = ((0.6, 0.2), (0.2, 0.8))$ prints as "0.60.2 / 0.20.8"; the radii and centres of the half-disks ($0.2$, $0.1$, $0.85$) are dropped from the formulas of Section 6.3 and printed in the image only; Section 6.2 prints $Y = M_y B_2$ in the text layer, while the image has $Y = M_y B_1$; the CPU column of Table 4 loses digits ("$.2$", "$0 .8$").
+
+### Table 1 (Section 6.1, p. 118): the square onto itself (T16)
+
+The square $(-0.5, 0.5)^2$ onto a uniform density in the same square, $f$ built from $q(z)$ of the paper; exact map $(x_1 + 4 q'(x_1) q(x_2), x_2 + 4 q(x_1) q'(x_2))$.
+The target is a square, so its boundary is not discretised and $N_Y$ does not apply.
+
+| $N_X$ | Maximum error | $L^2$ error | Iterations | CPU time (s) |
+|---|---|---|---|---|
+| $32$ | $0.0220$ | $0.0127$ | $2$ | $0.05$ |
+| $64$ | $0.0110$ | $0.0064$ | $2$ | $0.18$ |
+| $128$ | $0.0055$ | $0.0032$ | $3$ | $1.16$ |
+| $256$ | $0.0028$ | $0.0016$ | $3$ | $6.44$ |
+| $512$ | $0.0014$ | $0.0008$ | $3$ | $32.86$ |
+
+### Table 2 (Section 6.2, p. 119): an ellipse onto an ellipse
+
+$X = M_X B_1$, $Y = M_Y B_1$ with $M_X = ((0.8, 0), (0, 0.4))$ and $M_Y = ((0.6, 0.2), (0.2, 0.8))$, constant densities; exact map $\nabla u(x) = M_Y R_\theta M_X^{-1} x$.
+The size of the square that holds $X$ is not printed (Finding 4 in `bfo2014.md`).
+
+| $N_X$ | $N_Y = 32$ | $64$ | $128$ | $256$ | $512$ | Iterations | Time (s) |
+|---|---|---|---|---|---|---|---|
+| $32$ | $0.0691$ | $0.0667$ | $0.0662$ | $0.0660$ | $0.0660$ | $4$ | $0.2$ |
+| $64$ | $0.0306$ | $0.0284$ | $0.0279$ | $0.0277$ | $0.0277$ | $4$ | $0.5$ |
+| $128$ | $0.0203$ | $0.0176$ | $0.0169$ | $0.0167$ | $0.0167$ | $4$ | $1.7$ |
+| $256$ | $0.0127$ | $0.0096$ | $0.0088$ | $0.0086$ | $0.0088$ | $5$ | $10.1$ |
+| $512$ | $0.0086$ | $0.0056$ | $0.0047$ | $0.0045$ | $0.0047$ | $5$ | $52.2$ |
+
+### Table 3 (Section 6.3, p. 120): two half-disks onto a disk
+
+$X = \lbrace x_1 < -0.2, (x_1 + 0.2)^2 + x_2^2 < 0.85^2 \rbrace \cup \lbrace x_1 > 0.1, (x_1 - 0.1)^2 + x_2^2 < 0.85^2 \rbrace$ onto $Y = \lbrace y_1^2 + y_2^2 < 0.85^2 \rbrace$; the paper calls the problem degenerate, and notes that with a fixed stencil width the error need not tend to zero.
+
+| $N_X$ | $N_Y = 32$ | $64$ | $128$ | $256$ | $512$ | Iterations | Time (s) |
+|---|---|---|---|---|---|---|---|
+| $32$ | $0.0280$ | $0.0284$ | $0.0286$ | $0.0286$ | $0.0286$ | $3$ | $0.2$ |
+| $64$ | $0.0158$ | $0.0164$ | $0.0165$ | $0.0165$ | $0.0165$ | $3$ | $0.4$ |
+| $128$ | $0.0092$ | $0.0093$ | $0.0092$ | $0.0092$ | $0.0092$ | $3$ | $1.3$ |
+| $256$ | $0.0047$ | $0.0036$ | $0.0036$ | $0.0036$ | $0.0036$ | $4$ | $8.3$ |
+| $512$ | $0.0049$ | $0.0040$ | $0.0034$ | $0.0033$ | $0.0033$ | $5$ | $51.7$ |
+
+### Table 4 (Section 6.4, p. 121): forward map against the inverse of the inverse map
+
+Gaussian densities, four Gaussians at the corners as the source and one at the centre as the target; the paper says "the unit square" but writes the quadrant $[-1, 0] \times [-1, 0]$, so the domain is $[-1, 1]^2$.
+Distance: $\max_{x \in X} \lVert \nabla u(\nabla u^*(x)) - x \rVert$; the target is a square, so the results do not depend on $N_Y$.
+Not compared: the target densities are not uniform.
+
+| $N_X$ | Max distance | Iterations, forward | Iterations, inverse | CPU (s), forward | CPU (s), inverse |
+|---|---|---|---|---|---|
+| $32$ | $0.2337$ | $4$ | $5$ | $0.2$ | $0.2$ |
+| $64$ | $0.1252$ | $5$ | $6$ | $0.4$ | $0.8$ |
+| $128$ | $0.0649$ | $5$ | $6$ | $1.9$ | $3.4$ |
+| $256$ | $0.0329$ | $8$ | $8$ | $15.7$ | $20.8$ |
+| $512$ | $0.0165$ | $9$ | $10$ | $91.3$ | $128.4$ |
+
+### Table 5 (Section 6.6, p. 123): Pogorelov solutions, normalised errors in percent, $N_X = 256$
+
+A Lebesgue source onto $N_d$ weighted Dirac masses; the errors are those of the cell areas against the optimality condition (9).
+Not compared: the target is a sum of Dirac masses.
+
+| $N_d$ | $L^\infty$ error | $L^2$ error | CPU time (s) |
+|---|---|---|---|
+| $3$ | $0.05$ | $0.02$ | $10.48$ |
+| $30$ | $0.48$ | $0.21$ | $10.56$ |
+| $300$ | $0.56$ | $0.18$ | $11.8$ |
+
+### Table 6 (Section 6.6, p. 123): $300$ Dirac masses, increasing resolution, errors in percent
+
+| $N_X$ | $L^\infty$ error | $L^2$ error | CPU time (s) |
+|---|---|---|---|
+| $64$ | $0.93$ | $0.28$ | $1.48$ |
+| $128$ | $0.96$ | $0.24$ | $2.6$ |
+| $256$ | $0.83$ | $0.21$ | $11.7$ |
+| $512$ | $0.66$ | $0.20$ | $46.76$ |
+| $1024$ | $0.64$ | $0.20$ | $281.53$ |
+
+The paper's text says the cost is linear until $N_X = 1024$, where out-of-core memory overheads set in.
 
 ## 9. Chen, Wan, Lin, J. Sci. Comput. (2018)
 
@@ -629,8 +711,114 @@ Y. Chen, J. W. L. Wan, J. Lin, "Monotone mixed finite difference scheme for Mong
 Read: local journal PDF (Zotero attachments 3XWEWWT6, 9WII8MMM; the survey calls the paper "Chen-Wan-Wang 2018").
 
 The HJB form, each control on the standard 7-point stencil where it is monotone and on the semi-Lagrangian wide stencil elsewhere, solved by policy iteration; grid: $N$ cells per side (ADR 0001), so $h = 1/N$ except on Table 1's $[-1, 1]^2$, where $h = 2/N$ (Finding 1 there).
-Tables 1 to 4 print the $L^2$ and max errors, their orders and the policy iterations against $N$, for the mixed scheme and, in Tables 1 to 3, the pure semi-Lagrangian scheme: Table 1 on T1 moved to $[-1, 1]^2$, Table 2 on T2, Table 3 on T20c, Table 4 on the cone T21; Table 5 prints $u_h(0, 0)$ for $f = 1$, $g = 0$ on $(-0.5, 0.5)^2$, monotone against non-monotone.
-They are transcribed, checked against the PDF's page images, in `chen_wan_lin2018.md`, next to our values.
+Our values next to these are in `chen_wan_lin2018.md`.
+Every value below was read from the text layer and checked against rendered images of pp. 1861-1866 (PDF pages 23 to 28).
+
+Grid: Section 4 sets up "an $N \times N$ square grid" with the unknowns at $i, j = 1, \ldots, N$ and the boundary at $0$ and $N + 1$, and Section 7 takes "the grid size $N^2 = 32^2, 64^2, \ldots, 512^2$", so the paper's words give $N + 1$ cells per side; its values match $N$ cells (Finding 1 there).
+Norm: the tables print $\lVert u - u_h \rVert_2$ and $\lVert u - u_h \rVert_\infty$ without a definition; the order is $\log_2$ of the ratio of the errors at $N$ and $2N$, printed against the finer $N$.
+Every example uses the initial guess $\Delta u = 2 \sqrt{f}$ with the Dirichlet data (eq. (50)) and the tolerance $10^{-6}$ on the residual of the policy iteration.
+The control set is $M \times M$; Section 7 does not state $M$, Section 5.2 says that a typical choice is $M = N$, and Section 6.1 chooses it for consistency.
+
+Text-layer problems: the square roots of the exact solutions and of $f$ drop out (Example 2's $u = -\sqrt{2 - x^2 - y^2}$, Example 3's $f = \max(1 - 0.1/\sqrt{x^2 + y^2}, 0)$, $g$ and $u$, Example 4's $u = \sqrt{x^2 + y^2}$, and the exponent of Example 1's $u = e^{(x^2 + y^2)/2}$ prints as "e 2 (x +y )" with the $1/2$ detached); the minus signs of the exponents ($\times 10^{-3}$) print as the Unicode minus and survive, but Tables 2 and 4 print some rows as "$4.084 \times 10^{-6}$" without the spaces around the multiplication sign; the rate formula of Section 7 loses its fraction bar.
+
+Problems:
+Example 1: $f = (1 + x^2 + y^2) e^{x^2 + y^2}$, $g = u = e^{(x^2 + y^2)/2}$ on $[-1, 1]^2$ (T1 moved from $(0, 1)^2$).
+Example 2: $f = 2 / (2 - x^2 - y^2)^2$, $g = u = -\sqrt{2 - x^2 - y^2}$ on $[0, 1]^2$ (T2); $f$ is singular at $(1, 1)$.
+Example 3: $f = \max(1 - 0.1 / \lvert x \rvert, 0)$, $g = u = \tfrac12 (\max(\lvert x \rvert - 0.1, 0))^2$ on $[-0.5, 0.5]^2$ (T20c).
+Example 4: $f = \pi \delta(0, 0)$, $g = u = \lvert x \rvert$ on $[-0.5, 0.5]^2$ (the cone T21); the paper does not say how the Dirac mass is discretised (Finding 3 in `chen_wan_lin2018.md`).
+Example 5: $f = 1$, $g = 0$ on $[-0.5, 0.5]^2$; no closed form, so $u_h(0, 0)$ is tabulated.
+
+In Tables 1 to 3, rows (1) are the proposed mixed stencil scheme and rows (2) the pure semi-Lagrangian wide stencil scheme of Feng and Jensen; Table 4 has the mixed scheme only.
+Columns: $\lVert u - u_h \rVert_2$, its order, $\lVert u - u_h \rVert_\infty$, its order, the number of policy iterations; a blank order is blank in the paper.
+
+### Table 1, Example 1
+
+(1) Proposed mixed stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.201 \times 10^{-3}$ |  | $9.598 \times 10^{-4}$ |  | $4$ |
+| $64$ | $3.009 \times 10^{-4}$ | $2.00$ | $2.404 \times 10^{-4}$ | $2.00$ | $4$ |
+| $128$ | $7.526 \times 10^{-5}$ | $2.00$ | $6.013 \times 10^{-5}$ | $2.00$ | $4$ |
+| $256$ | $1.882 \times 10^{-5}$ | $2.00$ | $1.504 \times 10^{-5}$ | $2.00$ | $4$ |
+| $512$ | $4.705 \times 10^{-6}$ | $2.00$ | $3.759 \times 10^{-6}$ | $2.00$ | $4$ |
+
+(2) Pure semi-Lagrangian wide stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.868 \times 10^{-2}$ |  | $1.557 \times 10^{-2}$ |  | $5$ |
+| $64$ | $1.020 \times 10^{-2}$ | $0.87$ | $8.364 \times 10^{-3}$ | $0.90$ | $5$ |
+| $128$ | $5.263 \times 10^{-3}$ | $0.95$ | $4.240 \times 10^{-3}$ | $0.98$ | $6$ |
+| $256$ | $2.801 \times 10^{-3}$ | $0.91$ | $2.259 \times 10^{-3}$ | $0.91$ | $5$ |
+| $512$ | $1.600 \times 10^{-3}$ | $0.81$ | $1.268 \times 10^{-3}$ | $0.83$ | $5$ |
+
+### Table 2, Example 2
+
+(1) Proposed mixed stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $6.450 \times 10^{-5}$ |  | $2.359 \times 10^{-4}$ |  | $4$ |
+| $64$ | $1.628 \times 10^{-5}$ | $1.99$ | $8.211 \times 10^{-5}$ | $1.52$ | $5$ |
+| $128$ | $4.084 \times 10^{-6}$ | $2.00$ | $2.882 \times 10^{-5}$ | $1.51$ | $5$ |
+| $256$ | $1.022 \times 10^{-6}$ | $2.00$ | $1.015 \times 10^{-5}$ | $1.51$ | $5$ |
+| $512$ | $2.557 \times 10^{-7}$ | $2.00$ | $3.583 \times 10^{-6}$ | $1.50$ | $5$ |
+
+(2) Pure semi-Lagrangian wide stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.493 \times 10^{-3}$ |  | $5.799 \times 10^{-3}$ |  | $5$ |
+| $64$ | $9.634 \times 10^{-4}$ | $0.63$ | $4.394 \times 10^{-3}$ | $0.40$ | $4$ |
+| $128$ | $5.166 \times 10^{-4}$ | $0.90$ | $2.697 \times 10^{-3}$ | $0.70$ | $5$ |
+| $256$ | $3.153 \times 10^{-4}$ | $0.71$ | $1.824 \times 10^{-3}$ | $0.56$ | $5$ |
+| $512$ | $1.583 \times 10^{-4}$ | $0.99$ | $1.120 \times 10^{-3}$ | $0.70$ | $5$ |
+
+### Table 3, Example 3
+
+(1) Proposed mixed stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.270 \times 10^{-4}$ |  | $4.298 \times 10^{-4}$ |  | $4$ |
+| $64$ | $4.273 \times 10^{-5}$ | $1.57$ | $1.520 \times 10^{-4}$ | $1.50$ | $6$ |
+| $128$ | $1.835 \times 10^{-5}$ | $1.22$ | $6.907 \times 10^{-5}$ | $1.14$ | $7$ |
+| $256$ | $1.544 \times 10^{-5}$ | $0.25$ | $5.959 \times 10^{-5}$ | $0.21$ | $9$ |
+| $512$ | $3.396 \times 10^{-6}$ | $2.18$ | $1.513 \times 10^{-5}$ | $1.98$ | $20$ |
+
+(2) Pure semi-Lagrangian wide stencil scheme:
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.337 \times 10^{-3}$ |  | $6.604 \times 10^{-3}$ |  | $5$ |
+| $64$ | $9.084 \times 10^{-4}$ | $0.56$ | $3.304 \times 10^{-3}$ | $1.00$ | $6$ |
+| $128$ | $6.940 \times 10^{-4}$ | $0.39$ | $1.901 \times 10^{-3}$ | $0.80$ | $7$ |
+| $256$ | $3.815 \times 10^{-4}$ | $0.86$ | $9.335 \times 10^{-4}$ | $1.03$ | $7$ |
+| $512$ | $1.998 \times 10^{-4}$ | $0.93$ | $4.563 \times 10^{-4}$ | $1.03$ | $9$ |
+
+### Table 4, Example 4 (the cone), mixed scheme
+
+| $N$ | $\lVert u - u_h \rVert_2$ | order | $\lVert u - u_h \rVert_\infty$ | order | policy iterations |
+|---|---|---|---|---|---|
+| $32$ | $1.156 \times 10^{-3}$ |  | $3.868 \times 10^{-3}$ |  | $9$ |
+| $64$ | $6.484 \times 10^{-4}$ | $0.83$ | $2.583 \times 10^{-3}$ | $0.58$ | $15$ |
+| $128$ | $3.803 \times 10^{-4}$ | $0.77$ | $1.848 \times 10^{-3}$ | $0.48$ | $17$ |
+| $256$ | $2.159 \times 10^{-4}$ | $0.82$ | $1.305 \times 10^{-3}$ | $0.50$ | $23$ |
+| $512$ | $1.148 \times 10^{-4}$ | $0.91$ | $9.203 \times 10^{-4}$ | $0.50$ | $27$ |
+
+### Table 5, Example 5: $u_h(0, 0)$
+
+| $N$ | monotone scheme (mixed) | non-monotone scheme |
+|---|---|---|
+| $32$ | $-0.18380$ | $0.18063$ |
+| $64$ | $-0.18444$ | $0.18312$ |
+| $128$ | $-0.18461$ | $0.18436$ |
+| $256$ | $-0.18485$ | $0.18499$ |
+| $512$ | $-0.18507$ | $0.18530$ |
+
+The caption calls the first column the minimum values $u_{\min}$ of the numerical solutions (convex, the viscosity solution) and the second the maximum values $u_{\max}$ (concave, not a viscosity solution), while the header says $u_h(0, 0)$.
+The non-monotone scheme is the standard central $9$-point discretisation of $u_{xx} u_{yy} - u_{xy}^2 = f$.
 
 ## What a reproduction must match
 
