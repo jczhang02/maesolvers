@@ -3,7 +3,11 @@
 Every solver subclasses `Solver`, whose `solve(problem) -> Result` is fixed: `check -> setup -> run -> finalize`.
 A method author writes hooks only; timing, iteration history, convergence bookkeeping, hyperparameter capture and the construction of the `Result` live in the base class, so every method reports the same fields.
 Two family bases fill in `run`: `IterativeSolver` (hooks `initial_guess`, `step`, `converged`) for the classical iterations, and `NeuralSolver`, which builds a `LightningModule` internally and hands it to a Lightning `Trainer`.
-Each solver declares on the class which domains and boundary conditions it `supports`, so table scripts skip unsupported pairs instead of catching errors.
+A solver declares which domains and boundary conditions it `supports`, so table scripts skip unsupported pairs instead of catching errors.
+A solver with a fixed method declares it on the class, in the `domains`, `boundaries` and `dims` class variables.
+A composed solver (a `SchemeIteration` subclass such as `Newton`, `PoissonIteration`, `Multigrid`, `PolicyIteration` or `Howard`, and `NeuralSolver`, ADR 0004) declares it on the instance, through its parts: `supports(problem)` asks the scheme, or the loss, network and sampler, so it carries no class-level `domains`.
+A preset on a fixed scheme or network may also declare its support on the class.
+A hook that has to pass more than the state between the steps has two places for it: `Trace.info` holds the entries of `Result.info` that only `run` knows, and `IterativeSolver.run_from` steps from a given iterate, for a subclass whose first iterate needs more than the context.
 Callbacks (`on_solve_start`, `on_step_end`, `on_solve_end`) are the same protocol for both families; `NeuralSolver` forwards them to Lightning callbacks.
 
 ## Considered options

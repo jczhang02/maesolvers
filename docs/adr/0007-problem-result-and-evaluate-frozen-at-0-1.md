@@ -14,7 +14,8 @@ They are therefore shaped now for what v0.2 needs, even though 0.1 ships two-dim
 ## Result
 
 A `Result` carries the solution as a callable `u(points)`, and optionally `hessian(points)`, a callable Hessian (autograd for neural methods).
-A grid method also carries `nodes`, its `values` there, and its own discrete Hessian at the nodes.
+A grid method also carries `nodes`, its `values` there, and its own discrete Hessian at the nodes, and optionally `interior`, a boolean mask of the nodes that are interior; without it, `evaluate` asks the domain.
+`Result.info["stop"]` records why a solve stopped (such as `"converged"` or `"max_steps"`); the value `"diverged"` is shared by every solver and marks a failed run.
 
 ## evaluate
 
@@ -32,5 +33,6 @@ Errors for T12 (transport, solution unique up to a constant) are computed after 
 The relative $L^2$ errors of 0.0.x are dropped, because no paper prints them.
 
 `summarize(results, threshold)` aggregates the seeds of one method on one problem: median, $5$% and $95$% quantiles, and success rate.
+`results` is a `Sequence[Result | None]`, where `None` is a seed that has no result (a timeout or a crash).
 A failed seed (divergence, NaN, timeout) enters the quantiles with error $+\infty$ and is never dropped, so a method that fails on more than half the seeds has an infinite median, printed as "failed".
 The success threshold is a parameter, with no default in 0.1.

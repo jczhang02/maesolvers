@@ -8,5 +8,5 @@ jsonargparse is in the `cli` extra; the core never imports it.
 ## Considered options
 
 - **Hydra with `_target_`** (CAMO's shape): rejected, because defaults would live in YAML files apart from the code and drift from it, and the library would not be usable without the config tree.
-  Hydra's multirun is the one feature we lose; sweeps are Python scripts under `experiments/`.
+  Hydra's multirun is the one feature we lose; sweeps are Python scripts under `benchmarks/`.
 - **The constructor takes the whole config** (solo-learn's shape): rejected, because a solver could then not be built from plain keyword arguments.

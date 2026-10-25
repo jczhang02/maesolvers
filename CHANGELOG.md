@@ -2,6 +2,13 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Documentation
+
+- ADRs 0001, 0003, 0004, 0005, 0007 and 0008 say what the code does: a solver declares its support on the class or, composed, on the instance through its parts (#23); the collocation set is per sampler and seed, regenerated and fingerprinted, not stored (#52); `DirichletICNN` keeps the printed sum of eq. (3.3) as its default (#13).
+  The docstrings of `Solver.solve`, `NeuralSolver` and `maesolvers.neural.samplers` follow; no signature changes.
+
 ## 0.2.0 (2026-10-24)
 
 This release gives the finite-difference schemes a grid on boxes of any dimension (`BoxGrid`), with the 19-point monotone scheme and full multigrid in 3D, adds the second boundary value problem (`Transport`) to the classical and neural families, the monotone mixed scheme of Chen-Wan-Lin 2018, the semi-Lagrangian scheme of Feng-Jensen 2017 and QS-PINN, and reruns the comparison table with all fourteen presets.

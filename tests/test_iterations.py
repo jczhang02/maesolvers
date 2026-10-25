@@ -277,7 +277,7 @@ def test_the_registry_lists_the_presets_read_only():
 )
 def test_classical_presets_declare_the_support_of_their_scheme(solver):
     scheme = solver().scheme
-    # The filtered scheme answers through its parts (#23): the monotone one is
+    # The filtered scheme answers through its parts (ADR 0003): the monotone one is
     # the narrower in domain, the accurate one (2D) in dimension.
     declared = scheme.monotone if isinstance(scheme, Filtered) else scheme
     dims = scheme.accurate.dims if isinstance(scheme, Filtered) else scheme.dims
