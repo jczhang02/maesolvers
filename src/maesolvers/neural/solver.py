@@ -85,7 +85,7 @@ class NeuralSolver(Solver[_Context, _Trained]):
     is not finite (diverged); otherwise it takes the optimizer step, and the
     training stops unconverged when the step leaves the parameters
     unchanged or after ``max_steps`` steps. The solver supports a problem
-    when its network, loss and sampler do (issue #23; an optimizer does not
+    when its network, loss and sampler do (ADR 0003; an optimizer does not
     depend on the problem); a preset also declares its support on the
     class.
 
