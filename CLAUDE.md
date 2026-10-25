@@ -29,7 +29,6 @@ Python library of solvers for the Monge-Ampere equation $\det D^2 u = f$, classi
   - parameters from constructor signatures through jsonargparse (0005);
   - `Problem`, `Result` and `evaluate` frozen at 0.1 (0007);
   - the neural training protocol (0008).
-  Known deviation, with its issue: composed solvers (`Newton`, `PoissonIteration`, `NeuralSolver`) answer `supports(problem)` on the instance, through their parts, not through class variables (ADR 0003, #23; do not add class-level `domains` to them).
 - Problems carry the T ids of the shared test-set specification (`docs/test-set.md` in `jczhang02/monge-ampere-equations`); an id once used is never reused, so tables from different methods line up.
 
 ## Reproduction
@@ -68,6 +67,7 @@ Python library of solvers for the Monge-Ampere equation $\det D^2 u = f$, classi
 
 - No docs site: `README.md`, `docs/guide.md` (solve a problem, pass parameters, plug in your own solver), and one `docs/methods/<name>.md` per method, or per scheme with its iterations as `standard9.md` (the mathematics, the source paper, the parameters, the known limits, a link to the `benchmarks/` file that holds its reproduction).
 - Every change to the public interface gets a line in `CHANGELOG.md`; 0.x may break the interface, but never silently.
+- Issues, pull requests, comments, commit messages and repository documents are written in English.
 
 ## Agent skills
 

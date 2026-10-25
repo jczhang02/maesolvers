@@ -4,10 +4,11 @@ A sampler (ADR 0004) draws the collocation points of one problem from a
 random generator: points inside the domain, where the loss evaluates the
 equation, and points on the boundary, where it evaluates the boundary
 condition. :class:`~maesolvers.neural.solver.NeuralSolver` seeds the
-generator, so the points are drawn from the seed by the sampler. ADR 0008
-asks for one stored collocation set per problem, shared by every method;
-whether that set is per problem or per sampler, and whether it is persisted,
-is open (issue #52). Everything here needs numpy only.
+generator, so the points are drawn from the seed by the sampler. The
+collocation set is per sampler and seed, regenerated deterministically from
+the pair and identified by the SHA-256 fingerprint in
+``Result.info["collocation"]``; it is not persisted (ADR 0008). Everything
+here needs numpy only.
 """
 
 # No `from __future__ import annotations` in this module: jsonargparse reads the

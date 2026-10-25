@@ -187,9 +187,25 @@ def _dimensions(part: Any) -> tuple[int, ...] | None:
     :class:`~maesolvers.classical.monotone.Monotone17` by its stencil, has
     ``dim``; otherwise the class's ``dims``.
     """
-    if hasattr(part, "dim"):
-        return (part.dim,)
+    dim = getattr(part, "dim", None)
+    if dim is not None:
+        return (dim,)
     return getattr(part, "dims", None)
+
+
+def _has(part: Any, name: str) -> bool:
+    """Whether the part has the attribute.
+
+    One that raises ValueError, for a value that depends on the problem
+    (``Monotone17.angular_resolution``), has it.
+    """
+    try:
+        getattr(part, name)
+    except AttributeError:
+        return False
+    except ValueError:
+        return True
+    return True
 
 
 def _listing(dims: tuple[int, ...]) -> str:
@@ -270,7 +286,7 @@ class Filtered(Scheme):
                 )
         if self.epsilon is None:
             missing = [
-                a for a in ("n", "angular_resolution") if not hasattr(self.monotone, a)
+                a for a in ("n", "angular_resolution") if not _has(self.monotone, a)
             ]
             if missing:
                 raise TypeError(
@@ -353,6 +369,8 @@ class Filtered(Scheme):
             )
         if self.epsilon is None:
             part: Any = self.monotone
+            if callable(getattr(part, "resolve", None)):
+                part = part.resolve(problem.dim)  # a stencil set by the dimension
             side = float(
                 np.max(np.subtract(problem.domain.bbox.hi, problem.domain.bbox.lo))
             )

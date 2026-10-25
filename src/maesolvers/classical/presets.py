@@ -178,7 +178,7 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
 
     scheme: Monotone17 = field(init=False, repr=False)
     n: int = Monotone17.n
-    stencil: Literal[9, 17, 19, 33] = Monotone17.stencil
+    stencil: Literal[9, 17, 19, 33] | None = Monotone17.stencil
     boundary: Literal["narrow", "interpolate"] = Monotone17.boundary
     jacobian_floor: float = Monotone17.jacobian_floor
     spline_degree: int = Monotone17.spline_degree
@@ -213,10 +213,11 @@ class _Monotone17Preset(_SquareBoxCheck[Monotone17]):
             stencil's dimension when that is what is missing, as for a 3D
             problem with the default 17-point stencil.
         """
-        if self._declares(problem) and problem.dim != self.scheme.dim:
+        dim = self.scheme.dim
+        if self._declares(problem) and dim is not None and problem.dim != dim:
             raise UnsupportedProblemError(
                 f"{type(self).__name__} does not support {problem.name}: the "
-                f"{self.scheme.stencil}-point stencil is {self.scheme.dim}D"
+                f"{self.scheme.stencil}-point stencil is {dim}D"
             )
         super().check(problem)
 
@@ -241,7 +242,8 @@ class FDMonotone(_Monotone17Preset, Newton):
         ``(n + 1)^d`` nodes and ``(n - 1)^d`` unknowns; at least 2.
     stencil
         Points of the stencil: 9, 17 or 33 for a 2D problem, 19 for a 3D
-        one.
+        one. None (the default) takes the problem's dimension: 17 points in
+        2D, the 19-point scheme in 3D.
     boundary
         ``"narrow"`` or ``"interpolate"``, as in :class:`Monotone17`.
     jacobian_floor

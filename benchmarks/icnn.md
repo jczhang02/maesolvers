@@ -56,7 +56,7 @@ On T1 the figure's top lies inside our band, but near its lower end (three seeds
 Read together, the paper's runs trained further than ours in fewer iterations, by about an order of magnitude in the error.
 Finding 2 tests the one difference we found that could explain it, a mean in place of the printed sum in the equation term: with it, the same seeds meet the stopping test in $7$ of $10$, after a median of $4844$ steps, but Table 1 stays below the band (max $3.09 \times 10^{-5}$ $[1.21 \times 10^{-5}, 4.96 \times 10^{-5}]$, average $3.44 \times 10^{-6}$ $[1.67 \times 10^{-6}, 5.76 \times 10^{-6}]$), a mismatch about $3.6$ and $2.9$ times above it.
 Only a $3400$ times larger BFGS start than SciPy's puts Table 1 inside the band.
-The verdict here is the preset's, which follows the print, until #13 decides between the two readings; it is a mismatch under either.
+The verdict here is the preset's, which follows the print, as ruled on #13; it is a mismatch under either reading.
 The penalty MLP, run next to this table in `penalty_mlp.md`, ends at $6.10 \times 10^{-3}$ $[3.59 \times 10^{-3}, 1.02 \times 10^{-2}]$, $55$ times above the ICNN.
 
 ## Finding 1: the optimizer, not the start, decides the accuracy
@@ -129,7 +129,7 @@ So neither reading with SciPy's defaults reproduces Table 1: the mean comes clos
 Under the mean reading with the larger start, too, a stalled seed is one whose line search failed; the paper restarted with Adam there (Example 4.1), which we do not.
 
 The preset keeps the printed sum, and the T6 verdict above stays a mismatch; it would be a mismatch under the mean reading too.
-Whether `DirichletICNN` should follow the mean reading (a loss part with a mean equation term, as `MeanEquationLoss` in `run_icnn.py`) is asked on #13.
+Issue #13 ruled that `DirichletICNN` keeps the printed sum of eq. (3.3) as its default; the mean reading (a loss part with a mean equation term, as `MeanEquationLoss` in `run_icnn.py`) stays a benchmark diagnostic, as here.
 These runs are diagnostics, not receipts, so their CSVs stay on a100server (`/jczhang02/maesolvers-data/logs/icnn-mean/`), CPU, one thread per seed:
 
 - mean reading: MLflow runs `diagnostic seed=<s> boundary_weight=340000.0 mean_equation=True` in `maesolvers-icnn-T1` and `maesolvers-icnn-T6`, commit ef579fc (`mean-equation-t1.csv`, `mean-equation-t6.csv`); a review script, independent of `run_icnn.py`, gave the same T6 errors seed by seed (runs `review true-mean H0=I seed=<s>`);
