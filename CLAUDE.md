@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classical and neural, behind one interface and measured on one catalogue of test problems.
+Python library of solvers for the Monge-Ampere equation $\det D^2 u = f$, classical and neural, behind one interface and measured on one catalogue of test problems.
 `README.md` maps the directories and the public interface.
 `AGENTS.md` is a symlink to this file, so Codex reads the same rules: edit `CLAUDE.md` only.
 
@@ -16,6 +16,8 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
   The neural tests run on CPU through the `neural-cpu` dependency group; do not `uv sync --extra neural` on a machine without a GPU (it downloads the CUDA build of torch).
 - `pyproject.toml` sets the line rules: the formatter wraps at 88 columns, E501 fails a line over 100.
 - Markdown: one sentence per line, no fixed width, so a diff shows only the sentences that changed.
+  Mathematics and numbers in Markdown (docs, benchmarks, README, CHANGELOG, issues, PR bodies) are written as math, `$...$` inline and `$$...$$` for a display, never as inline code: $h = 1/N$, $\det D^2 u = f$, $5.41 \times 10^{-3}$.
+  Inline code is for code only: names, parameters, commands and paths.
 - `just` lists the common commands (`justfile`).
 
 ## Interface
@@ -34,7 +36,7 @@ Python library of solvers for the Monge-Ampere equation `det D^2 u = f`, classic
 
 - A reproduction is judged against the source paper's own table, on the paper's own test problem, at one of the five levels of ADR 0002 (exact, order of magnitude, statistical, figure only, mismatch); `benchmarks/<method>.md` states the level.
 - `benchmarks/sources.md` transcribes the published tables with their conventions; `benchmarks/standard_fd.md` compares them with ours; the CSVs and `plot_standard_fd.py` next to them draw the README figure.
-- The papers' grid convention is `h = 1/N`, `N` cells per side; none of them states it (ADR 0001).
+- The papers' grid convention is $h = 1/N$, $N$ cells per side; none of them states it (ADR 0001).
 - A mismatch is recorded as a finding in the comparison file, not tuned away.
 - `tests/test_reproduction.py` pins the published numbers; change a pinned value only together with the finding that justifies it.
 
