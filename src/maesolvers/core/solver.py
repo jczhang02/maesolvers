@@ -405,7 +405,8 @@ class Solver(ABC, Generic[ContextT, StateT]):
             With ``info`` holding ``time`` (seconds, setup to finalize),
             ``iterations``, ``converged``, ``history``, ``unknowns`` when known,
             and the method's own entries from ``Trace.info`` and
-            ``Solution.info``.
+            ``Solution.info``. ``info["stop"]``, when present, says why the
+            solve stopped, as :class:`~maesolvers.core.result.Result` defines.
         """
         config = self.hparams
         self.check(problem)

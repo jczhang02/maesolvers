@@ -33,7 +33,7 @@ In three dimensions it fails: the matrix with $1$ on the diagonal and $2$ everyw
 So the method is 2D only, as the paper says (Section 3.1).
 
 The collocation points are uniform random: $3000$ inside the domain by rejection from the bounding box, $400$ on the boundary with each side getting points in proportion to its length (`UniformSampler`).
-They are drawn from the seed by the sampler; whether ADR 0008's shared collocation set is per problem or per sampler, and whether it is stored, is open (#52).
+They are drawn from the seed by the sampler: the set is per sampler and seed, identified by the SHA-256 fingerprint in `Result.info["collocation"]`, and not stored (ADR 0008).
 The optimizer is L-BFGS with a strong Wolfe line search, one quasi-Newton iteration per training step (`LBFGS`).
 The training stops when the largest component of the loss gradient is at most `tol = 1e-5`, the default of SciPy's BFGS, or after `max_steps = 5000` steps.
 It runs on the CPU unless `accelerator` says otherwise.
