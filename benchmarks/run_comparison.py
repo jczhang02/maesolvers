@@ -95,7 +95,7 @@ def run_one(task: tuple[str, str, int | None, dict[str, Any], bool]) -> dict[str
     """
     name, problem_id, seed, options, log = task
     problem = CATALOGUE[problem_id]
-    kwargs = preset_options(name, {**options, "seed": seed})
+    kwargs = preset_options(name, {**options, "seed": seed}, problem_id)
     solver = SOLVERS[name](**kwargs)
     row: dict[str, Any] = {
         "solver": name,

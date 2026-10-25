@@ -439,7 +439,7 @@ def test_solution_carries_the_centred_hessian_and_the_residual():
 
 
 def test_supports_a_square_dirichlet_box_only():
-    scheme = Monotone17()
+    scheme = Monotone17(stencil=17)
     assert scheme.supports(T1) and scheme.supports(T7)
     assert not scheme.supports(T8) and not scheme.supports(T12)
     oblong = Problem(
@@ -510,7 +510,7 @@ def test_the_preset_has_flat_hparams_and_its_scheme_defaults():
         "class_path": "maesolvers.FDMonotone",
         "init_args": {
             "n": 64,
-            "stencil": 17,
+            "stencil": None,
             "boundary": "narrow",
             "spline_degree": 3,
             "max_iter": 200,
@@ -805,7 +805,7 @@ def test_the_stencil_decides_the_dimension_a_scheme_supports():
     with pytest.raises(UnsupportedProblemError, match=r"19-point stencil .* 3D Box"):
         Monotone17(n=4, stencil=19).discretize(T1)
     with pytest.raises(UnsupportedProblemError, match="the 17-point stencil is 2D"):
-        FDMonotone(n=4).solve(T9)
+        FDMonotone(n=4, stencil=17).solve(T9)
     with pytest.raises(UnsupportedProblemError, match="the 19-point stencil is 3D"):
         FDMonotone(n=4, stencil=19).solve(T1)
     with pytest.raises(UnsupportedProblemError, match=r"FDMonotone .* equal sides"):
@@ -830,3 +830,37 @@ def test_the_19_point_stencil_is_a_config_choice():
     assert from_config(
         {"class_path": "FDMonotone", "init_args": {"stencil": 19, "n": 8}}
     ) == FDMonotone(stencil=19, n=8)
+
+
+def test_the_default_stencil_follows_the_dimension():
+    """17 points in 2D, the 19-point scheme in 3D, resolved when the problem is known."""
+    scheme = Monotone17(n=4)
+    assert scheme.stencil is None and scheme.dim is None
+    assert scheme.supports(T1) and scheme.supports(T9)
+    assert scheme.resolve(2) == Monotone17(n=4, stencil=17)
+    assert scheme.resolve(3) == Monotone17(n=4, stencil=19)
+    assert Monotone17(n=4, stencil=33).resolve(3).stencil == 33
+    with pytest.raises(ValueError, match="no default stencil in 4D"):
+        scheme.resolve(4)
+    with pytest.raises(ValueError, match="no angular resolution"):
+        _ = scheme.angular_resolution
+    for problem, points in ((T1, 17), (T9, 19)):
+        grid = scheme.discretize(problem)
+        assert grid.frames == len(stencil_frames(points))
+        explicit = Monotone17(n=4, stencil=points)
+        v = grid.f**0.5
+        np.testing.assert_array_equal(
+            scheme.residual(grid, v), explicit.residual(explicit.discretize(problem), v)
+        )
+    np.testing.assert_array_equal(
+        FDMonotone(n=8).solve(T1).values, FDMonotone(n=8, stencil=17).solve(T1).values
+    )
+    np.testing.assert_array_equal(
+        FDMonotone(n=5).solve(T9).values, FDMonotone(n=5, stencil=19).solve(T9).values
+    )
+    oblong = Problem(
+        "R3", Box((0,) * 3, (1, 1, 2)), _constant(1.0), Dirichlet(_constant(0.0))
+    )
+    assert not scheme.supports(oblong) and not scheme.supports(T8)
+    with pytest.raises(UnsupportedProblemError, match="a 2D or 3D Box"):
+        scheme.discretize(oblong)
