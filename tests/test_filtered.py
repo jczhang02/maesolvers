@@ -324,7 +324,9 @@ def test_the_preset_has_flat_hparams_and_its_parts_defaults():
             "tol": 1e-10,
         },
     }
-    assert FDFiltered().scheme == Filtered(accurate=Standard9(), monotone=Monotone17())
+    assert FDFiltered().scheme == Filtered(
+        accurate=Standard9(), monotone=Monotone17(stencil=17)
+    )
     assert SOLVERS["FDFiltered"] is FDFiltered
     assert (FDFiltered.domains, FDFiltered.boundaries, FDFiltered.dims) == (
         Monotone17.domains,

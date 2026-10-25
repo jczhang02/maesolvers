@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar, Literal, cast
 
 import numpy as np
@@ -48,6 +48,9 @@ from maesolvers.core.solver import Solution, UnsupportedProblemError
 _STENCILS: dict[int, tuple[int, int]] = {9: (2, 1), 17: (2, 2), 33: (2, 3), 19: (3, 1)}
 """Stencil size in points to its dimension and its width, the largest index
 offset of a neighbour."""
+
+_DEFAULT_STENCILS: dict[int, int] = {2: 17, 3: 19}
+"""The stencil :class:`Monotone17` takes in a dimension when none is given."""
 
 
 def _stencil(points: int) -> tuple[int, int]:
@@ -528,7 +531,9 @@ class Monotone17(Scheme):
         Cells per side (``h = 1/n`` on the unit box, ADR 0001), so
         ``(n + 1)^d`` nodes and ``(n - 1)^d`` unknowns; at least 2.
     stencil
-        Points of the stencil: 9, 17 or 33 in 2D, 19 in 3D.
+        Points of the stencil: 9, 17 or 33 in 2D, 19 in 3D. None (the
+        default) takes the problem's dimension: 17 points in 2D, the
+        19-point scheme in 3D (:meth:`resolve`).
     boundary
         What a node does with a direction whose arm leaves the box.
         ``"narrow"`` leaves the frame out of the minimum there, so the
@@ -567,15 +572,17 @@ class Monotone17(Scheme):
     dims: ClassVar[tuple[int, ...]] = (2, 3)
 
     n: int = 64
-    stencil: Literal[9, 17, 19, 33] = 17
+    stencil: Literal[9, 17, 19, 33] | None = None
     boundary: Literal["narrow", "interpolate"] = "narrow"
     jacobian_floor: float = 1e-12
     spline_degree: int = 3
 
     def __post_init__(self) -> None:
         n = integer("n", self.n, 2)
-        stencil = integer("stencil", self.stencil, 1)
-        _stencil(stencil)  # raises for a size other than 9, 17, 19 and 33
+        stencil = self.stencil
+        if stencil is not None:
+            stencil = integer("stencil", stencil, 1)
+            _stencil(stencil)  # raises for a size other than 9, 17, 19 and 33
         if self.boundary not in ("narrow", "interpolate"):
             raise ValueError(
                 f"boundary must be 'narrow' or 'interpolate', got {self.boundary!r}"
@@ -586,21 +593,63 @@ class Monotone17(Scheme):
                 f"spline_degree must be between 1 and 5, got {spline_degree}"
             )
         object.__setattr__(self, "n", n)
-        object.__setattr__(self, "stencil", cast(Literal[9, 17, 19, 33], stencil))
+        object.__setattr__(
+            self, "stencil", cast(Literal[9, 17, 19, 33] | None, stencil)
+        )
         object.__setattr__(
             self, "jacobian_floor", positive("jacobian_floor", self.jacobian_floor)
         )
         object.__setattr__(self, "spline_degree", spline_degree)
 
     @property
-    def dim(self) -> int:
-        """The space dimension of the stencil (:func:`stencil_dimension`): 2 or 3."""
-        return stencil_dimension(self.stencil)
+    def dim(self) -> int | None:
+        """The space dimension of the stencil (:func:`stencil_dimension`): 2 or 3.
+
+        None while ``stencil`` is None: the scheme then takes the problem's
+        dimension (:meth:`resolve`).
+        """
+        return None if self.stencil is None else stencil_dimension(self.stencil)
 
     @property
     def angular_resolution(self) -> float:
-        """The stencil's angular resolution ``dtheta`` (:func:`angular_resolution`)."""
+        """The stencil's angular resolution ``dtheta`` (:func:`angular_resolution`).
+
+        Raises
+        ------
+        ValueError
+            While ``stencil`` is None; :meth:`resolve` a dimension first.
+        """
+        if self.stencil is None:
+            raise ValueError(
+                "Monotone17 has no angular resolution until its stencil is set "
+                "or resolved for a dimension (resolve(dim))"
+            )
         return angular_resolution(self.stencil)
+
+    def resolve(self, dim: int) -> Monotone17:
+        """Return the scheme with the stencil of a dimension: the default if None.
+
+        Parameters
+        ----------
+        dim
+            The problem's dimension, 2 or 3.
+
+        Returns
+        -------
+        Monotone17
+            ``self`` if ``stencil`` is set, else a copy with 17 points for
+            ``dim = 2`` and 19 for ``dim = 3``.
+
+        Raises
+        ------
+        ValueError
+            If ``stencil`` is None and ``dim`` is neither 2 nor 3.
+        """
+        if self.stencil is not None:
+            return self
+        if dim not in _DEFAULT_STENCILS:
+            raise ValueError(f"Monotone17 has no default stencil in {dim}D")
+        return replace(self, stencil=cast(Literal[17, 19], _DEFAULT_STENCILS[dim]))
 
     def supports(self, problem: Problem) -> bool:
         """Whether the problem is a Dirichlet box with equal sides in the stencil's dimension.
@@ -617,10 +666,11 @@ class Monotone17(Scheme):
         -------
         bool
         """
+        dim = _DEFAULT_STENCILS.keys() if self.dim is None else (self.dim,)
         if not (
             isinstance(problem.domain, self.domains)
             and isinstance(problem.boundary, self.boundaries)
-            and problem.dim == self.dim
+            and problem.dim in dim
         ):
             return False
         box = problem.domain.bbox
@@ -647,16 +697,22 @@ class Monotone17(Scheme):
             If ``f`` is negative or not finite at an interior node.
         """
         if not self.supports(problem):
-            raise UnsupportedProblemError(
-                f"Monotone17 with the {self.stencil}-point stencil does not support "
-                f"{problem.name}: it needs a {self.dim}D Box with equal sides and a "
-                "Dirichlet boundary"
+            who = (
+                "Monotone17"
+                if self.stencil is None
+                else f"Monotone17 with the {self.stencil}-point stencil"
             )
+            needs = "a 2D or 3D" if self.dim is None else f"a {self.dim}D"
+            raise UnsupportedProblemError(
+                f"{who} does not support {problem.name}: it needs {needs} Box "
+                "with equal sides and a Dirichlet boundary"
+            )
+        scheme = self.resolve(problem.dim)
         assert isinstance(problem.boundary, Dirichlet)  # supports guarantees it
         n, box, g = self.n, problem.domain.bbox, problem.boundary.g
         box_grid = BoxGrid(box, n)
         nodes, interior, dim = box_grid.nodes, box_grid.interior, box_grid.dim
-        frames = stencil_frames(self.stencil)
+        frames = stencil_frames(cast(int, scheme.stencil))
         parts = [
             directional_difference(box_grid, direction.tolist(), g)
             for direction in frames.reshape(-1, dim)

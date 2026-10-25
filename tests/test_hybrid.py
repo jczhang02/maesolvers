@@ -305,7 +305,7 @@ def test_hybrid_is_a_frozen_keyword_only_part_built_from_the_two_schemes():
 @pytest.mark.parametrize("problem", [T1, T2])
 def test_the_preset_is_its_composition(problem):
     composed = Newton(
-        scheme=Hybrid(n=12, band=2.0), start=FDMonotone(n=12), max_iter=200
+        scheme=Hybrid(n=12, band=2.0), start=FDMonotone(n=12, stencil=17), max_iter=200
     )
     ours = FDHybrid(n=12, band=2.0)
     assert isinstance(ours, Newton)

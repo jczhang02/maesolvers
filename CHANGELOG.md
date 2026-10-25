@@ -2,6 +2,15 @@
 
 Every change to the public interface is listed here; 0.x may break the interface, but never silently.
 
+## Unreleased
+
+### Changed
+
+- `Monotone17(stencil=None)` is the default: the problem's dimension decides, $17$ points in 2D and the $19$-point scheme in 3D, so `FDMonotone(n=31).solve(T9)` runs without `stencil=19` (issue #27).
+  Every 2D result is unchanged bit for bit (`Monotone17().resolve(2)` is the 17-point scheme); `Monotone17.stencil` and `FDMonotone.stencil` (and so `hparams`) read `None` until a stencil is given, `Monotone17.dim` is `None` then, `Monotone17.angular_resolution` raises `ValueError` then, and the new `Monotone17.resolve(dim)` returns the scheme with the stencil of a dimension.
+  `Hybrid`, `Filtered`, `FDHybrid` and `FDFiltered` keep their $17$-point default, as their standard scheme is 2D.
+  With an explicit `stencil=17` a 3D problem is still refused.
+
 ## 0.2.0 (2026-10-24)
 
 This release gives the finite-difference schemes a grid on boxes of any dimension (`BoxGrid`), with the 19-point monotone scheme and full multigrid in 3D, adds the second boundary value problem (`Transport`) to the classical and neural families, the monotone mixed scheme of Chen-Wan-Lin 2018, the semi-Lagrangian scheme of Feng-Jensen 2017 and QS-PINN, and reruns the comparison table with all fourteen presets.

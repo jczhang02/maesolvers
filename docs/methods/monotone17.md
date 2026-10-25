@@ -82,6 +82,7 @@ $$
 with the frames of the 19-point stencil (`stencil_frames(19)`): the axis frame, and each axis with the two diagonals of the plane perpendicular to it, $(e_1, e_2 + e_3, e_2 - e_3)$ and its two rotations, four triples on the three axes and the six face diagonals.
 A body diagonal such as $(1, 1, 1)$ is orthogonal to no two directions of width $1$, so the 27-point cube adds no frame; the paper's "19 point stencil" is exactly the set these frames use.
 The stencil decides the dimension: a scheme with $9$, $17$ or $33$ points supports 2D problems only, one with $19$ points 3D problems only, on a cube with a `Dirichlet` boundary, so `FDMonotone(n=31, stencil=19).solve(T9)`.
+With the default `stencil=None` the problem's dimension decides: $17$ points in 2D, the $19$-point scheme in 3D, so `FDMonotone(n=31).solve(T9)` is the same run (`Monotone17.resolve(dim)` gives the scheme with the stencil set).
 Every arm has width $1$ and ends at a node, so `boundary` changes nothing in 3D, and the Laplacian of `solve_laplace` is the 7-point one, the sum of the axis frame's differences.
 
 Below zero the value continues as in 2D, $\prod_k a_k^+ + \kappa \sum_k \min(a_k, 0)$, with $\kappa = \max(f, \operatorname{mean} f, 1)^{2/3}$, the scale of the derivative of a product of three second differences.
@@ -126,7 +127,7 @@ The start changes the number of steps, not the solution.
 | Part | Parameter | Default | Meaning |
 |---|---|---|---|
 | `Monotone17` | $n$ | $64$ | cells per side, at least $2$ |
-| `Monotone17` | `stencil` | $17$ | points of the stencil: $9$, $17$ or $33$ in 2D, $19$ in 3D |
+| `Monotone17` | `stencil` | `None` | points of the stencil: $9$, $17$ or $33$ in 2D, $19$ in 3D; `None` takes $17$ in 2D and $19$ in 3D |
 | `Monotone17` | `boundary` | `"narrow"` | wide pairs next to the boundary: left out (`"narrow"`) or with arms shortened to the boundary (`"interpolate"`) |
 | `Monotone17` | `jacobian_floor` | $10^{-12}$ | the Jacobian's factors are at least `jacobian_floor` $/ (2 h^2)$; the papers take $10^{-8}$ |
 | `Monotone17` | `spline_degree` | $3$ | degree of the spline off the nodes, $1$ to $5$; degree $n$ if $n$ is smaller |
@@ -138,7 +139,7 @@ Its `max_iter` is higher than `Newton`'s because T2 with the 9-point stencil nee
 
 ## Known limits
 
-- Only a `Box` with equal sides and a `Dirichlet` boundary, in the stencil's dimension: `solve` raises `UnsupportedProblemError` for a rectangle, a disk (T8), a transport boundary (T12), a 3D box with a 2D stencil (T9 with the default `stencil=17`), or a box in 4D (T10).
+- Only a `Box` with equal sides and a `Dirichlet` boundary, in the stencil's dimension: `solve` raises `UnsupportedProblemError` for a rectangle, a disk (T8), a transport boundary (T12), a 3D box with a 2D stencil (T9 with `stencil=17`), or a box in 4D (T10).
 - In 3D only the 19-point stencil exists: its $35$-degree angular resolution bounds the accuracy on smooth problems (T9 stays near $1.25 \times 10^{-2}$), and a wider 3D stencil, whose frames would mix directions of several widths, is not implemented.
   The hybrid and filtered schemes stay 2D, because their standard part `Standard9` is 2D.
 - The accuracy is limited by the stencil's angular resolution: on T1 the error stays near $1.6 \times 10^{-3}$ with $9$ points, $4.4 \times 10^{-4}$ with $17$ and $1.5 \times 10^{-4}$ with $33$ however fine the grid, against $5.3 \times 10^{-7}$ for the standard scheme at $n = 361$.

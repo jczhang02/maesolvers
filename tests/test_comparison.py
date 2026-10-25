@@ -121,7 +121,6 @@ RECTANGLE = Problem("RECT", Box((0.0, 0.0), (1.0, 2.0)), T1.f, T1.boundary)
         ("DirichletICNN", T12, "Dirichlet only"),
         ("FDNewton", T9, "2D only"),
         ("PenaltyMLP", T9, "2D only"),
-        ("FDMonotone", T9, "3D: stencil=19"),
         ("FDMonotone", T10, "2D/3D only"),
         ("FDMonotone", T8, "not on a Disk"),
         ("FDMonotone", RECTANGLE, "unsupported"),
@@ -133,6 +132,13 @@ def test_unsupported_reason_says_why(solver, problem, reason):
     instance = SOLVERS[solver]()
     assert not instance.supports(problem)
     assert comparison.unsupported_reason(instance, problem) == reason
+
+
+def test_unsupported_reason_names_the_stencil_of_the_dimension():
+    solver = SOLVERS["FDMonotone"](stencil=17)
+    assert not solver.supports(T9)
+    assert comparison.unsupported_reason(solver, T9) == "3D: stencil=19"
+    assert SOLVERS["FDMonotone"]().supports(T9)
 
 
 @pytest.mark.parametrize(
@@ -156,6 +162,14 @@ def test_preset_options_go_to_the_presets_that_take_them():
         "max_steps": 10,
         "seed": 3,
     }
+
+
+def test_a_pair_of_grids_takes_its_own_n_only_at_the_tables_grid():
+    options = {"n": comparison.N}
+    assert comparison.preset_options("FDMonotone", options, "T9") == {"n": 31}
+    assert comparison.preset_options("FDMonotone", options, "T1") == {"n": 361}
+    assert comparison.preset_options("FDMonotone", options) == {"n": 361}
+    assert comparison.preset_options("FDMonotone", {"n": 8}, "T9") == {"n": 8}
 
 
 def test_with_parts_swaps_the_named_part_and_keeps_every_other_field():
@@ -345,10 +359,13 @@ def test_csv_covers_every_preset_on_the_shared_test_set():
         if isinstance(solver, NeuralSolver):
             assert [r["seed"] for r in rows] == [str(s) for s in comparison.SEEDS]
         else:
-            assert len(rows) == 1 and rows[0]["n"] == str(comparison.N), (problem, name)
+            n = comparison.GRIDS.get((name, problem_id), comparison.N)
+            assert len(rows) == 1 and rows[0]["n"] == str(n), (problem_id, name)
         for row in rows:
             seed = int(row["seed"]) if row["seed"] else None
-            options = comparison.preset_options(name, {"n": comparison.N, "seed": seed})
+            options = comparison.preset_options(
+                name, {"n": comparison.N, "seed": seed}, problem_id
+            )
             hparams = SOLVERS[name](**options).hparams
             assert json.loads(row["hparams"]) == hparams, (problem_id, name, seed)
 

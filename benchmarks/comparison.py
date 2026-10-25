@@ -45,6 +45,11 @@ README = HERE.parent / "README.md"
 
 N = 361
 """The classical grid: the largest N the papers print in 2D."""
+GRIDS: dict[tuple[str, str], int] = {("FDMonotone", "T9"): 31}
+"""The classical pairs that run on another grid than :data:`N`: ``FDMonotone`` on
+T9, the 19-point scheme, at the largest N of the 3D paper table (31 cells,
+about a minute; 361 cells are 46 million unknowns, too many for its direct
+factorisations)."""
 SEEDS = tuple(range(10))
 """The neural seeds (ADR 0008)."""
 
@@ -90,15 +95,21 @@ oscillation ``max u - min u`` of the exact solution on the shared evaluation
 grid, which a constant added to ``u`` does not change."""
 
 
-def preset_options(name: str, options: Mapping[str, Any]) -> dict[str, Any]:
+def preset_options(
+    name: str, options: Mapping[str, Any], problem: str | None = None
+) -> dict[str, Any]:
     """Those of ``options`` that the constructor of the preset ``name`` takes.
 
     The runner's options (the grid ``n``, the neural ``max_steps``, the
     ``seed``) go to every preset whose signature has them (ADR 0005), and
-    only there; an option of value None is left out.
+    only there; an option of value None is left out. For the problem's T id
+    ``problem``, the table's grid ``n = N`` becomes the pair's in :data:`GRIDS`.
     """
     parameters = inspect.signature(SOLVERS[name]).parameters
-    return {k: v for k, v in options.items() if k in parameters and v is not None}
+    chosen = {k: v for k, v in options.items() if k in parameters and v is not None}
+    if chosen.get("n") == N and (name, problem) in GRIDS:
+        chosen["n"] = GRIDS[name, problem]
+    return chosen
 
 
 def with_parts(solver: NeuralSolver, **parts: Any) -> NeuralSolver:
@@ -137,8 +148,9 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     The first of the boundary condition, the dimension and the domain that
     the solver does not declare; then, for a solver on :class:`Monotone17`,
     the stencils of the problem's dimension when the scheme's stencil is of
-    another (``3D: stencil=19`` for ``FDMonotone``'s default 17-point stencil
-    on a 3D problem); for a solver on :class:`QuadraticForm`, the reason
+    another (``3D: stencil=19`` for ``FDMonotone(stencil=17)`` on a 3D
+    problem; the default stencil follows the dimension); for a solver on
+    :class:`QuadraticForm`, the reason
     :meth:`QuadraticForm.refusal` gives for its reference point (``f(x0) <=
     0`` for ``DirichletQSPINN`` on T20); ``unsupported`` if none of these is
     the reason (unequal sides of a box, say).
@@ -150,8 +162,9 @@ def unsupported_reason(solver: Solver, problem: Problem) -> str:
     if not isinstance(problem.domain, solver.domains):
         return f"not on a {type(problem.domain).__name__}"
     scheme = getattr(solver, "scheme", None)
-    if isinstance(scheme, Monotone17) and scheme.dim != problem.dim:
-        stencils = get_args(get_type_hints(Monotone17)["stencil"])
+    if isinstance(scheme, Monotone17) and scheme.dim not in (None, problem.dim):
+        hint = get_args(get_type_hints(Monotone17)["stencil"])[0]  # without None
+        stencils = get_args(hint)
         return f"{problem.dim}D: stencil=" + "/".join(
             str(s) for s in stencils if stencil_dimension(s) == problem.dim
         )
