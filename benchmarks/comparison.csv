@@ -188,7 +188,7 @@ TransportQSPINN,T12,8,,ok,,1.339708e-03,5.780878e-04,,,0.000000e+00,4.946043e-01
 TransportQSPINN,T12,9,,ok,,3.466551e-03,1.699282e-03,,,0.000000e+00,4.997471e-01,4.999999e-01,1.780332e+02,2000,408,False,max_steps,cpu,1,Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz,a717d42371617f2dfa9f74be2a76b04cf7ee194a,"{""class_path"": ""maesolvers.TransportQSPINN"", ""init_args"": {""accelerator"": ""cpu"", ""adam_lr"": 0.001, ""adam_steps"": 200, ""boundary_points"": 800, ""boundary_weight"": 1.0, ""depth"": 4, ""interior_points"": 800, ""max_steps"": 2000, ""ratio"": 0.6, ""reference"": null, ""seed"": 9, ""target_points"": 800, ""tol"": 1e-07, ""width"": 10}}"
 FDNewton,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDPoisson,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
-FDMonotone,T9,,,unsupported,3D: stencil=19,,,,,,,,,,,,,,,,,
+FDMonotone,T9,,31,ok,,1.246027e-02,3.782447e-03,1.247433e-02,3.850863e-03,0.000000e+00,9.974442e-01,1.001562e+00,4.732062e+01,6,27000,True,,cpu,1,Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz,ea8123814072f014492a009b341f4882324df997,"{""class_path"": ""maesolvers.FDMonotone"", ""init_args"": {""boundary"": ""narrow"", ""jacobian_floor"": 1e-12, ""max_iter"": 200, ""n"": 31, ""spline_degree"": 3, ""stencil"": null, ""tol"": 1e-10}}"
 FDHybrid,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDFiltered,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,
 FDMixed,T9,,,unsupported,2D only,,,,,,,,,,,,,,,,,

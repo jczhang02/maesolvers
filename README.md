@@ -215,7 +215,7 @@ For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differe
 | T20 | $5.48 \times 10^{-5}$ ($361$) | $1.59 \times 10^{-5}$ ($361$) | $6.60 \times 10^{-4}$ ($361$) | $2.97 \times 10^{-5}$ ($361$) | $4.48 \times 10^{-5}$ ($361$) \* | $1.08 \times 10^{-4}$ ($361$) | $1.69 \times 10^{-5}$ ($361$) \* | Transport only | $1.06 \times 10^{-3}$ ($361$) | $4.34 \times 10^{-3}$ $[3.65 \times 10^{-3}, 7.93 \times 10^{-3}]$, $0/10$ | $1.35 \times 10^{-2}$ $[4.25 \times 10^{-3}, 2.45 \times 10^{-2}]$, $0/10$ | Transport only | $f(x_0) \le 0$ | Transport only |
 | T8 | $3.26 \times 10^{-13}$ ($361$) | $1.55 \times 10^{-12}$ ($361$) | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | $9.02 \times 10^{-6}$ ($361$) | $5.04 \times 10^{-3}$ $[3.90 \times 10^{-3}, 8.96 \times 10^{-3}]$, $5/10$ | $6.61 \times 10^{-6}$ $[2.88 \times 10^{-6}, 1.22 \times 10^{-5}]$, $10/10$ | Transport only | $1.72 \times 10^{-7}$ $[4.03 \times 10^{-8}, 3.82 \times 10^{-7}]$, $10/10$ | Transport only |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | $5.38 \times 10^{-3}$ ($361$) \* | Dirichlet only | Dirichlet only | Dirichlet only | $1.72 \times 10^{-3}$ $[1.33 \times 10^{-3}, 4.14 \times 10^{-3}]$, $10/10$ | Dirichlet only | $1.32 \times 10^{-3}$ $[8.80 \times 10^{-4}, 3.81 \times 10^{-3}]$, $10/10$ |
-| T9 | 2D only | 2D only | 3D: `stencil=19` | 2D only | 2D only | 2D only | $9.09 \times 10^{-7}$ ($361$) | Transport only | 2D only | 2D only | $1.22 \times 10^{-2}$ $[4.14 \times 10^{-3}, 1.04 \times 10^{3}]$, $7/10$ | Transport only | $7.94 \times 10^{-3}$ $[4.93 \times 10^{-3}, 1.42 \times 10^{-2}]$, $10/10$ | Transport only |
+| T9 | 2D only | 2D only | $1.25 \times 10^{-2}$ ($31$) | 2D only | 2D only | 2D only | $9.09 \times 10^{-7}$ ($361$) | Transport only | 2D only | 2D only | $1.22 \times 10^{-2}$ $[4.14 \times 10^{-3}, 1.04 \times 10^{3}]$, $7/10$ | Transport only | $7.94 \times 10^{-3}$ $[4.93 \times 10^{-3}, 1.42 \times 10^{-2}]$, $10/10$ | Transport only |
 | T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | $9.09 \times 10^{2}$ $[2.99 \times 10^{0}, 4.46 \times 10^{4}]$, $0/10$ | Transport only | $1.11 \times 10^{0}$ $[7.56 \times 10^{-1}, 1.42 \times 10^{0}]$, $0/10$ | Transport only |
 
 **Non-convex fraction**
@@ -227,7 +227,7 @@ For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differe
 | T20 | $9.79$% | $3.38$% | $4.83$% | $3.5$% | $8.46$% \* | $10.9$% | $5.71$% \* | Transport only | $8.77$% | $2.52$% | $0$ | Transport only | $f(x_0) \le 0$ | Transport only |
 | T8 | $0$ | $0$ | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | $0.0205$% | $0$ | $0$ | Transport only | $0$ | Transport only |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | $0$ \* | Dirichlet only | Dirichlet only | Dirichlet only | $0$ | Dirichlet only | $0$ |
-| T9 | 2D only | 2D only | 3D: `stencil=19` | 2D only | 2D only | 2D only | $0$ | Transport only | 2D only | 2D only | $0$ | Transport only | $0$ | Transport only |
+| T9 | 2D only | 2D only | $0$ | 2D only | 2D only | 2D only | $0$ | Transport only | 2D only | 2D only | $0$ | Transport only | $0$ | Transport only |
 | T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | $0$ | Transport only | $0.000257$% | Transport only |
 
 **Time in seconds**
@@ -239,14 +239,14 @@ For `FDSemiLagrangian` that Hessian is a least-squares fit to its second differe
 | T20 | $62.9$ | $32.6$ | $110$ | $200$ | $123$ \* | $258$ | $18.8$ \* | Transport only | $31.4$ | $370$ | $854$ | Transport only | $f(x_0) \le 0$ | Transport only |
 | T8 | $2.45$ | $3.31$ | not on a Disk | not on a Disk | not on a Disk | not on a Disk | not on a Disk | Transport only | $17$ | $345$ | $750$ | Transport only | $41.8$ | Transport only |
 | T12 | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | Dirichlet only | $310$ \* | Dirichlet only | Dirichlet only | Dirichlet only | $171$ | Dirichlet only | $177$ |
-| T9 | 2D only | 2D only | 3D: `stencil=19` | 2D only | 2D only | 2D only | $163$ | Transport only | 2D only | 2D only | $1186$ | Transport only | $398$ | Transport only |
+| T9 | 2D only | 2D only | $47.3$ | 2D only | 2D only | 2D only | $163$ | Transport only | 2D only | 2D only | $1186$ | Transport only | $398$ | Transport only |
 | T10 | 2D only | 2D only | 2D/3D only | 2D only | 2D only | 2D only | 2D/3D only | Transport only | 2D only | 2D only | $146$ | Transport only | $211$ | Transport only |
 
 A classical cell is one run on the grid $n$ in parentheses, the largest $N$ of the papers, with $h = 1/n$ on T1, T2, T20 and T9, $h = 2/n$ on T8 and T12 (ADR 0001), and its error at its own nodes; `\*` marks a run whose iteration stopped before its tolerance.
 A neural cell is over seeds $0$ to $9$: the median, the $5$% to $95$% band and the number of seeds whose max error on the shared evaluation grid is below $1$% of the exact solution's oscillation $\max u - \min u$ there; a failed seed counts as an infinite error (ADR 0007).
 The non-convex fraction and the time of a neural cell are medians over the seeds that did not fail.
 Every run took $1$ CPU thread and ran on the device `cpu`; CPU: Intel(R) Xeon(R) Platinum 8358 CPU @ 2.60GHz.
-A cell with a reason marks a preset that does not support the problem: `Transport only` on T1, T2, T20, T8, T9 and T10; $f(x_0) \le 0$ on T20; `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; 3D: `stencil=19` on T9; `2D/3D only` on T10.
+A cell with a reason marks a preset that does not support the problem: `Transport only` on T1, T2, T20, T8, T9 and T10; $f(x_0) \le 0$ on T20; `not on a Disk` on T8; `Dirichlet only` on T12; `2D only` on T9 and T10; `2D/3D only` on T10.
 <!-- comparison table end -->
 
 ## Reproduction
