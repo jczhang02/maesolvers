@@ -21,7 +21,7 @@ For a convex $u$, $\det D^2 u = f$ is equivalent to (the paper's Theorem 1, afte
 
 $$
 \begin{gathered}
-\max_{A} \bigl( -\operatorname{tr}(A D^2 u) + 2 \sqrt{\det(A) f} \bigr) = 0, \\
+\max_{A} \bigl( -\operatorname{tr}(A D^2 u) + 2 \sqrt{\det(A) f} \bigr) = 0, \cr
 A \text{ symmetric positive semidefinite with } \operatorname{tr} A = 1,
 \end{gathered}
 $$
@@ -31,8 +31,8 @@ The control $A$ is parametrised by $(a, \theta)$ in $[0, 1] \times [-\pi/4, \pi/
 
 $$
 \begin{aligned}
-a_{11} &= (1 - (1 - 2a) \cos 2\theta) / 2, \quad a_{22} = (1 + (1 - 2a) \cos 2\theta) / 2, \quad a_{12} = (1 - 2a) \sin 2\theta / 2, \\
-L_{(a, \theta)} u &= -a_{11} u_{xx} - 2 a_{12} u_{xy} - a_{22} u_{yy} + 2 \sqrt{a (1 - a) f} \\
+a_{11} &= (1 - (1 - 2a) \cos 2\theta) / 2, \quad a_{22} = (1 + (1 - 2a) \cos 2\theta) / 2, \quad a_{12} = (1 - 2a) \sin 2\theta / 2, \cr
+L_{(a, \theta)} u &= -a_{11} u_{xx} - 2 a_{12} u_{xy} - a_{22} u_{yy} + 2 \sqrt{a (1 - a) f} \cr
 &= -a u_{zz} - (1 - a) u_{ww} + 2 \sqrt{a (1 - a) f}.
 \end{aligned}
 $$
@@ -112,7 +112,7 @@ Results carry `info["residual_max"]`, `info["wide_fraction"]` (the share of unkn
   `FDMixed(n=n, wide_search="everywhere")` is the choice for a problem outside the paper's tables.
 - The wide stencil's arm is the paper's $\sqrt{h}$ in the box's units, which does not scale with the box: on a box of side $L$ it spans $\sqrt{n / L}$ cells, so the resolution of the wide stencil is set by $n / L$, and a box of side $L$ needs about $L$ times the cells of the unit square.
   On $u = x^T H x / 2 + x_1$ with $H = [[1, 1.5], [1.5, 4]]$, outside the $7$-point band, `FDMixed` gives a max error relative to $\max \lvert u \rvert$ of $5.8 \times 10^{-3}$ and $2.2 \times 10^{-3}$ at $n = 16$ and $32$ on a box of side $1$, and $9.3 \times 10^{-3}$ at both on a box of side $10$, where the bilinear interpolation over arms of $1.3$ and $1.8$ cells overestimates the convex $u$ so much that the wide stencil wins at no node.
-  `tests/test_mixed.py` (`test_the_wide_stencil_resolution_is_set_by_cells_per_side_of_the_box`) asserts the pattern: on side $1$ the error at $n = 32$ is less than half that at $16$, on side $10$ the two agree within $1\%$ and the wide stencil is used at no node.
+  `tests/test_mixed.py` (`test_the_wide_stencil_resolution_is_set_by_cells_per_side_of_the_box`) asserts the pattern: on side $1$ the error at $n = 32$ is less than half that at $16$, on side $10$ the two agree within $1$% and the wide stencil is used at no node.
   `MixedHJB.discretize` warns (`RuntimeWarning`) when the arm spans fewer than $2$ cells, $n < 4 L$.
 - A Dirac mass needs a discretisation of its own: with $f = \pi / h^2$ at the tip of the cone the error does not decrease with $h$ (`benchmarks/chen_wan_lin2018.md`, Finding 3).
 - The search over the angles costs $O(M)$ per node where the wide stencil competes, some $30$ seconds per policy at $n = 512$ with `wide_search="only"` on one thread; `MixedHJB.solution` runs it once more at the final iterate for `info["residual_max"]` and `info["wide_fraction"]`.

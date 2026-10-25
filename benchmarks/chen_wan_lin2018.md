@@ -23,10 +23,10 @@ Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv`,
 
 | Table | Problem | Mixed scheme | Pure semi-Lagrangian |
 |---|---|---|---|
-| 1 | T1 on $[-1, 1]^2$ | exact: every printed digit, both norms, every $N$; $4$ policy iterations, as printed | order of magnitude: within $3.2\%$, orders within $0.02$ |
-| 2 | T2 | mismatch (ADR 0002 level 5): every printed digit at $N = 32$ to $128$, but at $256$ and $512$ policy iteration from the paper's start reaches a second root of the scheme, $10$ to $65$ times less accurate, with orders of $-1.33$ and $0.15$ (Finding 5) | order of magnitude: within $3\%$ |
-| 3 | T20c | order of magnitude: $6$ of the $10$ printed values exact, the rest within $0.7\%$ (Finding 4) | order of magnitude: within $3\%$ |
-| 4 | T21 | mismatch for the paper's $f = \pi \delta$: with the mass $\pi/h^2$ the error is $0.039$ at every $N$; with $(4 \sqrt{2} - 2)/h^2$, a mass fitted to the exact solution, within $19\%$, orders within $0.11$ (Finding 3) | not printed |
+| 1 | T1 on $[-1, 1]^2$ | exact: every printed digit, both norms, every $N$; $4$ policy iterations, as printed | order of magnitude: within $3.2$%, orders within $0.02$ |
+| 2 | T2 | mismatch (ADR 0002 level 5): every printed digit at $N = 32$ to $128$, but at $256$ and $512$ policy iteration from the paper's start reaches a second root of the scheme, $10$ to $65$ times less accurate, with orders of $-1.33$ and $0.15$ (Finding 5) | order of magnitude: within $3$% |
+| 3 | T20c | order of magnitude: $6$ of the $10$ printed values exact, the rest within $0.7$% (Finding 4) | order of magnitude: within $3$% |
+| 4 | T21 | mismatch for the paper's $f = \pi \delta$: with the mass $\pi/h^2$ the error is $0.039$ at every $N$; with $(4 \sqrt{2} - 2)/h^2$, a mass fitted to the exact solution, within $19$%, orders within $0.11$ (Finding 3) | not printed |
 | 5 | $f = 1$, $g = 0$ | mismatch (ADR 0002 level 5): with the default rule, the paper's (Finding 2), $u_h(0, 0)$ lies within $1.0 \times 10^{-4}$ of the published value at $N = 32$, $64$, $128$ and $512$, but at $N = 256$ policy iteration cycles and stops after $100$ steps with a residual of $7.3 \times 10^{-2}$, so that cell has no root; `wide_search="everywhere"` converges at every $N$ to within $1.0 \times 10^{-4}$, evidence for Finding 6, not a reproduction | the standard $9$-point scheme: order of magnitude, within $2 \times 10^{-5}$, the published value at $N = 256$ and $512$, every $N$ converged |
 
 ### Table 1 (1), T1 on $[-1, 1]^2$, mixed scheme
@@ -104,7 +104,7 @@ Receipts: `chen_wan_lin2018.csv` (Tables 1 to 4), `chen_wan_lin2018_table5.csv`,
 The paper's Section 4 sets up "an $N \times N$ square grid" with the unknowns at $i, j = 1, \dots, N$ and the boundary at $i, j = 0$ and $N + 1$, which is $N + 1$ cells per side.
 Its tables match $N$ cells per side instead, $h = 1/N$ on the unit square (ADR 0001), as the Froese-Oberman papers do: with $n = N$ every printed digit of Tables 1 and 2 is ours, and with $n = N + 1$ none is (rows `grid` of the checks: on T1 at $N = 32$, $9.022 \times 10^{-4}$ against the published $9.598 \times 10^{-4}$; on T20c $1.973 \times 10^{-4}$ against $4.298 \times 10^{-4}$).
 So at the paper's even $N$ the origin is a node, which Examples 4 and 5 need.
-The $L^2$ norm is the discrete $\sqrt{h^2 \sum e^2}$: on $[-1, 1]^2$ it exceeds the max norm (Table 1), which an RMS error cannot; the RMS error times the square root of the area misses Table 1 by $3\%$ ($1.240 \times 10^{-3}$ against $1.201 \times 10^{-3}$ at $N = 32$).
+The $L^2$ norm is the discrete $\sqrt{h^2 \sum e^2}$: on $[-1, 1]^2$ it exceeds the max norm (Table 1), which an RMS error cannot; the RMS error times the square root of the area misses Table 1 by $3$% ($1.240 \times 10^{-3}$ against $1.201 \times 10^{-3}$ at $N = 32$).
 
 ## Finding 2: the wide stencil competes only where no $7$-point stationary point lies in its region
 
@@ -115,7 +115,7 @@ The tables follow the cost estimate.
 `wide_search="everywhere"` searches at every node, as Section 5.2 reads (rows `search`):
 
 - on T1 the wide stencil never wins, and on T20c the same few nodes take it under either rule, so both solutions are unchanged;
-- on T2 it takes the wide stencil at $0.7\%$ of the nodes, next to the corner $(1, 1)$, where the Hessian of the solution is near the edge of diagonal dominance: the max error is $8.82 \times 10^{-4}$, $7.77 \times 10^{-4}$, $5.10 \times 10^{-4}$ at $N = 32$, $64$, $128$ against the published $2.359 \times 10^{-4}$, $8.211 \times 10^{-5}$, $2.882 \times 10^{-5}$, and the order drops from $1.5$ to $0.2$ and $0.6$;
+- on T2 it takes the wide stencil at $0.7$% of the nodes, next to the corner $(1, 1)$, where the Hessian of the solution is near the edge of diagonal dominance: the max error is $8.82 \times 10^{-4}$, $7.77 \times 10^{-4}$, $5.10 \times 10^{-4}$ at $N = 32$, $64$, $128$ against the published $2.359 \times 10^{-4}$, $8.211 \times 10^{-5}$, $2.882 \times 10^{-5}$, and the order drops from $1.5$ to $0.2$ and $0.6$;
 - on the cone it fails, with max errors of $1.5$ to $3.7$ that grow with $N$: near the tip the wide stencil's arms of length $\sqrt{h}$ see smaller second differences of the cone than the $7$-point stencil's, so the wide controls give the larger value of the objective, the maximum takes them, and the discrete solution there drops by $O(1)$;
 - on Table 5's problem both rules give the same $u_h(0, 0)$ to $6$ digits wherever the default converges, so Table 5 does not show which rule the paper used (the "everywhere" column of `chen_wan_lin2018_table5.csv`); Tables 2 and 4 do, and Table 5 is judged with the same rule (Finding 6).
 
@@ -127,18 +127,18 @@ The paper writes $f = \pi \delta(0, 0)$ and does not say how it discretises it.
 With $f = \pi / h^2$ at the node at the origin, the error is $0.0389$ at every $N$ (rows `mass`): at the tip the $7$-point stencil of the exact cone gives $u_{xx} = u_{yy} = 2/h$ and $u_{xy} = (\sqrt{2} - 2)/h$ (stencil 1), so $\det = (4 \sqrt{2} - 2)/h^2 = 3.657/h^2$, and the scheme's discrete Monge-Ampere measure of a cone of slope $s$ is $3.657 s^2$, not $\pi s^2$; the discrete solution is a flatter cone, and its tip is $0.039$ high.
 Froese-Oberman's $4/h^2$ (`monotone17.md`, Finding 4) gives $0.0246$ at every $N$, the tip too low.
 With $f = (4 \sqrt{2} - 2)/h^2$, the mass at which the exact cone solves the $7$-point equation at its tip, so a mass fitted to the exact solution, the tip error vanishes and the error, at the nodes around the tip where the wide stencil is used, falls like $h^{0.5}$ in the max norm and $h^{0.8}$ in $L^2$, as the paper's does; `run_chen_wan_lin2018.py` uses this mass for Table 4.
-The published errors lie within $19\%$ of ours, the orders within $0.11$, and the policy iterations grow alike ($9$, $15$, $17$, $23$, $27$ printed; $11$, $17$, $19$, $28$, $35$ ours): this is likely, not certainly, the paper's discretisation.
+The published errors lie within $19$% of ours, the orders within $0.11$, and the policy iterations grow alike ($9$, $15$, $17$, $23$, $27$ printed; $11$, $17$, $19$, $28$, $35$ ours): this is likely, not certainly, the paper's discretisation.
 Since the mass is fitted, the level for the problem the paper states, $f = \pi \delta$, is a mismatch; the fitted mass is the evidence for this finding, not a reproduction.
 
 ## Finding 4: small differences on T20c
 
-On T20c six of the ten printed values are ours to every digit; the max error at $N = 128$ is one unit off in the fourth digit ($6.906 \times 10^{-5}$ against $6.907 \times 10^{-5}$), the $L^2$ error at $N = 64$ two units ($4.271 \times 10^{-5}$ against $4.273 \times 10^{-5}$), and both norms at $N = 512$ differ by $0.6\%$.
-T20c is the one example of Tables 1 to 3 where the wide stencil enters (at up to $0.7\%$ of the nodes, next to the circle $\lvert x \rvert = 0.1$), so the difference lies in a detail of the wide stencil the paper leaves open: the placement of the $M$ angles ($\theta = -\pi/4 + k \pi/(2M)$ here), or the bilinear interpolation at the ends of an arm.
-The pure semi-Lagrangian column, which uses the wide stencil everywhere, differs from Tables 1 to 3 by up to $3.2\%$ (T1, $L^2$ at $N = 128$), for the same reason: on T1 at $N = 32$, $M = N - 1$, $N + 1$, $N / 2$ and $2N$ angles give max errors of $1.89 \times 10^{-2}$, $1.85 \times 10^{-2}$, $1.65 \times 10^{-2}$ and $1.560 \times 10^{-2}$ against the published $1.557 \times 10^{-2}$ and our $1.565 \times 10^{-2}$ with $M = N$ (rows `angles`).
+On T20c six of the ten printed values are ours to every digit; the max error at $N = 128$ is one unit off in the fourth digit ($6.906 \times 10^{-5}$ against $6.907 \times 10^{-5}$), the $L^2$ error at $N = 64$ two units ($4.271 \times 10^{-5}$ against $4.273 \times 10^{-5}$), and both norms at $N = 512$ differ by $0.6$%.
+T20c is the one example of Tables 1 to 3 where the wide stencil enters (at up to $0.7$% of the nodes, next to the circle $\lvert x \rvert = 0.1$), so the difference lies in a detail of the wide stencil the paper leaves open: the placement of the $M$ angles ($\theta = -\pi/4 + k \pi/(2M)$ here), or the bilinear interpolation at the ends of an arm.
+The pure semi-Lagrangian column, which uses the wide stencil everywhere, differs from Tables 1 to 3 by up to $3.2$% (T1, $L^2$ at $N = 128$), for the same reason: on T1 at $N = 32$, $M = N - 1$, $N + 1$, $N / 2$ and $2N$ angles give max errors of $1.89 \times 10^{-2}$, $1.85 \times 10^{-2}$, $1.65 \times 10^{-2}$ and $1.560 \times 10^{-2}$ against the published $1.557 \times 10^{-2}$ and our $1.565 \times 10^{-2}$ with $M = N$ (rows `angles`).
 
 ## Finding 5: on T2 the scheme has a second root
 
-From the paper's start, $\Delta u = 2 \sqrt{f}$ (its eq. (50)), policy iteration on T2 reaches the published errors at $N = 32$ to $128$, but at $N = 256$ and $512$ it ends on another discrete solution, with the wide stencil at the nodes next to the top side near the corner ($0.06\%$ of the unknowns, `wide_fraction` in the CSV), and max errors $2.215 \times 10^{-4}$ and $2.324 \times 10^{-4}$ against the published $1.015 \times 10^{-5}$ and $3.583 \times 10^{-6}$.
+From the paper's start, $\Delta u = 2 \sqrt{f}$ (its eq. (50)), policy iteration on T2 reaches the published errors at $N = 32$ to $128$, but at $N = 256$ and $512$ it ends on another discrete solution, with the wide stencil at the nodes next to the top side near the corner ($0.06$% of the unknowns, `wide_fraction` in the CSV), and max errors $2.215 \times 10^{-4}$ and $2.324 \times 10^{-4}$ against the published $1.015 \times 10^{-5}$ and $3.583 \times 10^{-6}$.
 From the exact solution at the nodes it reaches, in $3$ policy iterations, the root with the $7$-point stencil at every node, whose errors are the published ones to every printed digit at every $N$ (rows `start`): $1.022 \times 10^{-6}$ and $1.015 \times 10^{-5}$ at $N = 256$, $2.557 \times 10^{-7}$ and $3.583 \times 10^{-6}$ at $N = 512$.
 A maximum of monotone operators has one root; the skip of Finding 2 breaks that, and which root policy iteration reaches depends on its path, here on how the early iterates near the singular corner fall on either side of the edge of a $7$-point region.
 The paper's $5$ policy iterations from $N = 64$ on suggest its path never left the $7$-point stencil.
@@ -169,7 +169,7 @@ The catalogue's T4, $f$ equal to $1$ outside a disk and $0$ inside (Benamou-Froe
 | $96$ | $100$, not converged | $2.48$ | $6.033 \times 10^{-3}$ | $-2.64$ | $12$ | $3.5 \times 10^{-11}$ | $6.071 \times 10^{-3}$ | $-2.35$ |
 | $128$ | $100$, not converged | $1.70$ | $5.534 \times 10^{-3}$ | $-3.47$ | $13$ | $1.7 \times 10^{-10}$ | $5.542 \times 10^{-3}$ | $-2.95$ |
 
-From $n = 48$ on the default rule stops after $100$ policy iterations with a residual of $1.5$ to $7.9$, against residuals near $0.07$ to $0.09$ where it cycles on Table 5 and T2; its last iterate's max error lies within $5\%$ of the root of the maximum, but it is not a root, and its smallest Hessian eigenvalue at $n = 64$ is $-7.9$ against $-1.7$.
+From $n = 48$ on the default rule stops after $100$ policy iterations with a residual of $1.5$ to $7.9$, against residuals near $0.07$ to $0.09$ where it cycles on Table 5 and T2; its last iterate's max error lies within $5$% of the root of the maximum, but it is not a root, and its smallest Hessian eigenvalue at $n = 64$ is $-7.9$ against $-1.7$.
 `wide_search="everywhere"` converges at every $n$ in $6$ to $13$ policy iterations.
 Which steps the cycle takes depends on the rounding of the sparse LU: a local run at the PR head (review round 3, not logged) converged at $n = 48$ and stopped unconverged at $n = 64$ with another residual; from $n = 64$ on both runs cycle.
 `tests/test_mixed.py` (`test_policy_iteration_cycles_on_t4_under_the_default_rule_only`) asserts the pattern at $n = 64$: the default unconverged after $100$ steps with a residual above $1$, the maximum converged in fewer than $20$.
@@ -190,9 +190,9 @@ The mixed column is judged with the default rule, the one Tables 2 and 4 single 
 With it, $u_h(0, 0)$ lies within $1.0 \times 10^{-4}$ of the published value at $N = 32$, $64$ and $128$, a ratio within $6 \times 10^{-4}$ of $1$, and is the published value at $N = 512$.
 At $N = 256$ policy iteration cycles between policies with a residual near $0.07$ ($7.3 \times 10^{-2}$ at its last step) and stops after $100$ steps unconverged; its last iterate prints the published value, but it is not a root of the scheme, so the cell is left empty.
 Level of the mixed column: a mismatch (ADR 0002 level 5), since the paper's method gives no solution at one of the five printed $N$.
-At every $N$ the wide stencil enters at $7\%$ to $17\%$ of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
+At every $N$ the wide stencil enters at $7$% to $17$% of the nodes, next to the boundary and its corners, where the solution is not smooth, so Finding 4's open details of the wide stencil apply.
 The non-monotone column is the standard $9$-point scheme, whose equation is even in $u$ when $g = 0$: its concave solution is minus its convex one, which `FDPoisson` computes, so the column prints $-u_h(0, 0)$ of `FDPoisson`; it matches within $2 \times 10^{-5}$, and to every digit at $N = 256$ and $512$.
-The Poisson iteration takes $952$, $3338$, $11\,593$, $39\,438$ and $130\,107$ steps until successive iterates agree to $10^{-12}$, so `run_chen_wan_lin2018.py` gives it $300\,000$ (its default of $10\,000$ stopped it unconverged from $N = 128$ on in an earlier run, with the same printed values).
+The Poisson iteration takes $952$, $3338$, $11\thinspace 593$, $39\thinspace 438$ and $130\thinspace 107$ steps until successive iterates agree to $10^{-12}$, so `run_chen_wan_lin2018.py` gives it $300\thinspace 000$ (its default of $10\thinspace 000$ stopped it unconverged from $N = 128$ on in an earlier run, with the same printed values).
 `T7-half` is T7 scaled, so Benamou-Froese-Oberman's $u_{\min} = 0.2682$ of T7 at $61$ nodes per side gives $(0.2682 - 1)/4 = -0.1830$ here, consistent with both columns.
 
 ## Conventions that differ

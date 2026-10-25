@@ -100,6 +100,8 @@ def test_numbers_print_with_three_significant_digits():
     assert comparison.scientific(math.inf) == r"\infty"
     assert comparison.percent(0.0) == "0"
     assert comparison.percent(0.06693) == r"6.69\%"
+    assert comparison.math_span(comparison.percent(0.06693)) == "$6.69$%"
+    assert comparison.math_span(r"7.06 \times 10^{-3}") == r"$7.06 \times 10^{-3}$"
     assert comparison.seconds(911.02) == "911"
     assert comparison.seconds(0.05124) == "0.0512"
 
@@ -219,7 +221,7 @@ def test_neural_cell_gives_the_band_and_the_successes():
     expected = np.quantile(errors, [0.5, 0.05, 0.95])
     median, q05, q95 = (comparison.scientific(x) for x in expected)
     assert comparison.cell(rows, "max") == f"${median}$ $[{q05}, {q95}]$, $4/10$"
-    assert comparison.cell(rows, "nonconvex_fraction") == r"$4.5\%$"
+    assert comparison.cell(rows, "nonconvex_fraction") == "$4.5$%"
     assert comparison.cell(rows, "time") == "$404$"
 
 

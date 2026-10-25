@@ -206,7 +206,13 @@ def number(text: str) -> float:
 
 
 def math_span(tex: str) -> str:
-    """``tex`` as an inline math span of Markdown (GitHub's ``$...$``)."""
+    """``tex`` as an inline math span of Markdown (GitHub's ``$...$``).
+
+    A trailing ``\\%`` goes after the span as a plain ``%``: GitHub drops the
+    backslash of ``\\%`` inside math, and a bare ``%`` starts a TeX comment.
+    """
+    if tex.endswith("\\%"):
+        return f"${tex[:-2]}$%"
     return f"${tex}$"
 
 
@@ -377,7 +383,7 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
         + " (ADR 0001), and its error at its own nodes; "
         "`\\*` marks a run whose iteration stopped before its tolerance.",
         f"A neural cell is over seeds {math_span(str(seeds[0]))} to "
-        f"{math_span(str(seeds[-1]))}: the median, the $5\\%$ to $95\\%$ band and the "
+        f"{math_span(str(seeds[-1]))}: the median, the $5$% to $95$% band and the "
         "number of seeds whose max error on the shared evaluation grid is below "
         f"{math_span(threshold_percent)} of the exact solution's "
         "oscillation $\\max u - \\min u$ there; a failed seed counts as an infinite "

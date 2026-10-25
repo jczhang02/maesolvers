@@ -27,8 +27,8 @@ The scheme restricts the directions to those of a stencil on the grid and takes 
 
 $$
 \begin{aligned}
-D_{\nu\nu} u(x) &= \frac{u(x + \nu h) - 2 u(x) + u(x - \nu h)}{\lvert \nu \rvert^2 h^2}, \\
-\mathrm{MA}_M[u]\,(x) &= \min_{(\nu, \nu') \text{ pairs}} (D_{\nu\nu} u)^+ (D_{\nu'\nu'} u)^+ = f(x).
+D_{\nu\nu} u(x) &= \frac{u(x + \nu h) - 2 u(x) + u(x - \nu h)}{\lvert \nu \rvert^2 h^2}, \cr
+\mathrm{MA}_M[u]\thinspace (x) &= \min_{(\nu, \nu') \text{ pairs}} (D_{\nu\nu} u)^+ (D_{\nu'\nu'} u)^+ = f(x).
 \end{aligned}
 $$
 
@@ -76,7 +76,7 @@ Lemma 2 of Froese and Oberman holds in any dimension: for a convex $C^2$ functio
 `Monotone17(stencil=19)` is their 3D scheme (SIAM Section 7):
 
 $$
-\mathrm{MA}_M[u]\,(x) = \min_{(\nu_1, \nu_2, \nu_3) \text{ frames}} \prod_k (D_{\nu_k \nu_k} u)^+ = f(x),
+\mathrm{MA}_M[u]\thinspace (x) = \min_{(\nu_1, \nu_2, \nu_3) \text{ frames}} \prod_k (D_{\nu_k \nu_k} u)^+ = f(x),
 $$
 
 with the frames of the 19-point stencil (`stencil_frames(19)`): the axis frame, and each axis with the two diagonals of the plane perpendicular to it, $(e_1, e_2 + e_3, e_2 - e_3)$ and its two rotations, four triples on the three axes and the six face diagonals.
@@ -99,7 +99,7 @@ The scheme's `jacobian` is a generalised Jacobian (Danskin's theorem): at each n
 
 $$
 \begin{aligned}
-J &= \sum_{\text{active pair}} \operatorname{diag}(c_a) D_{aa} + \operatorname{diag}(c_b) D_{bb}, \\
+J &= \sum_{\text{active pair}} \operatorname{diag}(c_a) D_{aa} + \operatorname{diag}(c_b) D_{bb}, \cr
 c_a &= \max(b, \epsilon) \text{ where } a \ge 0, \quad \kappa \text{ where } a < 0,
 \end{aligned}
 $$
@@ -109,7 +109,7 @@ The floor $\epsilon =$ `jacobian_floor` $/ (2 h^2)$ follows Froese and Oberman (
 In 2D, with that floor Newton converges only linearly where $f = 0$: on T20 it takes $439$ steps at $n = 181$ with the 17-point stencil.
 The default $10^{-12}$ takes $27$ there and reaches the same root (`benchmarks/monotone17_checks.csv`, rows `floor`), since the floor changes the steps, not the equation; in 3D neither floor is faster at every grid ("In three dimensions" above).
 
-The papers start from $\Delta u_0 = \sqrt{2 f}$ ($(d!\, f)^{1/d}$ in $d$ dimensions, SIAM eq. (8)) on a coarse grid, interpolated and convexified; Newton's start is a lower bound for the Laplacian of the convex solution and needs no convexification, because the scheme has no non-convex roots and a non-convex iterate cannot pass the stopping rule.
+The papers start from $\Delta u_0 = \sqrt{2 f}$ ($(d!\thinspace f)^{1/d}$ in $d$ dimensions, SIAM eq. (8)) on a coarse grid, interpolated and convexified; Newton's start is a lower bound for the Laplacian of the convex solution and needs no convexification, because the scheme has no non-convex roots and a non-convex iterate cannot pass the stopping rule.
 The start changes the number of steps, not the solution.
 
 ## Source papers

@@ -170,7 +170,7 @@ So the failure the paper describes is real for a start away from the convex root
 
 ## Conventions
 
-- Eq. (6) of the paper, the possible singular set, prints $\{x \in \Omega : \varepsilon < f(x) < 1/\varepsilon\}$, which is the set where $f$ is regular; the text ("a neighborhood of the possible singular set"), conditions (2), and the remark that the scheme is the monotone one where $f$ is "either $0$ or very large" (Section 8.5) mean the complement, $f \le \varepsilon$ or $f \ge 1/\varepsilon$, which `Hybrid` uses.
+- Eq. (6) of the paper, the possible singular set, prints $\lbrace x \in \Omega : \varepsilon < f(x) < 1/\varepsilon\rbrace$, which is the set where $f$ is regular; the text ("a neighborhood of the possible singular set"), conditions (2), and the remark that the scheme is the monotone one where $f$ is "either $0$ or very large" (Section 8.5) mean the complement, $f \le \varepsilon$ or $f \ge 1/\varepsilon$, which `Hybrid` uses.
 - The weight is a step on the grid ($0$ within `band` steps of the singular set, $1$ elsewhere); the paper's "differentiable function" has no stated form (Finding 3).
 - The start differs: the paper's convexified coarse-grid Poisson step against our monotone root (Finding 1).
 

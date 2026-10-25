@@ -19,7 +19,7 @@ print(evaluate(result)["max"] / 4)  # 7.6e-3, relative to max |u| = 4
 For a symmetric matrix $A$ and $f \ge 0$ (Feng-Jensen 2017, Section 3; the paper writes the right-hand side as $(f/d)^d$, so its $f$ is $2 \sqrt{f}$ here):
 
 $$
-H(A, f) = \sup_{B \ge 0,\ \operatorname{tr} B = 1} \left( -B : A + 2 \sqrt{f} \sqrt{\det B} \right).
+H(A, f) = \sup_{B \ge 0, \enspace \operatorname{tr} B = 1} \left( -B : A + 2 \sqrt{f} \sqrt{\det B} \right).
 $$
 
 $H(A, f) = 0$ holds exactly when $A$ is positive semidefinite and $\det A = f$ (their Lemma 3.2), and the viscosity solutions of $H(D^2 u, f) = 0$ are the convex viscosity solutions of $\det D^2 u = f$ (Theorems 3.3 and 3.5).

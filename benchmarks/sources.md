@@ -58,9 +58,9 @@ The paper skips rows between $N = 261$ and $N = 341$ (printed as a vertical elli
 | $N$ | Iterations (M1) | Iterations (M2) | CPU time s (M1) | CPU time s (M2) |
 |---|---|---|---|---|
 | $21$ | $1014$ | $54$ | $0.9$ | $0.1$ |
-| $81$ | $14\,621$ | $59$ | $39.8$ | $3.4$ |
-| $141$ | $42\,746$ | $60$ | $350.0$ | $11.7$ |
-| $201$ | $84\,611$ | $60$ | $1540.0$ | $27.2$ |
+| $81$ | $14\thinspace 621$ | $59$ | $39.8$ | $3.4$ |
+| $141$ | $42\thinspace 746$ | $60$ | $350.0$ | $11.7$ |
+| $201$ | $84\thinspace 611$ | $60$ | $1540.0$ | $27.2$ |
 | $261$ | -- | $65$ | -- | $57.8$ |
 | ... | ... | ... | ... | ... |
 | $341$ | -- | $65$ | -- | $118.0$ |
@@ -77,10 +77,10 @@ Table 1 also gives the CPU time ratio (M1)/(M2) for (a) (Section 4.1 column): $6
 | $21$ | $1009$ | $67$ | $0.2$ | $0.2$ |
 | $41$ | $3833$ | $79$ | $1.9$ | $1.0$ |
 | $61$ | $8343$ | $89$ | $8.5$ | $2.7$ |
-| $81$ | $14\,480$ | $99$ | $26.3$ | $5.2$ |
-| $101$ | $22\,189$ | $106$ | $60.2$ | $10.0$ |
-| $121$ | $31\,445$ | $113$ | $120.1$ | $15.0$ |
-| $141$ | $42\,202$ | $119$ | $218.3$ | $21.3$ |
+| $81$ | $14\thinspace 480$ | $99$ | $26.3$ | $5.2$ |
+| $101$ | $22\thinspace 189$ | $106$ | $60.2$ | $10.0$ |
+| $121$ | $31\thinspace 445$ | $113$ | $120.1$ | $15.0$ |
+| $141$ | $42\thinspace 202$ | $119$ | $218.3$ | $21.3$ |
 
 ### T7 (Section 5.3): Table 7, minimum value of $u$ when $f = 1$ with constant boundary values $1$ on an $N \times N$ grid
 
@@ -100,11 +100,11 @@ Table 1 also gives the CPU time ratio (M1)/(M2) for (a) (Section 4.1 column): $6
 |---|---|---|---|---|
 | $21$ | $1615$ | $535$ | $0.1$ | $1.7$ |
 | $41$ | $6366$ | $1917$ | $0.6$ | $33.6$ |
-| $61$ | $14\,049$ | $4070$ | $2.8$ | $254.0$ |
-| $81$ | $24\,560$ | $6944$ | $8.1$ | $1170.0$ |
-| $101$ | $37\,824$ | $10\,503$ | $19.9$ | $3730.0$ |
-| $121$ | $53\,778$ | $14\,711$ | $41.2$ | $6820.0$ |
-| $141$ | $72\,377$ | $19\,571$ | $99.7$ | $8560.0$ |
+| $61$ | $14\thinspace 049$ | $4070$ | $2.8$ | $254.0$ |
+| $81$ | $24\thinspace 560$ | $6944$ | $8.1$ | $1170.0$ |
+| $101$ | $37\thinspace 824$ | $10\thinspace 503$ | $19.9$ | $3730.0$ |
+| $121$ | $53\thinspace 778$ | $14\thinspace 711$ | $41.2$ | $6820.0$ |
+| $141$ | $72\thinspace 377$ | $19\thinspace 571$ | $99.7$ | $8560.0$ |
 
 Our comparison, and the node-count convention of Table 7: `standard_fd.md`, section "T7" and Finding 3.
 
@@ -398,12 +398,12 @@ Fig. 4 shows the $L^2$ and $L^\infty$ error of $u$ for $u_{ex} = \beta \sin(2 \p
 B. D. Froese, A. M. Oberman, "Convergent filtered schemes for the Monge-Ampere partial differential equation", SIAM J. Numer. Anal. 51(1) (2013) 423-444, DOI 10.1137/120875065.
 Read: local journal PDF (Zotero item Y55FLDKL, attachment 2BQN6YP2); every value below was checked against a rendered image of pp. 438-442 (journal page numbers).
 
-Method (Section 4.1): the filtered scheme $F_H = F_M + \varepsilon S((F_A - F_M) / \varepsilon)$, with $F_M$ the monotone wide-stencil scheme of their Section 1.7 ($\min$ over pairs of $\prod \max\{D_{vv} u, \delta\} + \sum \min\{D_{vv} u, \delta\}$, $\delta$ not printed), $F_A$ the standard 9-point scheme ("see [FO11b] for details"), the filter $S$ of eq. (1.3) (identity on $[-1, 1]$, $\operatorname{sign}(x)(2 - \lvert x \rvert)$ for $1 \le \lvert x \rvert \le 2$, zero beyond) and $\varepsilon(h, d\theta) = \sqrt{h} + d\theta / 10$.
+Method (Section 4.1): the filtered scheme $F_H = F_M + \varepsilon S((F_A - F_M) / \varepsilon)$, with $F_M$ the monotone wide-stencil scheme of their Section 1.7 ($\min$ over pairs of $\prod \max\lbrace D_{vv} u, \delta\rbrace + \sum \min\lbrace D_{vv} u, \delta\rbrace$, $\delta$ not printed), $F_A$ the standard 9-point scheme ("see [FO11b] for details"), the filter $S$ of eq. (1.3) (identity on $[-1, 1]$, $\operatorname{sign}(x)(2 - \lvert x \rvert)$ for $1 \le \lvert x \rvert \le 2$, zero beyond) and $\varepsilon(h, d\theta) = \sqrt{h} + d\theta / 10$.
 $d\theta$ is not given a value, neither here nor in FO 2011 (SINUM p. 1700 names it the parameter of the directional discretisation); Oberman 2008, eq. (3.3), defines it as $\max_\theta \min_i \lvert \theta - \theta_i \rvert$, the largest angle between a direction and the nearest stencil direction, half the largest gap between stencil directions.
 maesolvers takes the full gap ($\pi/4$, $\arctan(1/2)$, $\arctan{(1/3)}$), which the T2 filtered columns of Table 4.1 fit (`filtered.md`, Finding 3).
-Solved by Newton, $u^{n+1} = u^n - (\nabla F_H[u^n])^{-1} F_H[u^n]$, with the Jacobian approximated by $(1 - S') \nabla F_M + \max\{S', 0\} \nabla F_A$ "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
+Solved by Newton, $u^{n+1} = u^n - (\nabla F_H[u^n])^{-1} F_H[u^n]$, with the Jacobian approximated by $(1 - S') \nabla F_M + \max\lbrace S', 0\rbrace \nabla F_A$ "because negative values [of S'] can lead to poorly conditioned or ill-posed linear systems".
 "We have regularized the max operator to allow the gradient to be computed, as in [FO11b]."
-[FO11b] is the JCP 2011 hybrid paper (section 3 above; the reference list, and p. 424, "In [FO11b] a hybrid solver was built"), not the SINUM paper [FO11a]; its Section 7.2 replaces $u_{vv}$ by $\max\{u_{vv}, \varepsilon\}$ in the Jacobian, $\varepsilon = 10^{-8} / (2 dx^2)$, which leaves the scheme and its roots unchanged.
+[FO11b] is the JCP 2011 hybrid paper (section 3 above; the reference list, and p. 424, "In [FO11b] a hybrid solver was built"), not the SINUM paper [FO11a]; its Section 7.2 replaces $u_{vv}$ by $\max\lbrace u_{vv}, \varepsilon\rbrace$ in the Jacobian, $\varepsilon = 10^{-8} / (2 dx^2)$, which leaves the scheme and its roots unchanged.
 The Newton iteration is printed with the full step, no damping; no start or stopping rule is stated.
 Section 4.2: "All computations are performed on the domain $[0, 1] \times [0, 1]$, which is discretized on an $N \times N$ grid."
 No definition of $h$ in terms of $N$; the values match $h = 1/(N - 1)$, $N$ nodes per side (`filtered.md`, Finding 1).
@@ -565,13 +565,13 @@ Read: local journal PDF (Zotero item PVLY7QYE, attachment YSSATHUT); every value
 
 Method (Sections 3, 4, 7, 8): the HJB form $\sup_{B \ge 0, \operatorname{tr} B = 1} (-B : D^2 u + f (\det B)^{1/d}) = 0$ of $\det D^2 u = (f/d)^d$, so the paper's $f$ is $2 \sqrt{f}$ in maesolvers' convention $\det D^2 u = f$ (2D).
 Each $B = \sigma \lambda \sigma^T$; the second derivatives along the columns of $\sigma$ are the semi-Lagrangian differences $(u(x - k \sigma_j) - 2 u(x) + u(x + k \sigma_j)) / k^2$ (eq. (18)), whose ends take the value of the continuous piecewise linear finite element function.
-Section 8: the control set is $SO(2) \times \{\operatorname{diag}(a, 1 - a): a \in [0, 1/2)\}$ together with $(\mathrm{Id}, \mathrm{Id}/2)$; $SO(2)$ is discretised by the rotation angles $i \pi / 64$, $i = 0, \ldots, 63$, and nothing is said about discretising $a$.
+Section 8: the control set is $SO(2) \times \lbrace \operatorname{diag}(a, 1 - a): a \in [0, 1/2)\rbrace$ together with $(\mathrm{Id}, \mathrm{Id}/2)$; $SO(2)$ is discretised by the rotation angles $i \pi / 64$, $i = 0, \ldots, 63$, and nothing is said about discretising $a$.
 The stencil size is $k = m h$ with $h$ the average mesh size, reduced near the boundary to stay inside the triangulated domain (Fig. 5(b)).
 Solved by Howard's algorithm (Algorithm 1), started with the control $B_0 = \mathrm{Id} / d$, stopped when a step is below $10^{-6}$ in the max norm.
 The domain is the union of the unit disk and the unit square $(0, 1)^2$; the quasi-uniform grid has $91$ nodes at the coarsest level and $1{,}214{,}465$ after $7$ uniform refinements, computed with FEniCS.
 Problems: the quartic $u = \lvert x \rvert^4$ (T39) and the nonsmooth $u = \lvert x_1 \rvert$ with $f = 0$ (T40), whose kink "is not aligned with the computational mesh".
 
-The paper prints no numbered table, but its Figure 6 is a table: the smallest relative error over $m \in \{2, 4, 8, 16, 32, 64\}$ at each level, with the minimising $m$.
+The paper prints no numbered table, but its Figure 6 is a table: the smallest relative error over $m \in \lbrace 2, 4, 8, 16, 32, 64\rbrace$ at each level, with the minimising $m$.
 The errors are relative to the norm of $u$ ($\lVert u - u_h \rVert / \lVert u \rVert$, the axis label of Figure 7).
 
 ### Figure 6, quartic problem (T39)
@@ -635,7 +635,7 @@ They are transcribed, checked against the PDF's page images, in `chen_wan_lin201
 ## What a reproduction must match
 
 For the standard 9-point, 17-point monotone and hybrid schemes, the published error tables for (a) and (b) in the Dirichlet setting are Table 3 of the JCP paper and Table 3 of the SIAM paper; sections 5, 6 and 9 add the tables of other schemes on T1 and T2.
-They report the max norm of $u$ minus the exact solution at the grid points, on an $N \times N$ grid with $N \in \{31, 45, 63, 89, 127, 181, 255, 361\}$ (SIAM uses the subset $31$, $63$, $127$, $255$, $361$).
+They report the max norm of $u$ minus the exact solution at the grid points, on an $N \times N$ grid with $N \in \lbrace 31, 45, 63, 89, 127, 181, 255, 361\rbrace$ (SIAM uses the subset $31$, $63$, $127$, $255$, $361$).
 For the standard 9-point scheme, solved to its fixed point by Gauss-Seidel, Poisson or any other convergent iteration, the targets are:
 for (a), from $7.14 \times 10^{-5}$ at $N = 31$ down to $0.05 \times 10^{-5}$ at $N = 361$, order $O(h^2)$;
 for (b), from $17.15 \times 10^{-3}$ at $N = 31$ down to $5.41 \times 10^{-3}$ at $N = 361$, order about $O(h^{0.5})$.

@@ -54,7 +54,7 @@ A sweep visits the interior nodes in one of two orders, the parameter `ordering`
 ## The multigrid cycle
 
 The grids have $n$, $\lceil n/2 \rceil$, ... cells per side down to $2$, the scheme rediscretised on each by `dataclasses.replace(scheme, n=...)` (the paper's coarse operator, "the discretized equations with a coarser step size").
-For $n$ a power of $2$ the grids are nested, as in the paper, and the transfers are the paper's: the residual goes down by half-weighting (`half_weighting`: the node $1/2$, each axial neighbour $1/(4 d)$, which is the paper's $[1\ 6\ 1]/12$ stencil in 3D), the approximation by injection, and the correction comes up by multilinear interpolation.
+For $n$ a power of $2$ the grids are nested, as in the paper, and the transfers are the paper's: the residual goes down by half-weighting (`half_weighting`: the node $1/2$, each axial neighbour $1/(4 d)$, which is the paper's $[1 \enspace 6 \enspace 1]/12$ stencil in 3D), the approximation by injection, and the correction comes up by multilinear interpolation.
 Other $n$ take the same operators through `resample`, the linear interpolation between two grids of the same box, which is injection onto a nested coarse grid and multilinear prolongation from one.
 
 One V-cycle on a grid (Algorithm 1) from $w$ for $S(w) = b$, with $S$ the scheme's operator $\det D_h^2$:

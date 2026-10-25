@@ -87,7 +87,7 @@ The preset takes the parameters of its parts flat: `PenaltyMLP(width=20, seed=3)
 
 At the levels of ADR 0002, as [`benchmarks/penalty_mlp.md`](../../benchmarks/penalty_mlp.md) states them:
 
-| Problem | Source | Level | Ours, max error over seeds $0$ to $9$, median $[5\%, 95\%]$ |
+| Problem | Source | Level | Ours, max error over seeds $0$ to $9$, median $[5, 95]$% |
 |---|---|---|---|
 | T1 | Nystrom-Vestberg 2023, Figure 1 (colorbar up to about $5.7 \times 10^{-3}$) | figure only | $7.06 \times 10^{-3}$ $[4.57 \times 10^{-3}, 1.66 \times 10^{-2}]$ on the shared grid |
 | T6 | Nystrom-Vestberg 2023, Table 1, which is the ICNN, not this method | not a reproduction | $5.45 \times 10^{-3}$ $[3.46 \times 10^{-3}, 9.42 \times 10^{-3}]$ on the shared grid, against $8.58 \times 10^{-6}$ for the ICNN |

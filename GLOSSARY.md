@@ -70,7 +70,7 @@ Agents and skills use these forms and avoid the ones listed under "Not".
 | 次要值 | secondary value | The error of a classical method on the shared evaluation grid, through its interpolant. Reported, never used for ranking. | |
 | 梯度映射误差 | gradient-map error | The max and RMS over some points of $\lvert \nabla u - \nabla u_{\text{exact}} \rvert$, the error of the transport map that the transport papers report; computed by `gradient_map_error`, never a field of `evaluate`. | 映射误差 (alone) |
 | 非正定比例 | non-convex fraction | The share of points where the solution's smallest Hessian eigenvalue is negative. | 凸性指标 (alone) |
-| 种子 | seed | One independent run of a neural method. Results over seeds are reported as median and $5\%$ to $95\%$ quantiles, with failed seeds counted. | trial |
+| 种子 | seed | One independent run of a neural method. Results over seeds are reported as median and $5$% to $95$% quantiles, with failed seeds counted. | trial |
 | 成功率 | success rate | The share of seeds whose error is below a stated threshold. | |
 
 ## Reproduction and tables

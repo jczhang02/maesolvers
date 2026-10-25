@@ -26,8 +26,8 @@ $$
 
 $$
 S(x) = \begin{cases}
-x & \text{for } \lvert x \rvert \le 1, \\
-\operatorname{sign}(x) (2 - \lvert x \rvert) & \text{for } 1 \le \lvert x \rvert \le 2, \\
+x & \text{for } \lvert x \rvert \le 1, \cr
+\operatorname{sign}(x) (2 - \lvert x \rvert) & \text{for } 1 \le \lvert x \rvert \le 2, \cr
 0 & \text{for } \lvert x \rvert \ge 2.
 \end{cases}
 $$
@@ -123,7 +123,7 @@ The preset takes the parts' parameters flat: `FDFiltered(n=126, stencil=33, boun
   Tried on the damped `Newton` without success: the paper's Jacobian floor (`jacobian_floor=1e-8`, as in FO 2011, J. Comput. Phys., Section 7.2, which the paper cites for its regularisation), the smooth max $(\mathrm{MA})^\delta$ of FO 2011, SIAM J. Numer. Anal., Section 3.5 ($\delta$ from $10^{-4}$ to $0.1$), other widths, $\kappa = 1$, the exact Jacobian $2 J_M - J_A$ in the band, and starts from the monotone or the standard root (on T2 neither start converges; on T20 the monotone start stalls, while the standard root is already a filtered root).
 - Where the filter keeps the standard scheme, the filtered scheme has the standard scheme's non-convex roots, and Newton from $\Delta u_0 = 2 \sqrt{f}$ can reach one: on T20 at $N = 63$ it reaches exactly `FDNewton`'s root, error $1.73 \times 10^{-4}$, against $1.34 \times 10^{-4}$ for the convex root, which is a root of the filtered scheme too (Finding 5).
   `nonconvex_fraction` is $0.07$ to $0.11$ there.
-- The monotone part is `Monotone17`, not the paper's operator: below zero `Monotone17` continues each pair's product with the slope $\kappa = \sqrt{\max(f, \operatorname{mean} f, 1)}$ (`monotone17.md`, "Below zero"), the paper's $\sum \min\{D, \delta\}$ with slope $1$, so $F_A - F_M$, and with it the filter's choice, differ at nodes with a negative second difference.
+- The monotone part is `Monotone17`, not the paper's operator: below zero `Monotone17` continues each pair's product with the slope $\kappa = \sqrt{\max(f, \operatorname{mean} f, 1)}$ (`monotone17.md`, "Below zero"), the paper's $\sum \min\lbrace D, \delta\rbrace$ with slope $1$, so $F_A - F_M$, and with it the filter's choice, differ at nodes with a negative second difference.
   And the paper regularises the max operator for Newton "as in [FO11b]" (p. 438), the JCP 2011 paper, which floors each second difference in the Jacobian at $10^{-8} / (2 h^2)$ (its Section 7.2): that is `FDFiltered(jacobian_floor=1e-8)`, where the default is $10^{-12}$; the floor changes Newton's steps, not the scheme, and does not make `Newton` converge (Finding 4).
 - The default $\Delta\theta$ is the largest angle between neighbouring stencil directions, twice Oberman's angular resolution; the paper does not define it, and its T2 columns are the evidence for this choice (Finding 3).
 

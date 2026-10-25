@@ -7,7 +7,7 @@ On T6 we ran the method next to Table 1, which belongs to the paper's other meth
 Receipts: `penalty_mlp_t1.csv` and `penalty_mlp_t6.csv`, written by `run_penalty_mlp.py` on a100server at commit da3df82, CPU, one thread per seed (`THREADS_PER_SEED=1`, the `threads` column); every seed is an MLflow run named `seed=<s> preset` in `maesolvers-penalty-mlp-T1` and `maesolvers-penalty-mlp-T6`, with its training curve and the device and thread count as parameters.
 The commits this file cites are on the branch of PR #50, which was squash-merged into `next` as c15c545, so they are not in its history; GitHub keeps them under `refs/pull/50/head`; commit 6adc9a1 (Finding 4) is on the branch of PR #59.
 The receipts reproduce only with one thread per seed: the rounding of the fits of $G$ and $D$, and so every later number, depends on the thread count.
-Bands are the median and the $5\%$ and $95\%$ quantiles over the ten seeds, computed by `maesolvers.metrics.summarize_errors` with ADR 0007's failed-seed rule; no seed failed, every seed stopped at the $5000$-step budget (`stop = max_steps`), and in every seed both fits of the ansatz met their tolerance (`fits_converged`).
+Bands are the median and the $5$% and $95$% quantiles over the ten seeds, computed by `maesolvers.metrics.summarize_errors` with ADR 0007's failed-seed rule; no seed failed, every seed stopped at the $5000$-step budget (`stop = max_steps`), and in every seed both fits of the ansatz met their tolerance (`fits_converged`).
 
 The receipts of review round 1 replace those of commit b4596fc, whose fit of $D$ stopped at a cap of $1000$ L-BFGS iterations in $19$ of $20$ seeds, before the tolerance the paper's fit runs to.
 `HardDirichlet.fit_steps` is now $10000$, and $D$ converges in $852$ to $2752$ iterations; $G$ converged before and is unchanged, and so are the points and the initial $N$.
@@ -34,7 +34,7 @@ Figure 1 plots the absolute error of the trained network on the unit square.
 Read from the rendered page (p. 10): the colorbar runs from $0$ to about $5.7 \times 10^{-3}$ (its top tick is $0.0054$), most of the square is below $1.5 \times 10^{-3}$, and the largest errors are at the boundary, near $(0.1, 0)$, $(1, 0.9)$ and the corner $(0, 1)$.
 The paper gives no iteration count for this run, and restarted BFGS with Adam when the line search failed.
 
-| Measure | Ours, median $[5\%, 95\%]$ |
+| Measure | Ours, median $[5, 95]$% |
 |---|---|
 | max, shared $201 \times 201$ grid (`evaluate`) | $7.06 \times 10^{-3}$ $[4.57 \times 10^{-3}, 1.66 \times 10^{-2}]$ |
 | RMS, shared grid (`evaluate`) | $1.09 \times 10^{-3}$ $[6.32 \times 10^{-4}, 3.77 \times 10^{-3}]$ |
@@ -48,7 +48,7 @@ Two seeds ($1$ and $8$) are clearly worse than the rest, with max errors of $1.8
 
 ## T6 (Example 4.6): our runs next to the ICNN's Table 1
 
-| Measure | Table 1, $\mathrm{stdev} = 0$ (ICNN, one run) | PenaltyMLP, median $[5\%, 95\%]$ |
+| Measure | Table 1, $\mathrm{stdev} = 0$ (ICNN, one run) | PenaltyMLP, median $[5, 95]$% |
 |---|---|---|
 | max error, $10^6$ random interior points | $8.58 \times 10^{-6}$ | $6.10 \times 10^{-3}$ $[3.59 \times 10^{-3}, 1.02 \times 10^{-2}]$ |
 | average error, $10^6$ random interior points | $1.17 \times 10^{-6}$ | $6.60 \times 10^{-4}$ $[3.81 \times 10^{-4}, 1.49 \times 10^{-3}]$ |
@@ -61,7 +61,7 @@ This is a comparison of two methods, with no reproduction verdict.
 
 ## Finding 2: the error sits on the boundary, as the misfit of $G$ plus the leak $D N$
 
-In every seed of both problems the max error at the $10^5$ boundary points is at least the max error at the $10^6$ interior points, and at most $4\%$ above it (the CSVs per seed): the error is largest on the boundary, and the interior points closest to it come near.
+In every seed of both problems the max error at the $10^5$ boundary points is at least the max error at the $10^6$ interior points, and at most $4$% above it (the CSVs per seed): the error is largest on the boundary, and the interior points closest to it come near.
 The interior error is smaller: the mean error is a tenth to a fifth of the max (tables above).
 
 On the boundary the ansatz gives $u - g = (G - g) + D N$, so the boundary error has two sources: the misfit of $G$, the network of $20$ tanh units fitted to $g$, and the leak of $N$ through $D$, which does not vanish on the boundary.
@@ -95,7 +95,7 @@ The paper's tolerance is therefore what makes the boundary dominate; the preset 
 ## Finding 3: the penalty does not keep the network convex everywhere
 
 The penalty acts at the collocation points only.
-On T1, `evaluate` finds a negative Hessian eigenvalue at some points of the shared grid in $5$ of $10$ seeds, at up to $6.7\%$ of the points (seed $1$, the seed that trained worst), and at most $0.91\%$ in the others; on T6 in $2$ seeds ($0.19\%$ and $0.003\%$).
+On T1, `evaluate` finds a negative Hessian eigenvalue at some points of the shared grid in $5$ of $10$ seeds, at up to $6.7$% of the points (seed $1$, the seed that trained worst), and at most $0.91$% in the others; on T6 in $2$ seeds ($0.19$% and $0.003$%).
 The FD solvers report `nonconvex_fraction` $0$ on T1.
 
 ## Finding 4: dense BFGS lowers the loss but not the max error
@@ -110,7 +110,7 @@ The FD solvers report `nonconvex_fraction` $0$ on T1.
 | max $\lvert D N \rvert$ on the boundary | $3.05 \times 10^{-3}$ $[1.26 \times 10^{-3}, 1.35 \times 10^{-2}]$ | $3.03 \times 10^{-3}$ $[1.29 \times 10^{-3}, 3.31 \times 10^{-1}]$ |
 | how the training stopped | $10$ at `max_steps` | $7$ at `max_steps`, $3$ `stalled` (seeds $1$, $5$, $8$) |
 
-- In the eight seeds other than $1$ and $8$, BFGS ends with a loss $40$ to $15000$ times lower and a mean interior error $8\%$ to $54\%$ lower, but the max error agrees with L-BFGS's to within $1.2\%$: it sits on the boundary, where it is the misfit of $G$ and the leak $D N$ (Finding 2), and the fits of $G$ and $D$ do not depend on the optimizer of $N$.
+- In the eight seeds other than $1$ and $8$, BFGS ends with a loss $40$ to $15000$ times lower and a mean interior error $8$% to $54$% lower, but the max error agrees with L-BFGS's to within $1.2$%: it sits on the boundary, where it is the misfit of $G$ and the leak $D N$ (Finding 2), and the fits of $G$ and $D$ do not depend on the optimizer of $N$.
 - Seeds $1$ and $8$ stop early on a failed line search and end worse: max errors $2.55 \times 10^{-2}$ and $5.95 \times 10^{-1}$ against $1.79 \times 10^{-2}$ and $1.50 \times 10^{-2}$, both from the leak $D N$ ($2.62 \times 10^{-2}$ and $5.80 \times 10^{-1}$).
   The paper, when the line search fails, trains a few hundred epochs with Adam at a learning rate of the order $10^{-7}$ and then goes on with BFGS (p. 10), which we do not do, so these two seeds, and the top of the BFGS band, show the stall, not the paper's procedure.
 
@@ -120,7 +120,7 @@ So dense BFGS does not change the max error, which the fits of $G$ and $D$ set (
 
 - **Error measure.** The paper measures at $10^6$ random interior points (Section 4.6); the library's primary error is on the shared evaluation grid (ADR 0007), and the receipts report both.
   Our $10^6$ points are uniform in the domain, drawn by rejection from one fixed generator seed ($2023$) for every run.
-  The two max errors differ by at most $4\%$ on T1, whose shared grid includes the boundary of the box, and the grid's is up to $17\%$ lower on T6, whose shared grid keeps interior points only: the max error lies on the boundary, which random interior points approach more closely than the grid's interior points.
+  The two max errors differ by at most $4$% on T1, whose shared grid includes the boundary of the box, and the grid's is up to $17$% lower on T6, whose shared grid keeps interior points only: the max error lies on the boundary, which random interior points approach more closely than the grid's interior points.
 - **Optimizer.** L-BFGS with $100$ curvature pairs and a strong Wolfe line search, one iteration per step, for SciPy's full BFGS; no Adam restarts on a failed line search. The fits of $G$ and $D$ use the same L-BFGS.
 - **Stopping test of the fits.** The paper's text (Section 4) says SciPy's BFGS stops when the Euclidean norm of the gradient is below $10^{-5}$; SciPy's default test, and ours, is the largest component (`norm=inf`), looser by up to the square root of the number of parameters ($9$ for $G$, $13$ for $D$). We follow SciPy, which the paper ran.
 - **Cap of the fits.** The paper caps neither fit; SciPy's own default cap is $200$ iterations per parameter ($16200$ for $G$, $32200$ for $D$). `fit_steps = 10000` is not reached on T1 or T6 (at most $557$ iterations for $G$, $2752$ for $D$); the receipts record the iterations of each fit.

@@ -12,8 +12,8 @@ The network (the paper's eq. (3.7), after Amos, Xu and Kolter 2017) with $k$ hid
 
 $$
 \begin{aligned}
-z_1 &= s(L_0 x + b_0) \\
-z_{j+1} &= s(W_j z_j + L_j x + b_j), \quad j = 1, \dots, k - 1 \\
+z_1 &= s(L_0 x + b_0) \cr
+z_{j+1} &= s(W_j z_j + L_j x + b_j), \quad j = 1, \dots, k - 1 \cr
 u(x) &= W_k z_k + L_k x + b_k
 \end{aligned}
 $$
@@ -105,7 +105,7 @@ The loss (Section 3.3, eq. (3.4)) over the interior points $x_j$, the boundary p
 
 $$
 \begin{aligned}
-E = {} & (1/M) \sum_j (\det D^2 u(x_j) - f(x_j))^2 \\
+E = {} & (1/M) \sum_j (\det D^2 u(x_j) - f(x_j))^2 \cr
 & + C \left[ (1/K) \sum_k \min_l \lvert \nabla u(y_k) - t_l \rvert^2 + (1/L) \sum_l \min_k \lvert \nabla u(y_k) - t_l \rvert^2 \right]
 \end{aligned}
 $$
@@ -164,7 +164,7 @@ Sections 4.3 to 4.5 (an ellipse onto a rotated ellipse, Gaussian densities on th
 
 ### Known limits
 
-- With independent random points on the two boundaries, even the exact map leaves the transport term at about $10^{-4}$ on T12 with $800$ points each; this is the loss of one map, not a bound over maps, and the trained networks end within $4\%$ of it, above or below, with a map error of about $2 \times 10^{-3}$ (root mean square). Points on the two boundaries that the exact map pairs make the term zero and the error about seven times smaller, but that pairing needs the solution (`benchmarks/icnn.md`, Finding 3). More points on both boundaries lower the exact map's level; more target points alone leave its `onto` half in place.
+- With independent random points on the two boundaries, even the exact map leaves the transport term at about $10^{-4}$ on T12 with $800$ points each; this is the loss of one map, not a bound over maps, and the trained networks end within $4$% of it, above or below, with a map error of about $2 \times 10^{-3}$ (root mean square). Points on the two boundaries that the exact map pairs make the term zero and the error about seven times smaller, but that pairing needs the solution (`benchmarks/icnn.md`, Finding 3). More points on both boundaries lower the exact map's level; more target points alone leave its `onto` half in place.
 - The transport term compares every image with every target point, $K L$ distances per step, so its time and memory grow with the product of the two counts.
 - `check` integrates $f$ with `check_mass_balance`, which knows a `Box`, a `Disk` and an `Ellipse`, so the preset supports a problem only when its domain and its target are among these: on a `CutQuarterDisk` source or target, `supports` is False and `solve` raises `UnsupportedProblemError`. A composed `NeuralSolver` with the same parts runs there, and its caller checks the mass (for a `CutQuarterDisk` source onto a known target, with `check_mass_balance(problem, mass=...)`).
 - The L-BFGS phase dominates the time: $14$ minutes per seed on an A100 for the receipt, ten seeds side by side; the Adam-only schedule takes under $2$ minutes.
@@ -174,7 +174,7 @@ Sections 4.3 to 4.5 (an ellipse onto a rotated ellipse, Gaussian densities on th
 
 At the levels of ADR 0002, as [`benchmarks/icnn.md`](../../benchmarks/icnn.md) states them:
 
-| Problem | Source | Level | Ours over seeds $0$ to $9$, median $[5\%, 95\%]$ |
+| Problem | Source | Level | Ours over seeds $0$ to $9$, median $[5, 95]$% |
 |---|---|---|---|
 | T1 | Nystrom-Vestberg 2023, Figure 2 (colorbar up to $2.97 \times 10^{-5}$) | figure only | max error $5.14 \times 10^{-5}$ $[2.02 \times 10^{-5}, 1.93 \times 10^{-4}]$ on the shared grid |
 | T6 | Nystrom-Vestberg 2023, Table 1, $\mathrm{stdev} = 0$: max $8.58 \times 10^{-6}$, average $1.17 \times 10^{-6}$ at $10^6$ random interior points | mismatch | max $1.10 \times 10^{-4}$ $[5.49 \times 10^{-5}, 2.36 \times 10^{-4}]$, average $1.49 \times 10^{-5}$ $[8.63 \times 10^{-6}, 3.71 \times 10^{-5}]$ at the same kind of points |

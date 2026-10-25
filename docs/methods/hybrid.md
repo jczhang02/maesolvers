@@ -19,7 +19,7 @@ The domain is a box with equal sides and $n$ cells per side ($h = 1/n$ on the un
 At every interior node the discrete equation is (JCP 2011, Section 5)
 
 $$
-\mathrm{MA}_H[u] = w\,\mathrm{MA}_N[u] + (1 - w)\,\mathrm{MA}_M[u] = f,
+\mathrm{MA}_H[u] = w\thinspace \mathrm{MA}_N[u] + (1 - w)\thinspace \mathrm{MA}_M[u] = f,
 $$
 
 $$
@@ -49,7 +49,7 @@ Froese and Oberman take the weight from the regularity theory of the Monge-Amper
 They name the set where one of these may fail (eq. (6)),
 
 $$
-\Omega^s = \{x \in \Omega : f(x) \le \varepsilon \text{ or } f(x) \ge 1/\varepsilon\} \cup \{x \text{ on the boundary} : \text{flat there, or } g \text{ not } C^{2,\alpha}\},
+\Omega^s = \lbrace x \in \Omega : f(x) \le \varepsilon \text{ or } f(x) \ge 1/\varepsilon\rbrace \cup \lbrace x \text{ on the boundary} : \text{flat there, or } g \text{ not } C^{2,\alpha}\rbrace ,
 $$
 
 take $\varepsilon = h$, and set $w = 0$ in an $h$-neighbourhood of $\Omega^s$ and $w = 1$ away from it, through "a differentiable function".
