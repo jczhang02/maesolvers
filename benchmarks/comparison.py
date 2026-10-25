@@ -25,6 +25,7 @@ import csv
 import dataclasses
 import inspect
 import math
+import re
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -204,39 +205,48 @@ def number(text: str) -> float:
     return float(text) if text else math.nan
 
 
+def math_span(tex: str) -> str:
+    """``tex`` as an inline math span of Markdown (GitHub's ``$...$``)."""
+    return f"${tex}$"
+
+
 def scientific(x: float) -> str:
-    """Three significant digits, exponent without padding: ``7.06e-3``."""
+    """Three significant digits as TeX, exponent without padding.
+
+    ``7.06 \\times 10^{-3}`` for 7.06e-3; infinity is ``\\infty``.
+    """
     if math.isinf(x):
-        return "inf"
+        return "\\infty"
     if x == 0:
         return "0"
     mantissa, exponent = f"{x:.2e}".split("e")
-    return f"{mantissa}e{int(exponent)}"
+    return f"{mantissa} \\times 10^{{{int(exponent)}}}"
 
 
 def percent(x: float) -> str:
-    """A fraction as a percentage with three significant digits, 0 as ``0``."""
-    return "0" if x == 0 else f"{100 * x:.3g}%"
+    """A fraction as a percentage in TeX with three significant digits, 0 as ``0``."""
+    return "0" if x == 0 else f"{100 * x:.3g}\\%"
 
 
 def seconds(x: float) -> str:
-    """Seconds, whole from 100 on, else three significant digits."""
+    """Seconds as TeX, whole from 100 on, else three significant digits."""
     return f"{x:.0f}" if x >= 100 else f"{x:.3g}"
 
 
 def _metric(value: str, form) -> str:
-    """A formatted metric, ``n/a`` for NaN (a non-finite Hessian)."""
+    """A formatted metric as a math span, ``n/a`` for NaN (a non-finite Hessian)."""
     x = number(value)
-    return "n/a" if math.isnan(x) else form(x)
+    return "n/a" if math.isnan(x) else math_span(form(x))
 
 
 def _classical_cell(row: Mapping[str, str], key: str) -> str:
     """One run: the error with its grid, ``\\*`` if the iteration did not converge."""
     if row["status"] == "failed":
-        return f"failed ({row['n']})" if key == "max" else "failed"
+        return f"failed ({math_span(row['n'])})" if key == "max" else "failed"
     mark = "" if row["converged"] == "True" else " \\*"
     if key == "max":
-        return f"{scientific(number(row['max']))} ({row['n']}){mark}"
+        error = math_span(scientific(number(row["max"])))
+        return f"{error} ({math_span(row['n'])}){mark}"
     form = percent if key == "nonconvex_fraction" else seconds
     return _metric(row[key], form) + mark
 
@@ -246,20 +256,32 @@ def _neural_cell(rows: Sequence[Mapping[str, str]], key: str, problem: Problem) 
     errors = [None if r["status"] == "failed" else number(r["max"]) for r in rows]
     summary = summarize_errors(errors, threshold(problem))
     if math.isinf(summary.median):
-        return f"failed ({summary.failed}/{summary.seeds})"
+        return f"failed ({math_span(f'{summary.failed}/{summary.seeds}')})"
     if key == "max":
-        band = f"[{scientific(summary.q05)}, {scientific(summary.q95)}]"
+        band = math_span(f"[{scientific(summary.q05)}, {scientific(summary.q95)}]")
         successes = round(summary.success_rate * summary.seeds)
-        return f"{scientific(summary.median)} {band}, {successes}/{summary.seeds}"
+        median = math_span(scientific(summary.median))
+        return f"{median} {band}, {math_span(f'{successes}/{summary.seeds}')}"
     values = [number(r[key]) for r in rows if r["status"] != "failed"]
     form = percent if key == "nonconvex_fraction" else seconds
-    return "n/a" if np.isnan(values).any() else form(float(np.median(values)))
+    if np.isnan(values).any():
+        return "n/a"
+    return math_span(form(float(np.median(values))))
+
+
+def reason_text(reason: str) -> str:
+    """A reason of ``unsupported_reason`` as Markdown: its mathematics as math.
+
+    ``f(x0) <= 0`` becomes ``$f(x_0) \\le 0$`` and ``stencil=19`` code.
+    """
+    reason = reason.replace("f(x0) <= 0", math_span("f(x_0) \\le 0"))
+    return re.sub(r"stencil=\d+", r"`\g<0>`", reason)
 
 
 def cell(rows: Sequence[Mapping[str, str]], key: str) -> str:
     """The table cell of one preset on one problem for ``key``."""
     if rows[0]["status"] == "unsupported":
-        return rows[0]["reason"]
+        return reason_text(rows[0]["reason"])
     if rows[0]["seed"]:
         return _neural_cell(rows, key, CATALOGUE[rows[0]["problem"]])
     return _classical_cell(rows[0], key)
@@ -314,6 +336,12 @@ def _listing(items: Iterable[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
+def _quoted(reason: str) -> str:
+    """A reason as the note names it: in code, unless it holds math (then as in the cell)."""
+    text = reason_text(reason)
+    return f"`{reason}`" if text == reason else text
+
+
 def _one(rows: Iterable[Mapping[str, str]], key: str) -> str:
     """The value of ``key`` shared by ``rows``; ValueError if they differ."""
     values = {row[key] for row in rows}
@@ -339,23 +367,28 @@ def notes(groups: Mapping[tuple[str, str], Sequence[Mapping[str, str]]]) -> list
             problems = reasons.setdefault(rows[0]["reason"], [])
             if problem not in problems:
                 problems.append(problem)
+    threshold_percent = f"{100 * RELATIVE_THRESHOLD:g}" + "\\%"
     return [
-        "A classical cell is one run on the grid `n` in parentheses, the largest "
-        "`N` of the papers, with "
-        + ", ".join(f"`h = {h}` on {_listing(p)}" for h, p in steps.items())
+        "A classical cell is one run on the grid $n$ in parentheses, the largest "
+        "$N$ of the papers, with "
+        + ", ".join(
+            f"{math_span(f'h = {h}')} on {_listing(p)}" for h, p in steps.items()
+        )
         + " (ADR 0001), and its error at its own nodes; "
         "`\\*` marks a run whose iteration stopped before its tolerance.",
-        f"A neural cell is over seeds {seeds[0]} to {seeds[-1]}: the median, the 5% "
-        "to 95% band and the number of seeds whose max error on the shared "
-        f"evaluation grid is below {RELATIVE_THRESHOLD:.0%} of the exact solution's "
-        "oscillation `max u - min u` there; a failed seed counts as an infinite "
+        f"A neural cell is over seeds {math_span(str(seeds[0]))} to "
+        f"{math_span(str(seeds[-1]))}: the median, the $5\\%$ to $95\\%$ band and the "
+        "number of seeds whose max error on the shared evaluation grid is below "
+        f"{math_span(threshold_percent)} of the exact solution's "
+        "oscillation $\\max u - \\min u$ there; a failed seed counts as an infinite "
         "error (ADR 0007).",
         "The non-convex fraction and the time of a neural cell are medians over the "
         "seeds that did not fail.",
-        f"Every run took {threads} CPU thread{'' if threads == '1' else 's'} and "
+        f"Every run took {math_span(threads)} CPU thread"
+        f"{'' if threads == '1' else 's'} and "
         f"ran on the device `{device}`; CPU: {cpu}.",
         "A cell with a reason marks a preset that does not support the problem: "
-        + "; ".join(f"`{r}` on {_listing(p)}" for r, p in reasons.items())
+        + "; ".join(f"{_quoted(r)} on {_listing(p)}" for r, p in reasons.items())
         + ".",
     ]
 
