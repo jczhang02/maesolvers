@@ -1,5 +1,5 @@
-# Put every issue on the "MAE research flows" board of the research programme
-# (github.com/users/jczhang02/projects/3) with Flow = flow3; this library is flow3.
+# Put every issue on the "MAE research" board of the research programme
+# (github.com/users/jczhang02/projects/3) with Line = maesolvers; this library is that line.
 # Needs the secret ADD_TO_PROJECT_PAT: a classic PAT with the `project` and `repo` scopes
 # (the board is user-owned and also holds a private repository).
 name: Project board
@@ -24,13 +24,13 @@ jobs:
           project-url: https://github.com/users/jczhang02/projects/3
           github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
 
-      - name: Set Flow to flow3
+      - name: Set Line to maesolvers
         env:
           GH_TOKEN: ${{ secrets.ADD_TO_PROJECT_PAT }}
           ISSUE_ID: ${{ github.event.issue.node_id }}
           OWNER: jczhang02
           NUMBER: 3
-          FLOW: flow3
+          LINE: maesolvers
         run: |
           set -euo pipefail
           gh api graphql -f issue="$ISSUE_ID" -f query='
@@ -38,7 +38,7 @@ jobs:
               node(id: $issue) { ... on Issue { projectItems(first: 20) { nodes {
                 id
                 project { number }
-                fieldValueByName(name: "Flow") {
+                fieldValueByName(name: "Line") {
                   ... on ProjectV2ItemFieldSingleSelectValue { name }
                 }
               } } } } }' > items.json
@@ -48,21 +48,21 @@ jobs:
           item_id=${item%% *}
           current=${item#* }
           [ -n "$item_id" ] || { echo "issue is not on project $NUMBER" >&2; exit 1; }
-          if [ "$current" = "$FLOW" ]; then
-            echo "Flow already '$FLOW'"; exit 0
+          if [ "$current" = "$LINE" ]; then
+            echo "Line already '$LINE'"; exit 0
           fi
 
           gh api graphql -f owner="$OWNER" -F number="$NUMBER" -f query='
             query($owner: String!, $number: Int!) {
               user(login: $owner) { projectV2(number: $number) {
                 id
-                field(name: "Flow") { ... on ProjectV2SingleSelectField { id options { id name } } }
+                field(name: "Line") { ... on ProjectV2SingleSelectField { id options { id name } } }
               } } }' > project.json
           project_id=$(jq -r '.data.user.projectV2.id' project.json)
           field_id=$(jq -r '.data.user.projectV2.field.id' project.json)
-          option_id=$(jq -r --arg f "$FLOW" \
+          option_id=$(jq -r --arg f "$LINE" \
             '.data.user.projectV2.field.options[] | select(.name == $f) | .id' project.json)
-          [ -n "$option_id" ] || { echo "Flow has no option '$FLOW'" >&2; exit 1; }
+          [ -n "$option_id" ] || { echo "Line has no option '$LINE'" >&2; exit 1; }
 
           gh api graphql -f project="$project_id" -f item="$item_id" -f field="$field_id" \
             -f option="$option_id" -f query='
@@ -71,4 +71,4 @@ jobs:
                 projectId: $project, itemId: $item, fieldId: $field,
                 value: { singleSelectOptionId: $option }
               }) { projectV2Item { id } } }' > /dev/null
-          echo "Flow set to '$FLOW' (was '${current:-empty}')"
+          echo "Line set to '$LINE' (was '${current:-empty}')"
